@@ -1,9 +1,9 @@
 use crate::commands::Command;
 use crate::database::Database;
 
+use std::io::{Error, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::io::{Read, Write, Error};
 use std::thread;
 
 pub struct Server {
@@ -15,7 +15,7 @@ impl Server {
     pub fn new(addr: &str) -> Server {
         let listener = TcpListener::bind(addr).expect("Could not bind");
         let database = Arc::new(Mutex::new(Database::new()));
-       
+
         Server { database, listener }
     }
 

@@ -6,7 +6,6 @@ pub enum StorageValue {
     List(Vec<String>),
 }
 
-
 impl Display for StorageValue {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {

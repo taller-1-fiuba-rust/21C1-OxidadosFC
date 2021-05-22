@@ -1,6 +1,6 @@
+use crate::storagevalue::StorageValue;
 use core::fmt::{Display, Formatter, Result};
 use std::collections::HashMap;
-use crate::storagevalue::StorageValue;
 
 pub struct Database {
     dictonary: HashMap<String, StorageValue>,
@@ -14,7 +14,7 @@ impl Database {
     }
 
     pub fn append(&mut self, key: &str, value: &str) {
-      if self.dictonary.contains_key(key) {
+        if self.dictonary.contains_key(key) {
             if let Some(StorageValue::String(val)) = self.dictonary.get_mut(key) {
                 val.push_str(value);
             } else {
