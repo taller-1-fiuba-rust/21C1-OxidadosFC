@@ -30,7 +30,7 @@ impl Database {
 impl Display for Database {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for (key, value) in self.dictonary.iter() {
-            write!(f, "key: {}, value: {}\n", key, value);
+            writeln!(f, "key: {}, value: {}", key, value)?;
         }
 
         Ok(())
