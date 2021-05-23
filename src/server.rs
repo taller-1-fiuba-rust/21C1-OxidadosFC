@@ -55,6 +55,6 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
             Command::None => println!("Wrong Command!"),
         }
 
-        stream.write(&buf[..bytes_read])?;
+        stream.write_all(&buf[..bytes_read])?;
     }
 }
