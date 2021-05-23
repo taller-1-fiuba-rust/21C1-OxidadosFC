@@ -1,7 +1,6 @@
 use crate::storagevalue::StorageValue;
 use core::fmt::{Display, Formatter, Result};
 use std::collections::HashMap;
-//use crate::decrby::Decrby;
 
 
 
@@ -24,8 +23,8 @@ impl Database {
                 panic!("Not a String");
             }
         } else {
-            self.dictionary
-                .insert(String::from(key), StorageValue::String(String::from(value)));
+            self.set(key, value);
+            //self.dictionary.insert(String::from(key), StorageValue::String(String::from(value)));
         }
     }
 
@@ -36,14 +35,14 @@ impl Database {
                   if let Ok(mut number) = val.parse::<i64>() {
                     number -= number_decr.unwrap();
                     //aqui deberia lllamarse a set del database.
-                    self.dictionary.insert(String::from(key), StorageValue::String(String::from(number.to_string()) ) );
+                    self.set(key, &number.to_string() );
                   }
               }
     }
 
     pub fn incrby(&mut self, key:&str, number_of_incr: &str){
         let mut number_incr = String::from(number_of_incr);
-        number_incr.insert_str(0,"-");
+        number_incr.insert(0,'-');
         self.decrby(key, &number_incr);
     }
 
@@ -51,20 +50,35 @@ impl Database {
         if let Some(StorageValue::String(val)) = self.dictionary.get(key) {
             println!("{:?}",val);
         }
-        else{
-            println!("{:?}",String::from("nil"));
+        else if let Some(StorageValue::None) = self.dictionary.get(key){
+            println!("{}",StorageValue::None);
+        }
+        else {
+            println!("{:?}",String::from("nil") );
         }
     }
 
     pub fn getdel(&mut self, key:&str){
-        //self.get()
+        self.get(key);
+        self.dictionary.insert(String::from(key), StorageValue::None);
+    }
+
+    // enunciado dice operacion atomica. como podria implementarse atomicamente?
+    pub fn getset(&mut self, key: &str, val: &str){
+        self.get(key);
+        self.set(key, val);
+
+    }
+
+    pub fn set(&mut self, key: &str, val: &str){
+        self.dictionary.insert(String::from(key), StorageValue::String(val.to_string()));
     }
 
 }
 impl Display for Database {
     fn fmt(&self, f: &mut Formatter) -> Result {
         for (key, value) in self.dictionary.iter() {
-            write!(f, "key: {}, value: {}\n", key, value);
+            writeln!(f, "key: {}, value: {}", key, value)?;
         }
 
         Ok(())
