@@ -51,59 +51,63 @@ impl ConfigParser {
     }
 }
 
-#[test]
-fn verbose_save_correctly() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.data.get("verbose").unwrap(), "1");
-}
-
-#[test]
-fn port_save_correctly() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.data.get("port").unwrap(), "8888");
-}
-
-#[test]
-fn getu32_port_8888() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.getu32("port").unwrap(), 8888);
-}
-
-#[test]
-fn timeout_save_correctly() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.data.get("timeout").unwrap(), "0");
-}
-
-#[test]
-fn dbfilename_save_correctly() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.data.get("dbfilename").unwrap(), "dump.rdb");
-}
-
-#[test]
-fn logfile_save_correctly() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    assert_eq!(cp.data.get("logfile").unwrap(), "lf.log");
-}
-
-#[test]
-#[should_panic]
-fn fails_open_correctly() {
-    ConfigParser::new("reds.conf").unwrap();
-}
-
-#[test]
-#[should_panic]
-fn getu32_dbfilename_panic() {
-    let cp = ConfigParser::new("redis.conf").unwrap();
-
-    // should panic here
-    cp.getu32("dbfilename").unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn verbose_save_correctly() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.data.get("verbose").unwrap(), "1");
+    }
+    
+    #[test]
+    fn port_save_correctly() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.data.get("port").unwrap(), "8888");
+    }
+    
+    #[test]
+    fn getu32_port_8888() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.getu32("port").unwrap(), 8888);
+    }
+    
+    #[test]
+    fn timeout_save_correctly() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.data.get("timeout").unwrap(), "0");
+    }
+    
+    #[test]
+    fn dbfilename_save_correctly() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.data.get("dbfilename").unwrap(), "dump.rdb");
+    }
+    
+    #[test]
+    fn logfile_save_correctly() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        assert_eq!(cp.data.get("logfile").unwrap(), "lf.log");
+    }
+    
+    #[test]
+    #[should_panic]
+    fn fails_open_correctly() {
+        ConfigParser::new("reds.conf").unwrap();
+    }
+    
+    #[test]
+    #[should_panic]
+    fn getu32_dbfilename_panic() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+    
+        // should panic here
+        cp.getu32("dbfilename").unwrap();
+    }
 }

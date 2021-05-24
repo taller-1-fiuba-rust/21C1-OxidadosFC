@@ -22,8 +22,12 @@ impl Redis {
     
 }
 
-#[test]
-#[should_panic]
-fn fails_open_correctly() {
-    Redis::new("reds.conf").unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[should_panic]
+    fn fails_open_correctly() {
+        Redis::new("reds.conf").unwrap();
+    }
 }
