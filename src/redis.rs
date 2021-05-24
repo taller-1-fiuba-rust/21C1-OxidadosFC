@@ -1,7 +1,7 @@
 use crate::{config_parser::ConfigParser, server::Server};
 
 pub struct Redis {
-    server: Server
+    server: Server,
 }
 
 impl Redis {
@@ -19,7 +19,6 @@ impl Redis {
     pub fn run(self) {
         self.server.run();
     }
-    
 }
 
 #[cfg(test)]
