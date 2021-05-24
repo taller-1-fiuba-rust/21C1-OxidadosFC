@@ -35,8 +35,19 @@ impl ConfigParser {
         })
     }
 
-    pub fn get(&self, k: &str) -> Option<&String> {
-        self.data.get(k)
+    // Use for log_file and dbfilename
+    // pub fn get(&self, k: &str) -> Option<&String> {
+    //     self.data.get(k)
+    // }
+
+    pub fn getu32(&self, k: &str) -> Result<u32, String> {
+        match self.data.get(k) {
+            Some(value) => match value.parse::<u32>() {
+                Ok(v) => Ok(v),
+                _ => return Err("Invalid value for port".to_string())
+            },
+            None => return Err("There's no port field".to_string())
+        }
     }
 }
 
@@ -52,6 +63,13 @@ fn port_save_correctly() {
     let cp = ConfigParser::new("redis.conf").unwrap();
 
     assert_eq!(cp.data.get("port").unwrap(), "8888");
+}
+
+#[test]
+fn getu32_port_8888() {
+    let cp = ConfigParser::new("redis.conf").unwrap();
+
+    assert_eq!(cp.getu32("port").unwrap(), 8888);
 }
 
 #[test]
@@ -79,4 +97,13 @@ fn logfile_save_correctly() {
 #[should_panic]
 fn fails_open_correctly() {
     ConfigParser::new("reds.conf").unwrap();
+}
+
+#[test]
+#[should_panic]
+fn getu32_dbfilename_panic() {
+    let cp = ConfigParser::new("redis.conf").unwrap();
+
+    // should panic here
+    cp.getu32("dbfilename").unwrap();
 }
