@@ -1,10 +1,20 @@
+
+
+use std::fmt::Formatter;
+use std::fmt;
 use crate::storagevalue::StorageValue;
-use core::fmt::{Display, Formatter, Result};
 use std::collections::HashMap;
 
 pub struct Database {
     dictionary: HashMap<String, StorageValue>,
 }
+
+#[derive(Debug)]
+enum MensajeErroresDataBase{
+    ValueNotIsAnString,
+}
+
+//type Result<T> = std::result::Result<T, MensajeErroresDataBase>;
 
 impl Database {
     pub fn new() -> Database {
@@ -13,15 +23,17 @@ impl Database {
         }
     }
 
-    pub fn append(&mut self, key: &str, value: &str) {
+    pub fn append(&mut self, key: &str, value: &str) -> Result<String, MensajeErroresDataBase>{
         if self.dictionary.contains_key(key) {
             if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
                 val.push_str(value);
+                Ok(String::from("(integer) <len del string resultante>"))
             } else {
-                panic!("Not a String");
+                Err(MensajeErroresDataBase::ValueNotIsAnString)
             }
         } else {
             self.set(key, value);
+            Ok(String::from("(integer) <len del string resultante>"))
             //self.dictionary.insert(String::from(key), StorageValue::String(String::from(value)));
         }
     }
@@ -71,12 +83,23 @@ impl Database {
             .insert(String::from(key), StorageValue::String(val.to_string()));
     }
 }
-impl Display for Database {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+
+impl fmt::Display for Database {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         for (key, value) in self.dictionary.iter() {
             writeln!(f, "key: {}, value: {}", key, value)?;
         }
 
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod commandtest{
+
+    #[test]
+    fn test() {
+        assert_eq!(1+2, 3);
     }
 }

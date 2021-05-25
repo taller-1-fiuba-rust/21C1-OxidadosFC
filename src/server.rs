@@ -37,20 +37,20 @@ impl Server {
     }
 }
 
-fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), Error> {
+fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<String, Error> {
     let mut buf = [0; 512];
     loop {
         let bytes_read = stream.read(&mut buf)?;
 
         if bytes_read == 0 {
-            return Ok(());
+            //return Ok(());
         }
 
         let command = std::str::from_utf8(&buf[..bytes_read]).unwrap();
         let mut db = db.lock().unwrap();
         //let mut result = 0;
         match Command::new(&command) {
-            Command::Append(key, value) => db.append(key, value),
+            Command::Append(key, value) => db.append(key, value)?,
             Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
             Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
             Command::Get(key) => db.get(key),
