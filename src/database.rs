@@ -10,11 +10,10 @@ pub struct Database {
 }
 
 #[derive(Debug)]
-enum MensajeErroresDataBase{
+pub enum MensajeErroresDataBase{
     ValueNotIsAnString,
+    KeyNotExistsInDatabase,
 }
-
-//type Result<T> = std::result::Result<T, MensajeErroresDataBase>;
 
 impl Database {
     pub fn new() -> Database {
@@ -38,6 +37,23 @@ impl Database {
         }
     }
 
+    pub fn get(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        if let Some(StorageValue::String(val)) = self.dictionary.get(key) {
+            Ok(val.to_string())
+            //println!("{:?}", val);
+        }
+        else{
+            Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
+            //println!("{:?}", String::from("nil"));
+        }
+    }
+
+    pub fn set(&mut self, key: &str, val: &str) -> Result<String, MensajeErroresDataBase>{
+        self.dictionary.insert(String::from(key), StorageValue::String(val.to_string()));
+        Ok(String::from("OK"))
+    }
+
+/*
     // deberia retornar algun mensaje de Ok segun el protocolo Redis, o un Mensaje De error, para que haga un write el server.
     pub fn decrby(&mut self, key: &str, number_of_decr: &str) {
         let number_decr = number_of_decr.parse::<i64>();
@@ -55,17 +71,11 @@ impl Database {
         number_incr.insert(0, '-');
         self.decrby(key, &number_incr);
     }
+    */
 
-    pub fn get(&mut self, key: &str) {
-        if let Some(StorageValue::String(val)) = self.dictionary.get(key) {
-            println!("{:?}", val);
-        } else if let Some(StorageValue::None) = self.dictionary.get(key) {
-            println!("{}", StorageValue::None);
-        } else {
-            println!("{:?}", String::from("nil"));
-        }
-    }
 
+
+/*
     pub fn getdel(&mut self, key: &str) {
         self.get(key);
         self.dictionary
@@ -77,11 +87,7 @@ impl Database {
         self.get(key);
         self.set(key, val);
     }
-
-    pub fn set(&mut self, key: &str, val: &str) {
-        self.dictionary
-            .insert(String::from(key), StorageValue::String(val.to_string()));
-    }
+*/
 }
 
 impl fmt::Display for Database {
