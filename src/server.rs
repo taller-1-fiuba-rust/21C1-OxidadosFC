@@ -56,25 +56,22 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
             Command::Getdel(key) => db.getdel(key),
             Command::Getset(key, value) => db.getset(key, value),
             Command::Set(key, value) => db.set(key, value),
-            Command::Print => Ok(format!("{}",db)),
+            Command::Print => Ok(format!("{}", db)),
             Command::None => Ok(String::from("Wrong Command")),
         };
 
-        match result{
+        match result {
             Ok(success) => {
                 let buffer_success = success.as_bytes();
                 stream.write_all(&buffer_success)?;
-                stream.write("\n".as_bytes())?;
-
+                stream.write_all("\n".as_bytes())?;
             }
-            Err(failure) =>{
+            Err(failure) => {
                 let buffer_clone = failure.to_string().clone();
                 let buffer_failure = buffer_clone.as_bytes();
                 stream.write_all(&buffer_failure)?;
-                stream.write("\n".as_bytes())?;
-                
+                stream.write_all("\n".as_bytes())?;
             }
-
         };
     }
 }
