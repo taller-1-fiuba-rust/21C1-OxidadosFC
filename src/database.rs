@@ -109,12 +109,17 @@ impl Database {
     pub fn getset(&mut self, key: &str, _new_val: &str) -> Result<String, MensajeErroresDataBase> {
         let mut _copy_key = String::from(<&str>::clone(&key));
         if let Some(storage_value) = self.dictionary.get(&_copy_key) {
-            if let StorageValue::String(old_value) = storage_value {
+            match storage_value {
+                StorageValue::String(old_value) => Ok(old_value.to_string()),
+            }
+            //self.dictionary.insert(String::from(key), StorageValue::String(_new_val.to_string()));
+            /*if let StorageValue::String(old_value) = storage_value {
                 //self.dictionary.insert(String::from(key), StorageValue::String(_new_val.to_string()));
                 Ok(old_value.to_string())
             } else {
                 Err(MensajeErroresDataBase::ValueNotIsAnString)
             }
+            */
         } else {
             Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
             //println!("{:?}", String::from("(nil)"));
