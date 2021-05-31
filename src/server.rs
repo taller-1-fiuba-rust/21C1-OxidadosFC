@@ -48,8 +48,7 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
 
         let command = std::str::from_utf8(&buf[..bytes_read]).unwrap();
         let mut db = db.lock().unwrap();
-        //let mut result = 0;
-        match Command::new(&command) {
+        let result = match Command::new(&command) {
             Command::Append(key, value) => db.append(key, value),
             Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
             Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
@@ -57,10 +56,22 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
             Command::Getdel(key) => db.getdel(key),
             Command::Getset(key, value) => db.getset(key, value),
             Command::Set(key, value) => db.set(key, value),
-            Command::Print => println!("{}", db),
-            Command::None => println!("Wrong Command!"),
-        }
+            Command::Print => Ok(format!("{}", db)),
+            Command::None => Ok(String::from("Wrong Command")),
+        };
 
-        stream.write_all(&buf[..bytes_read])?;
+        match result {
+            Ok(success) => {
+                let buffer_success = success.as_bytes();
+                stream.write_all(&buffer_success)?;
+                stream.write_all("\n".as_bytes())?;
+            }
+            Err(failure) => {
+                let buffer_clone = failure.to_string().clone();
+                let buffer_failure = buffer_clone.as_bytes();
+                stream.write_all(&buffer_failure)?;
+                stream.write_all("\n".as_bytes())?;
+            }
+        };
     }
 }
