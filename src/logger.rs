@@ -18,10 +18,9 @@ impl<'a> Logger<'a> {
         let mut logger = open_logger(self.file_path).unwrap();
 
         for recived in self.reciver.iter() {
-            logger.write_all(recived.as_bytes());
-            logger.write_all("\n".as_bytes());
-       
-       
+            if let Err(e) = writeln!(logger, "{}", &recived) {
+                eprintln!("No se pudo escribir al : {}", e);
+            }
         }
     }
 }
@@ -33,7 +32,7 @@ fn open_logger(path: &Path) -> Result<File, String> {
         .create(true)
         .open(path)
     {
-        Err(why) => Err(format!("No se pudo abrir: {}", why)),
+        Err(why) => Err(format!("No se pudo abrir el archivo: {}", why)),
         Ok(file) => Ok(file),
     }
 }
@@ -66,9 +65,76 @@ mod logger_test {
             .read_to_string(&mut data)
             .expect("Unable to read string");
 
-        assert_eq!("Message", data);
+        assert_eq!("Message\n", data);
 
         drop(log_file);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_logger_recive_two_message() {
+        let (sen, rec) = mpsc::channel();
+        let path = Path::new("log.txt");
+        let mut logger = Logger::new(path, rec);
+        thread::spawn(move || {
+            logger.run();
+        });
+
+        sen.send("MessageA".to_owned()).unwrap();
+        sen.send("MessageB".to_owned()).unwrap();
+
+        thread::sleep(time::Duration::from_millis(10));
+
+        let mut log_file = open_logger(path).unwrap();
+        let mut data = String::new();
+
+        log_file
+            .read_to_string(&mut data)
+            .expect("Unable to read string");
+
+        let data = data.split('\n').collect::<Vec<&str>>();
+
+        assert!(data.contains(&"MessageA"));
+        assert!(data.contains(&"MessageB"));
+
+        drop(log_file);
+        fs::remove_file(path).unwrap();
+    }
+
+
+
+    #[test]
+    fn test_logger_recive_message_from_two_senders() {
+        let (sen, rec) = mpsc::channel();
+        let path = Path::new("log.txt");
+        let mut logger = Logger::new(path, rec);
+        
+        let sen1 = sen.clone();
+        let sen2 = sen.clone();
+
+        thread::spawn(move || {
+            logger.run();
+        });
+
+        sen1.send("MessageA".to_owned()).unwrap();
+        sen2.send("MessageB".to_owned()).unwrap();
+
+        thread::sleep(time::Duration::from_millis(10));
+
+        let mut log_file = open_logger(path).unwrap();
+        let mut data = String::new();
+
+        log_file
+            .read_to_string(&mut data)
+            .expect("Unable to read string");
+
+        let data = data.split('\n').collect::<Vec<&str>>();
+
+        assert!(data.contains(&"MessageA"));
+        assert!(data.contains(&"MessageB"));
+
+        drop(log_file);
+        drop(sen);
         fs::remove_file(path).unwrap();
     }
 }
