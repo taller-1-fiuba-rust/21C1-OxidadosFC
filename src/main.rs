@@ -4,6 +4,7 @@ mod database;
 mod redis;
 mod server;
 mod storagevalue;
+mod logger;
 
 use redis::Redis;
 use std::env;
