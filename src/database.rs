@@ -12,6 +12,7 @@ pub enum MensajeErroresDataBase {
     ValueNotIsAnString,
     KeyNotExistsInDatabase,
     ParseIntError,
+    KeyAlredyExist,
 }
 
 impl fmt::Display for MensajeErroresDataBase {
@@ -20,6 +21,9 @@ impl fmt::Display for MensajeErroresDataBase {
             MensajeErroresDataBase::KeyNotExistsInDatabase => write!(f, "(nil)"),
             MensajeErroresDataBase::ValueNotIsAnString => write!(f, "value not is an String"),
             MensajeErroresDataBase::ParseIntError => write!(f, "the value cannot be parsed to int"),
+            MensajeErroresDataBase::KeyAlredyExist => {
+                write!(f, "the key alredy exist in the database")
+            }
         }
     }
 }
@@ -28,6 +32,21 @@ impl Database {
     pub fn new() -> Database {
         Database {
             dictionary: HashMap::new(),
+        }
+    }
+
+    pub fn coppy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
+        match self.dictionary.get(key) {
+            Some(StorageValue::String(val)) => {
+                if self.dictionary.contains_key(to_key) {
+                    Err(MensajeErroresDataBase::KeyAlredyExist)
+                } else {
+                    self.dictionary
+                        .insert(String::from(to_key), StorageValue::String(val.clone()));
+                    Ok(String::from("1"))
+                }
+            }
+            None => Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
         }
     }
 
