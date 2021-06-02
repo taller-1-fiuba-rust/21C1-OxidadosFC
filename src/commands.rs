@@ -8,6 +8,7 @@ pub enum Command<'a> {
     Set(&'a str, &'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
+    Exists(&'a str),
     Print,
     None,
 }
@@ -26,6 +27,7 @@ impl<'a> Command<'a> {
             ["set", key, value] => Command::Set(key, value),
             ["copy", key, to_key] => Command::Copy(key, to_key),
             ["del", key] => Command::Del(key),
+            ["exists", key] => Command::Exists(key),
             ["print"] => Command::Print,
             _ => Command::None,
         }

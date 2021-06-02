@@ -35,6 +35,10 @@ impl Database {
         }
     }
 
+    pub fn exists(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        Ok((self.dictionary.contains_key(key) as i8).to_string())
+    }
+
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
         let value = match self.dictionary.get(key) {
             Some(StorageValue::String(val)) => {
@@ -388,5 +392,24 @@ mod commandtest {
         let result = database.del("key");
         assert_eq!(result.unwrap(), "0");
         assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test19_exists_key_non_exist_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.exists("key");
+        assert_eq!(result.unwrap(), "0");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test19_exists_key_hello_returns_0() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.exists("key");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("key").unwrap(), "hello");
     }
 }

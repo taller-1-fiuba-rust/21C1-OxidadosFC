@@ -58,6 +58,7 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
             Command::Set(key, value) => db.set(key, value),
             Command::Copy(key, to_key) => db.copy(key, to_key),
             Command::Del(key) => db.del(key),
+            Command::Exists(key) => db.exists(key),
             Command::Print => Ok(format!("{}", db)),
             Command::None => Ok(String::from("Wrong Command")),
         };
