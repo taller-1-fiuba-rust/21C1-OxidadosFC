@@ -1,8 +1,11 @@
-use crate::commands::Command;
-use crate::database::Database;
 
-use std::io::{Error, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use crate::logger::Logger;
+use crate::request::Request;
+use std::path::Path;
+use crate::database::{Database};
+
+use std::net::{TcpListener};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -20,16 +23,29 @@ impl Server {
     }
 
     pub fn run(self) {
+
+        let (log_sender, log_rec) = mpsc::channel();
+        let path = Path::new("log.txt");
+        let mut logger = Logger::new(path, log_rec);
+
+        thread::spawn(move || {
+            logger.run();
+        });
+
         for stream in self.listener.incoming() {
             match stream {
-                Err(e) => {
-                    eprintln!("failed: {}", e)
+                Err(_) => {
+                    log_sender.send("Io::Error".to_string());
                 }
                 Ok(stream) => {
                     let database = self.database.clone();
+                    let log_sender = log_sender.clone();
                     thread::spawn(move || {
-                        handle_client(stream, database)
-                            .unwrap_or_else(|error| eprintln!("{:?}", error));
+                        let request = Request::parse_request(&stream);
+                        log_sender.send(request.to_string());
+                        let reponse = request.execute(database);
+                        log_sender.send(reponse.to_string());
+                        reponse.respond(stream, log_sender);
                     });
                 }
             }
@@ -37,41 +53,3 @@ impl Server {
     }
 }
 
-fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), Error> {
-    let mut buf = [0; 512];
-    loop {
-        let bytes_read = stream.read(&mut buf)?;
-
-        if bytes_read == 0 {
-            return Ok(());
-        }
-
-        let command = std::str::from_utf8(&buf[..bytes_read]).unwrap();
-        let mut db = db.lock().unwrap();
-        let result = match Command::new(&command) {
-            Command::Append(key, value) => db.append(key, value),
-            Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
-            Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
-            Command::Get(key) => db.get(key),
-            Command::Getdel(key) => db.getdel(key),
-            Command::Getset(key, value) => db.getset(key, value),
-            Command::Set(key, value) => db.set(key, value),
-            Command::Print => Ok(format!("{}", db)),
-            Command::None => Ok(String::from("Wrong Command")),
-        };
-
-        match result {
-            Ok(success) => {
-                let buffer_success = success.as_bytes();
-                stream.write_all(&buffer_success)?;
-                stream.write_all("\n".as_bytes())?;
-            }
-            Err(failure) => {
-                let buffer_clone = failure.to_string().clone();
-                let buffer_failure = buffer_clone.as_bytes();
-                stream.write_all(&buffer_failure)?;
-                stream.write_all("\n".as_bytes())?;
-            }
-        };
-    }
-}

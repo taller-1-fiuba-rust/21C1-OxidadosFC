@@ -50,6 +50,7 @@ mod logger_test {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log.txt");
         let mut logger = Logger::new(path, rec);
+       
         thread::spawn(move || {
             logger.run();
         });

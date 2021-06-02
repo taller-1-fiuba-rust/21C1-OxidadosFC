@@ -1,4 +1,4 @@
-mod commands;
+mod request;
 mod config_parser;
 mod database;
 mod redis;
