@@ -1,3 +1,4 @@
+use crate::commands::Command;
 use crate::database::Database;
 
 use std::io::{Error, Read, Write};
@@ -46,30 +47,18 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
         }
 
         let command = std::str::from_utf8(&buf[..bytes_read]).unwrap();
-        let command: Vec<&str> = command.trim().split_whitespace().collect();
         let mut db = db.lock().unwrap();
-        
-        let result = match &command[..] {
-            ["append", key, value] => db.append(key, value),
-            ["incrby", key, number_of_incr] => db.incrby(key, number_of_incr),
-            ["decrby", key, number_of_decr] => db.decrby(key, number_of_decr),
-            ["get", key] => db.get(key),
-            ["getdel", key] => db.getdel(key),
-            ["getset", key, value] => db.getset(key, value),
-            ["set", key, value] => db.set(key, value),
-            ["copy", key, to_key] => db.copy(key, to_key),
-            ["print"] => Ok(format!("{}", db)),
-            _ => Ok(String::from("Wrong Command")),
-            // Command::Append(key, value) => db.append(key, value),
-            // Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
-            // Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
-            // Command::Get(key) => db.get(key),
-            // Command::Getdel(key) => db.getdel(key),
-            // Command::Getset(key, value) => db.getset(key, value),
-            // Command::Set(key, value) => db.set(key, value),
-            
-            // Command::Print => Ok(format!("{}", db)),
-            // Command::None => Ok(String::from("Wrong Command")),
+        let result = match Command::new(&command) {
+            Command::Append(key, value) => db.append(key, value),
+            Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
+            Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
+            Command::Get(key) => db.get(key),
+            Command::Getdel(key) => db.getdel(key),
+            Command::Getset(key, value) => db.getset(key, value),
+            Command::Set(key, value) => db.set(key, value),
+            Command::Copy(key, to_key) => db.copy(key, to_key),
+            Command::Print => Ok(format!("{}", db)),
+            Command::None => Ok(String::from("Wrong Command")),
         };
 
         match result {

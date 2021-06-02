@@ -47,7 +47,7 @@ impl Database {
             None => return Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
         };
         self.dictionary
-                        .insert(String::from(to_key), StorageValue::String(value));
+            .insert(String::from(to_key), StorageValue::String(value));
         Ok(String::from("1"))
     }
 
@@ -331,5 +331,33 @@ mod commandtest {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "the value cannot be parsed to int".to_string());
         */
+    }
+
+    #[test]
+    fn test15_set_dolly_sheep_then_copy_to_clone() {
+        let mut database = Database::new();
+        let _ = database.set("dolly", "sheep");
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("clone").unwrap(), "sheep");
+    }
+
+    #[test]
+    fn test16_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
+        let mut database = Database::new();
+        let _ = database.set("dolly", "sheep");
+        let _ = database.set("clone", "whatever");
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(result.unwrap_err().to_string(), "the key alredy exist in the database");
+    }
+
+    #[test]
+    fn test16_try_to_copy_a_key_does_not_exist() {
+        let mut database = Database::new();
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(result.unwrap_err().to_string(), "(nil)");
     }
 }
