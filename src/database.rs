@@ -13,6 +13,7 @@ pub enum MensajeErroresDataBase {
     KeyNotExistsInDatabase,
     ParseIntError,
     KeyAlredyExist,
+    NoMatch,
 }
 
 impl fmt::Display for MensajeErroresDataBase {
@@ -24,6 +25,9 @@ impl fmt::Display for MensajeErroresDataBase {
             MensajeErroresDataBase::KeyAlredyExist => {
                 write!(f, "the key alredy exist in the database")
             }
+            MensajeErroresDataBase::NoMatch => {
+                write!(f, "(empty list or set)")
+            }
         }
     }
 }
@@ -33,6 +37,21 @@ impl Database {
         Database {
             dictionary: HashMap::new(),
         }
+    }
+
+    pub fn keys(&mut self, pattern: &str) -> Result<String, MensajeErroresDataBase> {
+        let a: String = self
+            .dictionary
+            .keys()
+            .filter(|x| x.contains(pattern))
+            .map(|x| x.to_string() + "\r\n")
+            .collect();
+
+        if a.is_empty() {
+            return Err(MensajeErroresDataBase::NoMatch);
+        }
+
+        Ok(a)
     }
 
     pub fn exists(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
@@ -411,5 +430,27 @@ mod commandtest {
         let result = database.exists("key");
         assert_eq!(result.unwrap(), "1");
         assert_eq!(database.get("key").unwrap(), "hello");
+    }
+
+    #[test]
+    fn test20_obtain_keys_with_name() {
+        let mut database = Database::new();
+        let _ = database.set("firstname", "Alex");
+        let _ = database.set("lastname", "Arbieto");
+        let _ = database.set("age", "22");
+
+        let result = database.keys("name");
+        assert_eq!(result.unwrap(), "lastname\r\nfirstname\r\n");
+    }
+
+    #[test]
+    fn test21_obtain_keys_with_nomatch_returns_empty_string() {
+        let mut database = Database::new();
+        let _ = database.set("firstname", "Alex");
+        let _ = database.set("lastname", "Arbieto");
+        let _ = database.set("age", "22");
+
+        let result = database.keys("nomatch");
+        assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
     }
 }
