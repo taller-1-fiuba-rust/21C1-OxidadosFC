@@ -35,19 +35,20 @@ impl Database {
         }
     }
 
-    pub fn coppy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
-        match self.dictionary.get(key) {
+    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
+        let value = match self.dictionary.get(key) {
             Some(StorageValue::String(val)) => {
                 if self.dictionary.contains_key(to_key) {
-                    Err(MensajeErroresDataBase::KeyAlredyExist)
+                    return Err(MensajeErroresDataBase::KeyAlredyExist)
                 } else {
-                    self.dictionary
-                        .insert(String::from(to_key), StorageValue::String(val.clone()));
-                    Ok(String::from("1"))
+                    val.clone()
                 }
             }
-            None => Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
-        }
+            None => return Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
+        };
+        self.dictionary
+                        .insert(String::from(to_key), StorageValue::String(value));
+        Ok(String::from("1"))
     }
 
     pub fn append(&mut self, key: &str, value: &str) -> Result<String, MensajeErroresDataBase> {
