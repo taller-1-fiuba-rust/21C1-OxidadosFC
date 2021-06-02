@@ -60,6 +60,7 @@ fn handle_client(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), 
             Command::Del(key) => db.del(key),
             Command::Exists(key) => db.exists(key),
             Command::Keys(pattern) => db.keys(pattern),
+            Command::Rename(old_key, new_key) => db.rename(old_key, new_key),
             Command::Print => Ok(format!("{}", db)),
             Command::None => Ok(String::from("Wrong Command")),
         };

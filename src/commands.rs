@@ -10,6 +10,7 @@ pub enum Command<'a> {
     Del(&'a str),
     Exists(&'a str),
     Keys(&'a str),
+    Rename(&'a str, &'a str),
     Print,
     None,
 }
@@ -30,6 +31,7 @@ impl<'a> Command<'a> {
             ["del", key] => Command::Del(key),
             ["exists", key] => Command::Exists(key),
             ["keys", pattern] => Command::Keys(pattern),
+            ["rename", old_key, new_key] => Command::Rename(old_key, new_key),
             ["print"] => Command::Print,
             _ => Command::None,
         }

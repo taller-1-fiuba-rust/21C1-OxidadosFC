@@ -13,6 +13,7 @@ pub enum MensajeErroresDataBase {
     KeyNotExistsInDatabase,
     ParseIntError,
     KeyAlredyExist,
+    KeyNotExistsInDatabaseRename,
     NoMatch,
 }
 
@@ -20,6 +21,9 @@ impl fmt::Display for MensajeErroresDataBase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             MensajeErroresDataBase::KeyNotExistsInDatabase => write!(f, "(nil)"),
+            MensajeErroresDataBase::KeyNotExistsInDatabaseRename => {
+                write!(f, "ERR ERR no such key")
+            }
             MensajeErroresDataBase::ValueNotIsAnString => write!(f, "value not is an String"),
             MensajeErroresDataBase::ParseIntError => write!(f, "the value cannot be parsed to int"),
             MensajeErroresDataBase::KeyAlredyExist => {
@@ -36,6 +40,20 @@ impl Database {
     pub fn new() -> Database {
         Database {
             dictionary: HashMap::new(),
+        }
+    }
+
+    pub fn rename(
+        &mut self,
+        old_key: &str,
+        new_key: &str,
+    ) -> Result<String, MensajeErroresDataBase> {
+        match self.dictionary.remove(old_key) {
+            Some(value) => {
+                self.dictionary.insert(new_key.to_string(), value);
+                Ok("Ok".to_string())
+            }
+            None => Err(MensajeErroresDataBase::KeyNotExistsInDatabaseRename),
         }
     }
 
@@ -453,5 +471,28 @@ mod commandtest {
 
         let result = database.keys("nomatch");
         assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
+    }
+
+    #[test]
+    fn test22_rename_key_with_mykey_get_hello() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.rename("key", "mykey").unwrap();
+        assert_eq!(result, "Ok");
+
+        let result = database.get("mykey").unwrap();
+        assert_eq!(result, "hello");
+
+        let result = database.get("key").unwrap_err().to_string();
+        assert_eq!(result, "(nil)");
+    }
+
+    #[test]
+    fn test22_rename_key_non_exists_error() {
+        let mut database = Database::new();
+
+        let result = database.rename("key", "mykey").unwrap_err().to_string();
+        assert_eq!(result, "ERR ERR no such key");
     }
 }
