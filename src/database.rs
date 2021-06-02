@@ -39,7 +39,7 @@ impl Database {
         let value = match self.dictionary.get(key) {
             Some(StorageValue::String(val)) => {
                 if self.dictionary.contains_key(to_key) {
-                    return Err(MensajeErroresDataBase::KeyAlredyExist)
+                    return Err(MensajeErroresDataBase::KeyAlredyExist);
                 } else {
                     val.clone()
                 }
@@ -350,7 +350,10 @@ mod commandtest {
         let _ = database.set("clone", "whatever");
 
         let result = database.copy("dolly", "clone");
-        assert_eq!(result.unwrap_err().to_string(), "the key alredy exist in the database");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "the key alredy exist in the database"
+        );
     }
 
     #[test]
