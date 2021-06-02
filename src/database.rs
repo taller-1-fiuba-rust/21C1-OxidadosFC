@@ -40,18 +40,17 @@ impl Database {
     }
 
     pub fn keys(&mut self, pattern: &str) -> Result<String, MensajeErroresDataBase> {
-        let a: String = self
+        let result: String = self
             .dictionary
             .keys()
             .filter(|x| x.contains(pattern))
             .map(|x| x.to_string() + "\r\n")
             .collect();
 
-        if a.is_empty() {
-            return Err(MensajeErroresDataBase::NoMatch);
+        match result.strip_suffix("\r\n") {
+            Some(s) => Ok(s.to_string()),
+            None => Err(MensajeErroresDataBase::NoMatch),
         }
-
-        Ok(a)
     }
 
     pub fn exists(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
@@ -191,6 +190,7 @@ impl fmt::Display for Database {
 mod commandtest {
 
     use crate::database::Database;
+    use std::collections::HashSet;
 
     #[test]
     fn test01_append_new_key_return_lenght_of_the_value() {
@@ -439,8 +439,9 @@ mod commandtest {
         let _ = database.set("lastname", "Arbieto");
         let _ = database.set("age", "22");
 
-        let result = database.keys("name");
-        assert_eq!(result.unwrap(), "lastname\r\nfirstname\r\n");
+        let result = database.keys("name").unwrap();
+        let result: HashSet<_> = result.split("\r\n").collect();
+        assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
     }
 
     #[test]
