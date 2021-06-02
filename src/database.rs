@@ -51,6 +51,13 @@ impl Database {
         Ok(String::from("1"))
     }
 
+    pub fn del(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        match self.dictionary.remove(key) {
+            Some(_) => Ok(String::from("1")),
+            None => Ok(String::from("0")),
+        }
+    }
+
     pub fn append(&mut self, key: &str, value: &str) -> Result<String, MensajeErroresDataBase> {
         let len_value = value.len();
         if self.dictionary.contains_key(key) {
@@ -362,5 +369,24 @@ mod commandtest {
 
         let result = database.copy("dolly", "clone");
         assert_eq!(result.unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test17_del_key_hello_returns_1() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.del("key");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test18_del_key_non_exist_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.del("key");
+        assert_eq!(result.unwrap(), "0");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
     }
 }

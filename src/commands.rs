@@ -7,6 +7,7 @@ pub enum Command<'a> {
     Getset(&'a str, &'a str),
     Set(&'a str, &'a str),
     Copy(&'a str, &'a str),
+    Del(&'a str),
     Print,
     None,
 }
@@ -24,6 +25,7 @@ impl<'a> Command<'a> {
             ["getset", key, value] => Command::Getset(key, value),
             ["set", key, value] => Command::Set(key, value),
             ["copy", key, to_key] => Command::Copy(key, to_key),
+            ["del", key] => Command::Del(key),
             ["print"] => Command::Print,
             _ => Command::None,
         }
