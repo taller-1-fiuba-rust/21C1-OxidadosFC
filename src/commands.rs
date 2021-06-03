@@ -9,6 +9,11 @@ pub enum Command<'a> {
     Strlen(&'a str),
     Mset(Vec<&'a str>),
     Mget(Vec<&'a str>),
+    Copy(&'a str, &'a str),
+    Del(&'a str),
+    Exists(&'a str),
+    Keys(&'a str),
+    Rename(&'a str, &'a str),
     Print,
     None,
 }
@@ -28,7 +33,11 @@ impl<'a> Command<'a> {
             ["strlen", key] => Command::Strlen(key),
             ["mset", ..] => Command::Mset(command),
             ["mget", ..] => Command::Mget(command),
-
+            ["copy", key, to_key] => Command::Copy(key, to_key),
+            ["del", key] => Command::Del(key),
+            ["exists", key] => Command::Exists(key),
+            ["keys", pattern] => Command::Keys(pattern),
+            ["rename", old_key, new_key] => Command::Rename(old_key, new_key),
             ["print"] => Command::Print,
             _ => Command::None,
         }
