@@ -23,6 +23,11 @@ pub enum Command {
     Incrby(String,String),
     Decrby(String,String),
     Get(String),
+    Copy(String, String),
+    Del(String),
+    Exists(String),
+    Keys(String),
+    Rename(String, String),
     Getdel(String),
     Getset(String,String),
     Set(String,String),
@@ -61,6 +66,11 @@ impl Request {
                     Command::Getdel(key) => db.getdel(key),
                     Command::Getset(key, value) => db.getset(key, value),
                     Command::Set(key, value) => db.set(key, value),
+                    Command::Copy(key, to_key) => db.copy(key, to_key),
+                    Command::Del(key) => db.del(key),
+                    Command::Exists(key) => db.exists(key),
+                    Command::Keys(pattern) => db.keys(pattern),
+                    Command::Rename(old_key, new_key) => db.rename(old_key, new_key),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
         
@@ -106,6 +116,11 @@ impl Command {
             ["getdel", key] => Command::Getdel(key.to_owned()),
             ["getset", key, value] => Command::Getset(key.to_owned(), value.to_owned()),
             ["set", key, value] => Command::Set(key.to_owned(), value.to_owned()),
+            ["copy", key, to_key] => Command::Copy(key.to_owned(), to_key.to_owned()),
+            ["del", key] => Command::Del(key.to_owned()),
+            ["exists", key] => Command::Exists(key.to_owned()),
+            ["keys", pattern] => Command::Keys(pattern.to_owned()),
+            ["rename", old_key, new_key] => Command::Rename(old_key.to_owned(), new_key.to_owned()),
             _ => Command::None,
         }
     }
@@ -122,6 +137,11 @@ impl Display for Command {
             Command::Getdel(key) => write!(f, "Get the value with key {} and delete", key),
             Command::Getset(key, value) => write!(f, "Get the value with key {} and set the new value {}", key, value),
             Command::Set(key, value) => write!(f, "Set the value {} with key {}", value, key),
+            Command::Copy(key, to_key) => write!(f, "Copy the value in key {} to the key {} ", key, to_key),
+            Command::Del(key) => write!(f, "Delete the key {}", key),
+            Command::Exists(key) => write!(f, "Is the key {} present?", key),
+            Command::Keys(pattern)=> write!(f, "Get the kays that match the following pattern {}", pattern),
+            Command::Rename(old_key, new_key) => write!(f, "Reneame the key with name {} to name {}", old_key, new_key),
             Command::None => write!(f, "Wrong Command"),
         }
     }
