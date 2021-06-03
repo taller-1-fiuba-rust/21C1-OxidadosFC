@@ -260,7 +260,7 @@ impl fmt::Display for Database {
 mod group_string {
 
     use crate::database::Database;
-    
+
     #[test]
     fn test_append_new_key_return_lenght_of_the_value() {
         let mut database = Database::new();
@@ -527,7 +527,7 @@ mod group_string {
 }
 
 #[cfg(test)]
-mod group_keys{
+mod group_keys {
     use crate::database::Database;
     use std::collections::HashSet;
 
