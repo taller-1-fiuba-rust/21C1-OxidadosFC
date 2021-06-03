@@ -1,7 +1,8 @@
-mod commands;
 mod config_parser;
 mod database;
+mod logger;
 mod redis;
+mod request;
 mod server;
 mod storagevalue;
 
