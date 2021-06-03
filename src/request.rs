@@ -1,15 +1,13 @@
-use std::sync::mpsc::Sender;
+use crate::database::Database;
 use core::fmt::{Display, Formatter, Result};
-use crate::database::{Database};
-use std::sync::{Arc, Mutex};
-use std::net::TcpStream;
 use std::io::{Read, Write};
-
+use std::net::TcpStream;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 pub enum Request {
     Valid(Command),
     Wrong(RequestError),
-
 }
 
 pub enum RequestError {
@@ -19,9 +17,9 @@ pub enum RequestError {
 }
 
 pub enum Command {
-    Append(String,String),
-    Incrby(String,String),
-    Decrby(String,String),
+    Append(String, String),
+    Incrby(String, String),
+    Decrby(String, String),
     Get(String),
     Copy(String, String),
     Del(String),
@@ -29,20 +27,20 @@ pub enum Command {
     Keys(String),
     Rename(String, String),
     Getdel(String),
-    Getset(String,String),
-    Set(String,String),
+    Getset(String, String),
+    Set(String, String),
     None,
 }
 
 pub enum Reponse {
     Valid(String),
-    Error(String)
+    Error(String),
 }
- 
+
 impl Request {
     pub fn parse_request(stream: &mut TcpStream) -> Request {
         let mut buf = [0; 512];
-    
+
         match stream.read(&mut buf) {
             Ok(bytes_read) if bytes_read == 0 => Request::Wrong(RequestError::NoInputError),
             Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
@@ -57,7 +55,7 @@ impl Request {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();
-        
+
                 let result = match command {
                     Command::Append(key, value) => db.append(key, value),
                     Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
@@ -73,31 +71,33 @@ impl Request {
                     Command::Rename(old_key, new_key) => db.rename(old_key, new_key),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
-        
+
                 match result {
                     Ok(value) => Reponse::Valid(value),
                     Err(db_error) => Reponse::Error(db_error.to_string()),
                 }
-            },
+            }
 
             Request::Wrong(error) => Reponse::Error(error.to_string()),
         }
-    }    
-
+    }
 }
 
-
 impl Reponse {
-    pub fn respond(self,stream: &mut TcpStream, log_sender: &Sender<String>) {
+    pub fn respond(self, stream: &mut TcpStream, log_sender: &Sender<String>) {
         match self {
             Reponse::Valid(message) => {
                 if let Err(_) = writeln!(stream, "{}\n", message) {
-                    log_sender.send("response could not be sent".to_string()).unwrap();
+                    log_sender
+                        .send("response could not be sent".to_string())
+                        .unwrap();
                 }
             }
             Reponse::Error(message) => {
                 if let Err(_) = writeln!(stream, "Error: {}\n", message) {
-                    log_sender.send("response could not be sent".to_string()).unwrap();
+                    log_sender
+                        .send("response could not be sent".to_string())
+                        .unwrap();
                 }
             }
         };
@@ -110,8 +110,12 @@ impl Command {
 
         match command[..] {
             ["append", key, value] => Command::Append(key.to_owned(), value.to_owned()),
-            ["incrby", key, number_of_incr] => Command::Incrby(key.to_owned(), number_of_incr.to_owned()),
-            ["decrby", key, number_of_decr] => Command::Decrby(key.to_owned(), number_of_decr.to_owned()),
+            ["incrby", key, number_of_incr] => {
+                Command::Incrby(key.to_owned(), number_of_incr.to_owned())
+            }
+            ["decrby", key, number_of_decr] => {
+                Command::Decrby(key.to_owned(), number_of_decr.to_owned())
+            }
             ["get", key] => Command::Get(key.to_owned()),
             ["getdel", key] => Command::Getdel(key.to_owned()),
             ["getset", key, value] => Command::Getset(key.to_owned(), value.to_owned()),
@@ -126,22 +130,35 @@ impl Command {
     }
 }
 
-
 impl Display for Command {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            Command::Append(key,value) => write!(f, "Append {} to key {}", value, key),
-            Command::Incrby(key,value) => write!(f, "Incrby {} the value with key {}", value, key),
-            Command::Decrby(key,value) => write!(f, "Decrby {} the value with key {}", value, key),
+            Command::Append(key, value) => write!(f, "Append {} to key {}", value, key),
+            Command::Incrby(key, value) => write!(f, "Incrby {} the value with key {}", value, key),
+            Command::Decrby(key, value) => write!(f, "Decrby {} the value with key {}", value, key),
             Command::Get(key) => write!(f, "Get the value with key {}", key),
             Command::Getdel(key) => write!(f, "Get the value with key {} and delete", key),
-            Command::Getset(key, value) => write!(f, "Get the value with key {} and set the new value {}", key, value),
+            Command::Getset(key, value) => write!(
+                f,
+                "Get the value with key {} and set the new value {}",
+                key, value
+            ),
             Command::Set(key, value) => write!(f, "Set the value {} with key {}", value, key),
-            Command::Copy(key, to_key) => write!(f, "Copy the value in key {} to the key {} ", key, to_key),
+            Command::Copy(key, to_key) => {
+                write!(f, "Copy the value in key {} to the key {} ", key, to_key)
+            }
             Command::Del(key) => write!(f, "Delete the key {}", key),
             Command::Exists(key) => write!(f, "Is the key {} present?", key),
-            Command::Keys(pattern)=> write!(f, "Get the kays that match the following pattern {}", pattern),
-            Command::Rename(old_key, new_key) => write!(f, "Reneame the key with name {} to name {}", old_key, new_key),
+            Command::Keys(pattern) => write!(
+                f,
+                "Get the kays that match the following pattern {}",
+                pattern
+            ),
+            Command::Rename(old_key, new_key) => write!(
+                f,
+                "Reneame the key with name {} to name {}",
+                old_key, new_key
+            ),
             Command::None => write!(f, "Wrong Command"),
         }
     }
@@ -150,8 +167,8 @@ impl Display for Command {
 impl<'a> Display for Request {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            Request::Valid(command) => writeln!(f, "Request: {}", command ),
-            Request::Wrong(error) => writeln!(f, "Request: Error: {}", error ),
+            Request::Valid(command) => writeln!(f, "Request: {}", command),
+            Request::Wrong(error) => writeln!(f, "Request: Error: {}", error),
         }
     }
 }
@@ -159,8 +176,8 @@ impl<'a> Display for Request {
 impl<'a> Display for Reponse {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            Reponse::Valid(message) => writeln!(f, "Reponse: {}", message ),
-            Reponse::Error(error) => writeln!(f, "Reponse: Error: {}", error ),
+            Reponse::Valid(message) => writeln!(f, "Reponse: {}", message),
+            Reponse::Error(error) => writeln!(f, "Reponse: Error: {}", error),
         }
     }
 }
@@ -168,10 +185,9 @@ impl<'a> Display for Reponse {
 impl<'a> Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            RequestError::NoInputError =>  write!(f, "Empty request"),
-            RequestError::NotUtf8CharError =>  write!(f, "Not utf8 string"),
-            RequestError::GeneralError =>  write!(f, "Unknown Request"),
+            RequestError::NoInputError => write!(f, "Empty request"),
+            RequestError::NotUtf8CharError => write!(f, "Not utf8 string"),
+            RequestError::GeneralError => write!(f, "Unknown Request"),
         }
     }
 }
-

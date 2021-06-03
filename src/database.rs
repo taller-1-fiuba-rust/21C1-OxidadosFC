@@ -46,7 +46,7 @@ impl Database {
         } else {
             let val_len = value.len();
             match self.set(key, value) {
-                Ok(_) =>  Ok(format!("(integer) {}", val_len)),
+                Ok(_) => Ok(format!("(integer) {}", val_len)),
                 Err(err) => Err(err),
             }
         }
@@ -122,11 +122,10 @@ impl Database {
                 if let Ok(mut number) = val.parse::<i64>() {
                     number -= number_of_decr;
 
-                    match self.set(key, number.to_string()){
+                    match self.set(key, number.to_string()) {
                         Ok(_) => Ok(format!("(integer) {}", number.to_string())),
                         Err(err) => Err(err),
                     }
-
                 } else {
                     Err(DataBaseError::NotAnInteger)
                 }

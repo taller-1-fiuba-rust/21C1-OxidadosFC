@@ -50,7 +50,7 @@ mod logger_test {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log_testA.txt");
         let mut logger = Logger::new(path, rec);
-       
+
         thread::spawn(move || {
             logger.run();
         });
@@ -102,14 +102,12 @@ mod logger_test {
         fs::remove_file(path).unwrap();
     }
 
-
-
     #[test]
     fn test_logger_recive_message_from_two_senders() {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log_testC.txt");
         let mut logger = Logger::new(path, rec);
-        
+
         let sen1 = sen.clone();
         let sen2 = sen.clone();
 
