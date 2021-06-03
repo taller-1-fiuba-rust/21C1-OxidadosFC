@@ -6,8 +6,8 @@ use std::net::TcpStream;
 use std::io::{Read, Write};
 
 
-pub enum Request<'a> {
-    Valid(Command<'a>),
+pub enum Request {
+    Valid(Command),
     Wrong(RequestError),
 
 }
@@ -18,101 +18,101 @@ pub enum RequestError {
     GeneralError,
 }
 
-pub enum Command<'a> {
-    Append(&'a str, &'a str),
-    Incrby(&'a str, &'a str),
-    Decrby(&'a str, &'a str),
-    Get(&'a str),
-    Getdel(&'a str),
-    Getset(&'a str, &'a str),
-    Set(&'a str, &'a str),
+pub enum Command {
+    Append(String,String),
+    Incrby(String,String),
+    Decrby(String,String),
+    Get(String),
+    Getdel(String),
+    Getset(String,String),
+    Set(String,String),
     None,
 }
 
-pub enum Reponse<'a> {
-    Valid(&'a str),
-    Error(&'a str)
+pub enum Reponse {
+    Valid(String),
+    Error(String)
 }
  
-impl<'a> Request<'a> {
-    pub fn parse_request(stream: &mut TcpStream) -> Request<'a> {
+impl Request {
+    pub fn parse_request(stream: &mut TcpStream) -> Request {
         let mut buf = [0; 512];
     
         match stream.read(&mut buf) {
             Ok(bytes_read) if bytes_read == 0 => Request::Wrong(RequestError::NoInputError),
             Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-                Ok(command) => Request::Valid(Command::new(&command)),
+                Ok(command) => Request::Valid(Command::new(command)),
                 Err(_) => Request::Wrong(RequestError::NotUtf8CharError),
             },
             Err(_) => Request::Wrong(RequestError::GeneralError),
         }
     }
 
-    pub fn execute(self, db: Arc<Mutex<Database>>) -> Reponse<'a> {
+    pub fn execute<'a>(self, db: &Arc<Mutex<Database>>) -> Reponse {
         match self {
-            Request::Valid(command) => self.valid_request(command, db),
-            Request::Wrong(error) => Reponse::Error(&error.to_string()),
+            Request::Valid(command) => {
+                let mut db = db.lock().unwrap();
+        
+                let result = match command {
+                    Command::Append(key, value) => db.append(key, value),
+                    Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
+                    Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
+                    Command::Get(key) => db.get(key),
+                    Command::Getdel(key) => db.getdel(key),
+                    Command::Getset(key, value) => db.getset(key, value),
+                    Command::Set(key, value) => db.set(key, value),
+                    Command::None => return Reponse::Error("Unknown Command".to_owned()),
+                };
+        
+                match result {
+                    Ok(value) => Reponse::Valid(value),
+                    Err(db_error) => Reponse::Error(db_error.to_string()),
+                }
+            },
+
+            Request::Wrong(error) => Reponse::Error(error.to_string()),
         }
     }    
 
-    fn valid_request(self, command: Command,  db: Arc<Mutex<Database>>) -> Reponse{
-        let mut db = db.lock().unwrap();
-        
-        let result = match command {
-            Command::Append(key, value) => db.append(key, value),
-            Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
-            Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
-            Command::Get(key) => db.get(key),
-            Command::Getdel(key) => db.getdel(key),
-            Command::Getset(key, value) => db.getset(key, value),
-            Command::Set(key, value) => db.set(key, value),
-            Command::None => return Reponse::Error("Unknown Command"),
-        };
-
-        match result {
-            Ok(value) => Reponse::Valid(&value),
-            Err(dbError) => Reponse::Error(&dbError.to_string()),
-        }
-    }
 }
 
 
-impl<'a> Reponse<'a> {
-    pub fn respond(self, mut stream: TcpStream, log_sender: Sender<String>) {
+impl Reponse {
+    pub fn respond(self,stream: &mut TcpStream, log_sender: &Sender<String>) {
         match self {
             Reponse::Valid(message) => {
-                if let Err(e) = writeln!(stream, "{}\n", message) {
-                    log_sender.send("response could not be sent".to_string());
+                if let Err(_) = writeln!(stream, "{}\n", message) {
+                    log_sender.send("response could not be sent".to_string()).unwrap();
                 }
             }
             Reponse::Error(message) => {
-                if let Err(e) = writeln!(stream, "Error: {}\n", message) {
-                    log_sender.send("response could not be sent".to_string());
+                if let Err(_) = writeln!(stream, "Error: {}\n", message) {
+                    log_sender.send("response could not be sent".to_string()).unwrap();
                 }
             }
         };
     }
 }
 
-impl<'a> Command<'a> {
+impl Command {
     pub fn new(command: &str) -> Command {
         let command: Vec<&str> = command.trim().split_whitespace().collect();
 
-        match &command[..] {
-            ["append", key, value] => Command::Append(key, value),
-            ["incrby", key, number_of_incr] => Command::Incrby(key, number_of_incr),
-            ["decrby", key, number_of_decr] => Command::Decrby(key, number_of_decr),
-            ["get", key] => Command::Get(key),
-            ["getdel", key] => Command::Getdel(key),
-            ["getset", key, value] => Command::Getset(key, value),
-            ["set", key, value] => Command::Set(key, value),
+        match command[..] {
+            ["append", key, value] => Command::Append(key.to_owned(), value.to_owned()),
+            ["incrby", key, number_of_incr] => Command::Incrby(key.to_owned(), number_of_incr.to_owned()),
+            ["decrby", key, number_of_decr] => Command::Decrby(key.to_owned(), number_of_decr.to_owned()),
+            ["get", key] => Command::Get(key.to_owned()),
+            ["getdel", key] => Command::Getdel(key.to_owned()),
+            ["getset", key, value] => Command::Getset(key.to_owned(), value.to_owned()),
+            ["set", key, value] => Command::Set(key.to_owned(), value.to_owned()),
             _ => Command::None,
         }
     }
 }
 
 
-impl<'a> Display for Command<'a> {
+impl Display for Command {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             Command::Append(key,value) => write!(f, "Append {} to key {}", value, key),
@@ -127,20 +127,20 @@ impl<'a> Display for Command<'a> {
     }
 }
 
-impl<'a> Display for Request<'a> {
+impl<'a> Display for Request {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             Request::Valid(command) => writeln!(f, "Request: {}", command ),
-            Request::Wrong(error) => writeln!(f, "Request: {}", error ),
+            Request::Wrong(error) => writeln!(f, "Request: Error: {}", error ),
         }
     }
 }
 
-impl<'a> Display for Reponse<'a> {
+impl<'a> Display for Reponse {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            Reponse::Valid(message) => writeln!(f, "Request: {}", message ),
-            Reponse::Error(error) => writeln!(f, "Request: {}", error ),
+            Reponse::Valid(message) => writeln!(f, "Reponse: {}", message ),
+            Reponse::Error(error) => writeln!(f, "Reponse: Error: {}", error ),
         }
     }
 }
