@@ -12,16 +12,26 @@ pub enum MensajeErroresDataBase {
     ValueNotIsAnString,
     KeyNotExistsInDatabase,
     ParseIntError,
+    NumberOfParamsIsIncorrectly,
 }
 
 impl fmt::Display for MensajeErroresDataBase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             MensajeErroresDataBase::KeyNotExistsInDatabase => write!(f, "(nil)"),
-            MensajeErroresDataBase::ValueNotIsAnString => write!(f, "value not is an String"),
+            MensajeErroresDataBase::ValueNotIsAnString => {
+                write!(f, "value of the key not is an String")
+            }
             MensajeErroresDataBase::ParseIntError => write!(f, "the value cannot be parsed to int"),
+            MensajeErroresDataBase::NumberOfParamsIsIncorrectly => {
+                write!(f, "number of parameters is incorrectly")
+            }
         }
     }
+}
+
+pub fn es_par(a_positive_value: &usize) -> bool {
+    *a_positive_value % 2 == 0
 }
 
 impl Database {
@@ -37,15 +47,14 @@ impl Database {
             if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
                 val.push_str(value);
                 let len_result = val.len();
-                Ok(format!("(integer) {}", len_result))
+                Ok(format!("{}", len_result))
                 //Ok(String::from("(integer) ".to_owned() + &len_result.to_string()))
             } else {
                 Err(MensajeErroresDataBase::ValueNotIsAnString)
             }
         } else {
             self.set(key, value).expect("error");
-            Ok(format!("(integer) {}", len_value))
-            //Ok(String::from("(integer) ".to_owned() + &value.to_string()))
+            Ok(format!("{}", len_value))
         }
     }
 
@@ -54,7 +63,6 @@ impl Database {
             Ok(val.to_string())
         } else {
             Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
-            //println!("{:?}", String::from("(nil)"));
         }
     }
 
@@ -75,7 +83,7 @@ impl Database {
                 if let Ok(mut number) = val.parse::<i64>() {
                     number -= number_of_decr;
                     self.set(key, &number.to_string()).expect("error");
-                    Ok(format!("(integer) {}", number.to_string()))
+                    Ok(number.to_string())
                 } else {
                     Err(MensajeErroresDataBase::ParseIntError)
                 }
@@ -122,7 +130,50 @@ impl Database {
             */
         } else {
             Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
-            //println!("{:?}", String::from("(nil)"));
+        }
+    }
+
+    pub fn mset(&mut self, params: &[&str]) -> Result<String, MensajeErroresDataBase> {
+        if es_par(&params.len()) {
+            for i in (0..params.len()).step_by(2) {
+                let key = params[i];
+                let value = params[i + 1];
+                self.set(key, value).expect("error");
+            }
+            Ok("OK".to_string())
+        } else {
+            Err(MensajeErroresDataBase::NumberOfParamsIsIncorrectly)
+        }
+    }
+
+    pub fn mget(&mut self, params: &[&str]) -> Result<String, MensajeErroresDataBase> {
+        let mut result = String::from("");
+        let mut count = 0;
+        for key in params {
+            count += 1;
+            result.push_str((count.to_string() + &") ".to_string()).as_str());
+            match self.get(key) {
+                Ok(result_ok) => {
+                    result.push_str(&result_ok);
+                }
+                Err(error_database) => {
+                    result.push_str(&error_database.to_string());
+                }
+            }
+            result.push_str(&'\n'.to_string());
+        }
+        Ok(result)
+    }
+
+    pub fn strlen(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        if self.dictionary.contains_key(key) {
+            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
+                Ok(format!("{}", val.len()))
+            } else {
+                Err(MensajeErroresDataBase::ValueNotIsAnString)
+            }
+        } else {
+            Ok("0".to_string())
         }
     }
 }
@@ -148,7 +199,7 @@ mod commandtest {
 
         let result = database.append("key", "value");
 
-        assert_eq!(result.unwrap(), String::from("(integer) 5"));
+        assert_eq!(result.unwrap(), String::from("5"));
     }
 
     #[test]
@@ -161,7 +212,7 @@ mod commandtest {
 
         let result = database.append("key", "_concat");
 
-        assert_eq!(result.unwrap(), String::from("(integer) 12"));
+        assert_eq!(result.unwrap(), String::from("12"));
     }
 
     #[test]
@@ -239,9 +290,7 @@ mod commandtest {
 
         let result = database.incrby("key", "4");
 
-        assert_eq!(result.unwrap(), "(integer) 5".to_string());
-
-        //assert_eq!(value.unwrap_err().to_string(), "the value cannot be parsed to int".to_string())
+        assert_eq!(result.unwrap(), "5".to_string());
     }
 
     #[test]
@@ -263,12 +312,12 @@ mod commandtest {
     fn test11_incrby_returns_err_if_the_value_is_not_an_string() {
         /*let mut database = Database::new();
 
-        database.set("key", "1").expect("error");
+        database.rpush("key", "1").expect("error");
 
-        let result = database.incrby("key", "4a");
+        let result = database.incrby("key", "4");
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "the value cannot be parsed to int".to_string());
+        assert_eq!(result.unwrap_err().to_string(), "value of the key not is an String".to_string());
         */
     }
 
@@ -280,18 +329,18 @@ mod commandtest {
 
         let result = database.decrby("key", "4");
 
-        assert_eq!(result.unwrap(), "(integer) 1".to_string());
+        assert_eq!(result.unwrap(), "1".to_string());
 
         //assert_eq!(value.unwrap_err().to_string(), "the value cannot be parsed to int".to_string())
     }
 
     #[test]
-    fn test13_incrby_returns_err_if_the_value_can_not_be_parse_to_int() {
+    fn test13_decrby_returns_err_if_the_value_can_not_be_parse_to_int() {
         let mut database = Database::new();
 
         database.set("key", "1").expect("error");
 
-        let result = database.incrby("key", "4a");
+        let result = database.decrby("key", "4a");
 
         assert!(result.is_err());
         assert_eq!(
@@ -301,15 +350,110 @@ mod commandtest {
     }
 
     #[test]
-    fn test14_incrby_returns_err_if_the_value_is_not_an_string() {
+    fn test14_decrby_returns_err_if_the_value_of_key_is_not_an_string() {
         /*let mut database = Database::new();
 
-        database.set("key", "1").expect("error");
+        //database.rpush("key", "1").expect("error");
 
-        let result = database.incrby("key", "4a");
+        let result = database.decrby("key", "4");
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "the value cannot be parsed to int".to_string());
+        assert_eq!(result.unwrap_err().to_string(), "value of the key not is an String".to_string());
         */
+    }
+
+    #[test]
+    fn test15_strlen_returns_the_lenght_of_value_key() {
+        let mut database = Database::new();
+
+        database.set("key", "abcd").expect("error");
+
+        let result = database.strlen("key");
+
+        assert_eq!(result.unwrap(), String::from("4"));
+    }
+
+    #[test]
+    fn test17_strlen_returns_zero_if_the_key_not_exists_in_database() {
+        let mut database = Database::new();
+
+        let result = database.strlen("no_exists_key");
+
+        assert_eq!(result.unwrap(), String::from("0"));
+    }
+
+    #[test]
+    fn test18_strlen_returns_err_if_value_of_key_is_not_an_string() {
+        /*let mut database = Database::new();
+
+        database.rpush("key", "abcd").expect("error");
+
+        let result = database.strlen("key");
+
+        assert_eq!(result.unwrap_err().to_string(), String::from("value of the key not is an String"));
+        */
+    }
+
+    #[test]
+    fn test19_mset_set_multiple_key_and_value_ok() {
+        let vect_key_value = vec!["key1", "value1", "key2", "value2"];
+        let mut database = Database::new();
+
+        let result = database.mset(&vect_key_value);
+
+        let result_get1 = database.get("key1");
+        let result_get2 = database.get("key2");
+
+        assert_eq!(result.unwrap().to_string(), String::from("OK"));
+        assert_eq!(result_get1.unwrap().to_string(), String::from("value1"));
+        assert_eq!(result_get2.unwrap().to_string(), String::from("value2"));
+    }
+
+    #[test]
+    fn test20_mset_returns_err_if_multiple_key_and_value_are_inconsistent_in_number() {
+        //without value for key2
+        let vect_key_value = vec!["key1", "value1", "key2"];
+
+        let mut database = Database::new();
+
+        let result = database.mset(&vect_key_value);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            String::from("number of parameters is incorrectly")
+        );
+    }
+
+    #[test]
+    fn test21_mget_return_all_values_of_keys_if_all_keys_are_in_database() {
+        //without value for key2
+        let vect_key_value = vec!["key1", "key2"];
+
+        let mut database = Database::new();
+
+        database.set("key1", "value1").expect("error");
+        database.set("key2", "value2").expect("error");
+
+        let result = database.mget(&vect_key_value);
+
+        //refactorizar para que devuelva sin el \n al final del string
+        assert_eq!(result.unwrap(), "1) value1\n2) value2\n");
+    }
+
+    #[test]
+    fn test22_mget_returns_nil_for_some_key_that_no_exists_in_database() {
+        //without value for key2
+        let vect_key_value = vec!["key1", "key2", "key3"];
+
+        let mut database = Database::new();
+
+        database.set("key1", "value1").expect("error");
+        database.set("key3", "value3").expect("error");
+
+        let result = database.mget(&vect_key_value);
+
+        //refactorizar para que devuelva sin el \n al final del string
+        assert_eq!(result.unwrap(), "1) value1\n2) (nil)\n3) value3\n");
     }
 }
