@@ -8,37 +8,25 @@ pub struct Database {
 }
 
 #[derive(Debug)]
-pub enum MensajeErroresDataBase {
-    ValueNotIsAnString,
-    KeyNotExistsInDatabase,
-    ParseIntError,
-    NumberOfParamsIsIncorrectly,
+pub enum DataBaseError {
+    NotAString,
+    NonExistentKey,
+    NotAnInteger,
     KeyAlredyExist,
-    KeyNotExistsInDatabaseRename,
     NoMatch,
+    NumberOfParamsIsIncorrectly,
 }
 
-impl fmt::Display for MensajeErroresDataBase {
+impl fmt::Display for DataBaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            MensajeErroresDataBase::KeyNotExistsInDatabase => {
-                write!(f, "(nil)")
-            }
-            MensajeErroresDataBase::ValueNotIsAnString => {
-                write!(f, "value of the key not is an String")
-            }
-            MensajeErroresDataBase::ParseIntError => write!(f, "the value cannot be parsed to int"),
-            MensajeErroresDataBase::NumberOfParamsIsIncorrectly => {
+            DataBaseError::NonExistentKey => write!(f, "Non-existent key"),
+            DataBaseError::NotAString => write!(f, "Value isn't a String"),
+            DataBaseError::NotAnInteger => write!(f, "Value isn't an Integer"),
+            DataBaseError::KeyAlredyExist => write!(f, "the key alredy exist in the database"),
+            DataBaseError::NoMatch => write!(f, "(empty list or set)"),
+            DataBaseError::NumberOfParamsIsIncorrectly => {
                 write!(f, "number of parameters is incorrectly")
-            }
-            MensajeErroresDataBase::KeyNotExistsInDatabaseRename => {
-                write!(f, "ERR ERR no such key")
-            }
-            MensajeErroresDataBase::KeyAlredyExist => {
-                write!(f, "the key alredy exist in the database")
-            }
-            MensajeErroresDataBase::NoMatch => {
-                write!(f, "(empty list or set)")
             }
         }
     }
@@ -55,172 +43,149 @@ impl Database {
         }
     }
 
-    pub fn rename(
-        &mut self,
-        old_key: &str,
-        new_key: &str,
-    ) -> Result<String, MensajeErroresDataBase> {
-        match self.dictionary.remove(old_key) {
+    pub fn append(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
+        let mut new_value = match self.dictionary.get(&key) {
+            Some(StorageValue::String(val)) => val.to_string(),
+            None => "".to_string(),
+            // _ => return Err(DataBaseError::NotAString),
+        };
+
+        new_value.push_str(&value);
+        let len = new_value.len().to_string();
+        self.dictionary
+            .insert(String::from(key), StorageValue::String(new_value));
+
+        return Ok(format!("(integer) {}", len));
+    }
+
+    pub fn rename(&mut self, old_key: String, new_key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.remove(&old_key) {
             Some(value) => {
-                self.dictionary.insert(new_key.to_string(), value);
+                self.dictionary.insert(new_key, value);
                 Ok("Ok".to_string())
             }
-            None => Err(MensajeErroresDataBase::KeyNotExistsInDatabaseRename),
+            None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn keys(&mut self, pattern: &str) -> Result<String, MensajeErroresDataBase> {
+    pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
         let result: String = self
             .dictionary
             .keys()
-            .filter(|x| x.contains(pattern))
+            .filter(|x| x.contains(&pattern))
             .map(|x| x.to_string() + "\r\n")
             .collect();
 
         match result.strip_suffix("\r\n") {
             Some(s) => Ok(s.to_string()),
-            None => Err(MensajeErroresDataBase::NoMatch),
+            None => Err(DataBaseError::NoMatch),
         }
     }
 
-    pub fn exists(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
-        Ok((self.dictionary.contains_key(key) as i8).to_string())
+    pub fn exists(&mut self, key: String) -> Result<String, DataBaseError> {
+        Ok(format!(
+            "(integer) {}",
+            self.dictionary.contains_key(&key) as i8
+        ))
     }
 
-    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
-        let value = match self.dictionary.get(key) {
+    pub fn copy(&mut self, key: String, to_key: String) -> Result<String, DataBaseError> {
+        let value = match self.dictionary.get(&key) {
             Some(StorageValue::String(val)) => {
-                if self.dictionary.contains_key(to_key) {
-                    return Err(MensajeErroresDataBase::KeyAlredyExist);
+                if self.dictionary.contains_key(&to_key) {
+                    return Err(DataBaseError::KeyAlredyExist);
                 } else {
                     val.clone()
                 }
             }
-            None => return Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
+            None => return Err(DataBaseError::NonExistentKey),
         };
-        self.dictionary
-            .insert(String::from(to_key), StorageValue::String(value));
-        Ok(String::from("1"))
+        self.dictionary.insert(to_key, StorageValue::String(value));
+        Ok(String::from("(integer) 1"))
     }
 
-    pub fn del(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
-        match self.dictionary.remove(key) {
-            Some(_) => Ok(String::from("1")),
-            None => Ok(String::from("0")),
+    pub fn del(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.remove(&key) {
+            Some(_) => Ok(String::from("(integer) 1")),
+            None => Ok(String::from("(integer) 0")),
         }
     }
 
-    pub fn append(&mut self, key: &str, value: &str) -> Result<String, MensajeErroresDataBase> {
-        let len_value = value.len();
-        if self.dictionary.contains_key(key) {
-            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
-                val.push_str(value);
-                let len_result = val.len();
-                Ok(format!("{}", len_result))
-                //Ok(String::from("(integer) ".to_owned() + &len_result.to_string()))
-            } else {
-                Err(MensajeErroresDataBase::ValueNotIsAnString)
-            }
-        } else {
-            self.set(key, value).expect("error");
-            Ok(format!("{}", len_value))
+    pub fn get(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get(&key) {
+            Some(StorageValue::String(val)) => Ok(val.to_string()),
+            None => Err(DataBaseError::NonExistentKey),
+            // _ => Err(DataBaseError::NotAString),
         }
     }
 
-    pub fn get(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
-        if let Some(StorageValue::String(val)) = self.dictionary.get(key) {
-            Ok(val.to_string())
-        } else {
-            Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
-        }
-    }
-
-    pub fn set(&mut self, key: &str, val: &str) -> Result<String, MensajeErroresDataBase> {
-        self.dictionary
-            .insert(String::from(key), StorageValue::String(val.to_string()));
+    pub fn set(&mut self, key: String, val: String) -> Result<String, DataBaseError> {
+        self.dictionary.insert(key, StorageValue::String(val));
         Ok(String::from("OK"))
     }
 
-    pub fn decrby(
-        &mut self,
-        key: &str,
-        number_of_decr: &str,
-    ) -> Result<String, MensajeErroresDataBase> {
-        if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
-            if let Ok(number_of_decr) = number_of_decr.parse::<i64>() {
-                if let Ok(mut number) = val.parse::<i64>() {
-                    number -= number_of_decr;
-                    self.set(key, &number.to_string()).expect("error");
-                    Ok(number.to_string())
-                } else {
-                    Err(MensajeErroresDataBase::ParseIntError)
-                }
-            } else {
-                Err(MensajeErroresDataBase::ParseIntError)
+    pub fn decrby(&mut self, key: String, number_of_decr: String) -> Result<String, DataBaseError> {
+        let value = match self.dictionary.get(&key) {
+            Some(StorageValue::String(val)) => val.to_string(),
+            None => return Err(DataBaseError::NonExistentKey),
+            // _ => Err(DataBaseError::NotAString),
+        };
+
+        if let Ok(number_decr) = number_of_decr.parse::<i64>() {
+            if let Ok(mut number) = value.parse::<i64>() {
+                number -= number_decr;
+                self.dictionary
+                    .insert(key, StorageValue::String(number.to_string()));
+                return Ok(format!("(integer) {}", number.to_string()));
             }
-        } else {
-            Err(MensajeErroresDataBase::ValueNotIsAnString)
         }
+
+        Err(DataBaseError::NotAnInteger)
     }
 
-    pub fn incrby(
-        &mut self,
-        key: &str,
-        number_of_incr: &str,
-    ) -> Result<String, MensajeErroresDataBase> {
-        let mut number_incr = String::from(number_of_incr);
+    pub fn incrby(&mut self, key: String, number_of_incr: String) -> Result<String, DataBaseError> {
+        let mut number_incr = number_of_incr;
         number_incr.insert(0, '-');
-        self.decrby(key, &number_incr)
+        self.decrby(key, number_incr)
     }
 
-    pub fn getdel(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
-        if let Some(StorageValue::String(value)) = self.dictionary.remove(key) {
-            Ok(value)
-        } else {
-            Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
+    pub fn getdel(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.remove(&key) {
+            Some(StorageValue::String(val)) => Ok(val),
+            None => Err(DataBaseError::NonExistentKey),
+            // _ => Err(DataBaseError::NotAString),
         }
     }
 
-    //refactorizar para que cumpla su funcion.
-    pub fn getset(&mut self, key: &str, _new_val: &str) -> Result<String, MensajeErroresDataBase> {
-        let mut _copy_key = String::from(<&str>::clone(&key));
-        if let Some(storage_value) = self.dictionary.get(&_copy_key) {
-            match storage_value {
-                StorageValue::String(old_value) => Ok(old_value.to_string()),
-            }
-            //self.dictionary.insert(String::from(key), StorageValue::String(_new_val.to_string()));
-            /*if let StorageValue::String(old_value) = storage_value {
-                //self.dictionary.insert(String::from(key), StorageValue::String(_new_val.to_string()));
-                Ok(old_value.to_string())
-            } else {
-                Err(MensajeErroresDataBase::ValueNotIsAnString)
-            }
-            */
-        } else {
-            Err(MensajeErroresDataBase::KeyNotExistsInDatabase)
+    pub fn getset(&mut self, key: String, _new_val: String) -> Result<String, DataBaseError> {
+        match self.dictionary.insert(key, StorageValue::String(_new_val)) {
+            Some(StorageValue::String(val)) => Ok(val),
+            None => Err(DataBaseError::NonExistentKey),
+            // _ => Err(DataBaseError::NotAString),
         }
     }
 
-    pub fn mset(&mut self, params: &[&str]) -> Result<String, MensajeErroresDataBase> {
+    pub fn mset(&mut self, params: &[&str]) -> Result<String, DataBaseError> {
         if es_par(&params.len()) {
             for i in (0..params.len()).step_by(2) {
                 let key = params[i];
                 let value = params[i + 1];
-                self.set(key, value).expect("error");
+                self.dictionary
+                    .insert(key.to_string(), StorageValue::String(value.to_string()));
             }
             Ok("OK".to_string())
         } else {
-            Err(MensajeErroresDataBase::NumberOfParamsIsIncorrectly)
+            Err(DataBaseError::NumberOfParamsIsIncorrectly)
         }
     }
 
-    pub fn mget(&mut self, params: &[&str]) -> Result<String, MensajeErroresDataBase> {
+    pub fn mget(&mut self, params: &[&str]) -> Result<String, DataBaseError> {
         let mut result = String::from("");
         let mut count = 0;
         for key in params {
             count += 1;
             result.push_str((count.to_string() + &") ".to_string()).as_str());
-            match self.get(key) {
+            match self.get(key.to_string()) {
                 Ok(result_ok) => {
                     result.push_str(&result_ok);
                 }
@@ -233,12 +198,12 @@ impl Database {
         Ok(result)
     }
 
-    pub fn strlen(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+    pub fn strlen(&mut self, key: &str) -> Result<String, DataBaseError> {
         if self.dictionary.contains_key(key) {
             if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
                 Ok(format!("{}", val.len()))
             } else {
-                Err(MensajeErroresDataBase::ValueNotIsAnString)
+                Err(DataBaseError::NotAString)
             }
         } else {
             Ok("0".to_string())
@@ -251,7 +216,6 @@ impl fmt::Display for Database {
         for (key, value) in self.dictionary.iter() {
             writeln!(f, "key: {}, value: {}", key, value)?;
         }
-
         Ok(())
     }
 }
@@ -265,22 +229,24 @@ mod group_string {
     fn test_append_new_key_return_lenght_of_the_value() {
         let mut database = Database::new();
 
-        let result = database.append("key", "value");
+        let result = database
+            .append("key".to_string(), "value".to_string())
+            .unwrap();
 
-        assert_eq!(result.unwrap(), String::from("5"));
+        assert_eq!(result, "(integer) 5");
     }
 
     #[test]
     fn test_append_key_with_valueold_return_lenght_of_the_total_value() {
         let mut database = Database::new();
 
-        database
-            .append("key", "value")
-            .expect("falla en pasaje de parametros");
+        let _ = database.append("key".to_string(), "value".to_string());
 
-        let result = database.append("key", "_concat");
+        let result = database
+            .append("key".to_string(), "_concat".to_string())
+            .unwrap();
 
-        assert_eq!(result.unwrap(), String::from("12"));
+        assert_eq!(result, "(integer) 12");
     }
 
     #[test]
@@ -299,81 +265,80 @@ mod group_string {
     fn test_get_returns_value_of_key() {
         let mut database = Database::new();
 
-        database.set("key", "value").expect("error");
+        let _ = database.set("key".to_string(), "value".to_string());
 
-        let result = database.get("key");
+        let result = database.get("key".to_string()).unwrap();
 
-        assert_eq!(result.unwrap(), String::from("value"));
+        assert_eq!(result, "value");
     }
 
     #[test]
     fn test_get_returns_error_if_the_key_does_not_exist() {
         let mut database = Database::new();
-        let result = database.get("key_no_exist");
+        let result = database
+            .get("key_no_exist".to_string())
+            .unwrap_err()
+            .to_string();
 
-        assert_eq!(result.unwrap_err().to_string(), "(nil)")
+        assert_eq!(result, "Non-existent key")
     }
 
     #[test]
     fn test_set_returns_ok() {
         let mut database = Database::new();
-        let result = database.set("key", "1");
-        let value = database.get("key");
+        let result = database.set("key".to_string(), "1".to_string()).unwrap();
+        let value = database.get("key".to_string()).unwrap();
 
-        assert_eq!(result.unwrap(), "OK".to_string());
-        assert_eq!(value.unwrap(), "1".to_string())
+        assert_eq!(result, "OK");
+        assert_eq!(value, "1");
     }
 
     #[test]
     fn test_getdel_returns_old_value_of_key_and_after_value_of_key_what_not_exists_in_database_is_nul(
     ) {
         let mut database = Database::new();
-        database.set("key", "1").expect("error");
-        let value = database.getdel("key");
+        let _ = database.set("key".to_string(), "1".to_string());
+        let value = database.getdel("key".to_string()).unwrap();
 
         //now key, no exists in database.
-        let _current_value_key = database.get("key");
+        let current_value_key = database.get("key".to_string()).unwrap_err().to_string();
 
-        assert_eq!(value.unwrap(), "1".to_string());
-        assert_eq!(
-            _current_value_key.unwrap_err().to_string(),
-            "(nil)".to_string()
-        );
+        assert_eq!(value, "1");
+        assert_eq!(current_value_key, "Non-existent key");
     }
 
     #[test]
     fn test_getdel_returns_nil_value_if_key_not_exist_in_database() {
         let mut database = Database::new();
 
-        let value = database.getdel("key");
+        let value = database.getdel("key".to_string()).unwrap_err().to_string();
 
-        assert_eq!(value.unwrap_err().to_string(), "(nil)".to_string())
+        assert_eq!(value, "Non-existent key");
     }
 
     #[test]
     fn test_incrby_returns_lenght_of_the_resulting_value_after_increment() {
         let mut database = Database::new();
 
-        database.set("key", "1").expect("error");
+        let _ = database.set("key".to_string(), "1".to_string());
 
-        let result = database.incrby("key", "4");
+        let result = database.incrby("key".to_string(), "4".to_string()).unwrap();
 
-        assert_eq!(result.unwrap(), "5".to_string());
+        assert_eq!(result, "(integer) 5".to_string());
     }
 
     #[test]
     fn test_incrby_returns_err_if_the_value_can_not_be_parse_to_int() {
         let mut database = Database::new();
 
-        database.set("key", "1").expect("error");
+        let _ = database.set("key".to_string(), "1".to_string());
 
-        let result = database.incrby("key", "4a");
+        let result = database
+            .incrby("key".to_string(), "4a".to_string())
+            .unwrap_err()
+            .to_string();
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "the value cannot be parsed to int".to_string()
-        );
+        assert_eq!(result, "Value isn't an Integer");
     }
 
     #[test]
@@ -393,28 +358,23 @@ mod group_string {
     fn test_decrby_returns_lenght_of_the_resulting_value_after_increment() {
         let mut database = Database::new();
 
-        database.set("key", "5").expect("error");
+        let _ = database.set("key".to_string(), "5".to_string());
 
-        let result = database.decrby("key", "4");
+        let result = database.decrby("key".to_string(), "4".to_string()).unwrap();
 
-        assert_eq!(result.unwrap(), "1".to_string());
-
-        //assert_eq!(value.unwrap_err().to_string(), "the value cannot be parsed to int".to_string())
+        assert_eq!(result, "(integer) 1");
     }
 
     #[test]
     fn test_decrby_returns_err_if_the_value_can_not_be_parse_to_int() {
         let mut database = Database::new();
+        let _ = database.set("key".to_string(), "1".to_string());
+        let result = database
+            .decrby("key".to_string(), "4a".to_string())
+            .unwrap_err()
+            .to_string();
 
-        database.set("key", "1").expect("error");
-
-        let result = database.decrby("key", "4a");
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "the value cannot be parsed to int".to_string()
-        );
+        assert_eq!(result, "Value isn't an Integer");
     }
 
     #[test]
@@ -434,20 +394,20 @@ mod group_string {
     fn test_strlen_returns_the_lenght_of_value_key() {
         let mut database = Database::new();
 
-        database.set("key", "abcd").expect("error");
+        let _ = database.set("key".to_string(), "abcd".to_string());
 
-        let result = database.strlen("key");
+        let result = database.strlen("key").unwrap();
 
-        assert_eq!(result.unwrap(), String::from("4"));
+        assert_eq!(result, "4");
     }
 
     #[test]
     fn test_strlen_returns_zero_if_the_key_not_exists_in_database() {
         let mut database = Database::new();
 
-        let result = database.strlen("no_exists_key");
+        let result = database.strlen("no_exists_key").unwrap();
 
-        assert_eq!(result.unwrap(), String::from("0"));
+        assert_eq!(result, "0");
     }
 
     #[test]
@@ -469,12 +429,12 @@ mod group_string {
 
         let result = database.mset(&vect_key_value);
 
-        let result_get1 = database.get("key1");
-        let result_get2 = database.get("key2");
+        let result_get1 = database.get("key1".to_string());
+        let result_get2 = database.get("key2".to_string());
 
-        assert_eq!(result.unwrap().to_string(), String::from("OK"));
-        assert_eq!(result_get1.unwrap().to_string(), String::from("value1"));
-        assert_eq!(result_get2.unwrap().to_string(), String::from("value2"));
+        assert_eq!(result.unwrap().to_string(), "OK");
+        assert_eq!(result_get1.unwrap().to_string(), "value1");
+        assert_eq!(result_get2.unwrap().to_string(), "value2");
     }
 
     #[test]
@@ -500,8 +460,8 @@ mod group_string {
 
         let mut database = Database::new();
 
-        database.set("key1", "value1").expect("error");
-        database.set("key2", "value2").expect("error");
+        let _ = database.set("key1".to_string(), "value1".to_string());
+        let _ = database.set("key2".to_string(), "value2".to_string());
 
         let result = database.mget(&vect_key_value);
 
@@ -516,13 +476,16 @@ mod group_string {
 
         let mut database = Database::new();
 
-        database.set("key1", "value1").expect("error");
-        database.set("key3", "value3").expect("error");
+        let _ = database.set("key1".to_string(), "value1".to_string());
+        let _ = database.set("key3".to_string(), "value3".to_string());
 
         let result = database.mget(&vect_key_value);
 
         //refactorizar para que devuelva sin el \n al final del string
-        assert_eq!(result.unwrap(), "1) value1\n2) (nil)\n3) value3\n");
+        assert_eq!(
+            result.unwrap(),
+            "1) value1\n2) Non-existent key\n3) value3\n"
+        );
     }
 }
 
@@ -534,20 +497,20 @@ mod group_keys {
     #[test]
     fn test_copy_set_dolly_sheep_then_copy_to_clone() {
         let mut database = Database::new();
-        let _ = database.set("dolly", "sheep");
+        let _ = database.set("dolly".to_string(), "sheep".to_string());
 
-        let result = database.copy("dolly", "clone");
-        assert_eq!(result.unwrap(), "1");
-        assert_eq!(database.get("clone").unwrap(), "sheep");
+        let result = database.copy("dolly".to_string(), "clone".to_string());
+        assert_eq!(result.unwrap(), "(integer) 1");
+        assert_eq!(database.get("clone".to_string()).unwrap(), "sheep");
     }
 
     #[test]
     fn test_copy_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
         let mut database = Database::new();
-        let _ = database.set("dolly", "sheep");
-        let _ = database.set("clone", "whatever");
+        let _ = database.set("dolly".to_string(), "sheep".to_string());
+        let _ = database.set("clone".to_string(), "whatever".to_string());
 
-        let result = database.copy("dolly", "clone");
+        let result = database.copy("dolly".to_string(), "clone".to_string());
         assert_eq!(
             result.unwrap_err().to_string(),
             "the key alredy exist in the database"
@@ -558,56 +521,65 @@ mod group_keys {
     fn test_copy_try_to_copy_a_key_does_not_exist() {
         let mut database = Database::new();
 
-        let result = database.copy("dolly", "clone");
-        assert_eq!(result.unwrap_err().to_string(), "(nil)");
+        let result = database.copy("dolly".to_string(), "clone".to_string());
+        assert_eq!(result.unwrap_err().to_string(), "Non-existent key");
     }
 
     #[test]
     fn test_del_key_hello_returns_1() {
         let mut database = Database::new();
-        let _ = database.set("key", "hello");
+        let _ = database.set("key".to_string(), "hello".to_string());
 
-        let result = database.del("key");
-        assert_eq!(result.unwrap(), "1");
-        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+        let result = database.del("key".to_string());
+        assert_eq!(result.unwrap(), "(integer) 1");
+        assert_eq!(
+            database.get("key".to_string()).unwrap_err().to_string(),
+            "Non-existent key"
+        );
     }
 
     #[test]
     fn test_del_key_non_exist_returns_0() {
         let mut database = Database::new();
 
-        let result = database.del("key");
-        assert_eq!(result.unwrap(), "0");
-        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+        let result = database.del("key".to_string());
+        assert_eq!(result.unwrap(), "(integer) 0");
+        assert_eq!(
+            database.get("key".to_string()).unwrap_err().to_string(),
+            "Non-existent key"
+        );
     }
 
     #[test]
     fn test_exists_key_non_exist_returns_0() {
         let mut database = Database::new();
 
-        let result = database.exists("key");
-        assert_eq!(result.unwrap(), "0");
-        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+        let result = database.exists("key".to_string());
+        assert_eq!(result.unwrap(), "(integer) 0");
+        assert_eq!(
+            database.get("key".to_string()).unwrap_err().to_string(),
+            "Non-existent key"
+        );
     }
 
     #[test]
     fn test_exists_key_hello_returns_0() {
         let mut database = Database::new();
-        let _ = database.set("key", "hello");
+        let _ = database.set("key".to_string(), "hello".to_string());
 
-        let result = database.exists("key");
-        assert_eq!(result.unwrap(), "1");
-        assert_eq!(database.get("key").unwrap(), "hello");
+        let result = database.exists("key".to_string());
+        assert_eq!(result.unwrap(), "(integer) 1");
+        assert_eq!(database.get("key".to_string()).unwrap(), "hello");
     }
 
     #[test]
     fn test_keys_obtain_keys_with_name() {
         let mut database = Database::new();
-        let _ = database.set("firstname", "Alex");
-        let _ = database.set("lastname", "Arbieto");
-        let _ = database.set("age", "22");
+        let _ = database.set("firstname".to_string(), "Alex".to_string());
+        let _ = database.set("lastname".to_string(), "Arbieto".to_string());
+        let _ = database.set("age".to_string(), "22".to_string());
 
-        let result = database.keys("name").unwrap();
+        let result = database.keys("name".to_string()).unwrap();
         let result: HashSet<_> = result.split("\r\n").collect();
         assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
     }
@@ -615,34 +587,39 @@ mod group_keys {
     #[test]
     fn test_keys_obtain_keys_with_nomatch_returns_empty_string() {
         let mut database = Database::new();
-        let _ = database.set("firstname", "Alex");
-        let _ = database.set("lastname", "Arbieto");
-        let _ = database.set("age", "22");
+        let _ = database.set("firstname".to_string(), "Alex".to_string());
+        let _ = database.set("lastname".to_string(), "Arbieto".to_string());
+        let _ = database.set("age".to_string(), "22".to_string());
 
-        let result = database.keys("nomatch");
+        let result = database.keys("nomatch".to_string());
         assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
     }
 
     #[test]
     fn test_rename_key_with_mykey_get_hello() {
         let mut database = Database::new();
-        let _ = database.set("key", "hello");
+        let _ = database.set("key".to_string(), "hello".to_string());
 
-        let result = database.rename("key", "mykey").unwrap();
+        let result = database
+            .rename("key".to_string(), "mykey".to_string())
+            .unwrap();
         assert_eq!(result, "Ok");
 
-        let result = database.get("mykey").unwrap();
+        let result = database.get("mykey".to_string()).unwrap();
         assert_eq!(result, "hello");
 
-        let result = database.get("key").unwrap_err().to_string();
-        assert_eq!(result, "(nil)");
+        let result = database.get("key".to_string()).unwrap_err().to_string();
+        assert_eq!(result, "Non-existent key");
     }
 
     #[test]
     fn test_rename_key_non_exists_error() {
         let mut database = Database::new();
 
-        let result = database.rename("key", "mykey").unwrap_err().to_string();
-        assert_eq!(result, "ERR ERR no such key");
+        let result = database
+            .rename("key".to_string(), "mykey".to_string())
+            .unwrap_err()
+            .to_string();
+        assert_eq!(result, "Non-existent key");
     }
 }
