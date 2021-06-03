@@ -12,14 +12,26 @@ pub enum MensajeErroresDataBase {
     ValueNotIsAnString,
     KeyNotExistsInDatabase,
     ParseIntError,
+    KeyAlredyExist,
+    KeyNotExistsInDatabaseRename,
+    NoMatch,
 }
 
 impl fmt::Display for MensajeErroresDataBase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             MensajeErroresDataBase::KeyNotExistsInDatabase => write!(f, "(nil)"),
+            MensajeErroresDataBase::KeyNotExistsInDatabaseRename => {
+                write!(f, "ERR ERR no such key")
+            }
             MensajeErroresDataBase::ValueNotIsAnString => write!(f, "value not is an String"),
             MensajeErroresDataBase::ParseIntError => write!(f, "the value cannot be parsed to int"),
+            MensajeErroresDataBase::KeyAlredyExist => {
+                write!(f, "the key alredy exist in the database")
+            }
+            MensajeErroresDataBase::NoMatch => {
+                write!(f, "(empty list or set)")
+            }
         }
     }
 }
@@ -28,6 +40,61 @@ impl Database {
     pub fn new() -> Database {
         Database {
             dictionary: HashMap::new(),
+        }
+    }
+
+    pub fn rename(
+        &mut self,
+        old_key: &str,
+        new_key: &str,
+    ) -> Result<String, MensajeErroresDataBase> {
+        match self.dictionary.remove(old_key) {
+            Some(value) => {
+                self.dictionary.insert(new_key.to_string(), value);
+                Ok("Ok".to_string())
+            }
+            None => Err(MensajeErroresDataBase::KeyNotExistsInDatabaseRename),
+        }
+    }
+
+    pub fn keys(&mut self, pattern: &str) -> Result<String, MensajeErroresDataBase> {
+        let result: String = self
+            .dictionary
+            .keys()
+            .filter(|x| x.contains(pattern))
+            .map(|x| x.to_string() + "\r\n")
+            .collect();
+
+        match result.strip_suffix("\r\n") {
+            Some(s) => Ok(s.to_string()),
+            None => Err(MensajeErroresDataBase::NoMatch),
+        }
+    }
+
+    pub fn exists(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        Ok((self.dictionary.contains_key(key) as i8).to_string())
+    }
+
+    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, MensajeErroresDataBase> {
+        let value = match self.dictionary.get(key) {
+            Some(StorageValue::String(val)) => {
+                if self.dictionary.contains_key(to_key) {
+                    return Err(MensajeErroresDataBase::KeyAlredyExist);
+                } else {
+                    val.clone()
+                }
+            }
+            None => return Err(MensajeErroresDataBase::KeyNotExistsInDatabase),
+        };
+        self.dictionary
+            .insert(String::from(to_key), StorageValue::String(value));
+        Ok(String::from("1"))
+    }
+
+    pub fn del(&mut self, key: &str) -> Result<String, MensajeErroresDataBase> {
+        match self.dictionary.remove(key) {
+            Some(_) => Ok(String::from("1")),
+            None => Ok(String::from("0")),
         }
     }
 
@@ -141,6 +208,7 @@ impl fmt::Display for Database {
 mod commandtest {
 
     use crate::database::Database;
+    use std::collections::HashSet;
 
     #[test]
     fn test01_append_new_key_return_lenght_of_the_value() {
@@ -311,5 +379,120 @@ mod commandtest {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "the value cannot be parsed to int".to_string());
         */
+    }
+
+    #[test]
+    fn test15_set_dolly_sheep_then_copy_to_clone() {
+        let mut database = Database::new();
+        let _ = database.set("dolly", "sheep");
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("clone").unwrap(), "sheep");
+    }
+
+    #[test]
+    fn test16_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
+        let mut database = Database::new();
+        let _ = database.set("dolly", "sheep");
+        let _ = database.set("clone", "whatever");
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "the key alredy exist in the database"
+        );
+    }
+
+    #[test]
+    fn test16_try_to_copy_a_key_does_not_exist() {
+        let mut database = Database::new();
+
+        let result = database.copy("dolly", "clone");
+        assert_eq!(result.unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test17_del_key_hello_returns_1() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.del("key");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test18_del_key_non_exist_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.del("key");
+        assert_eq!(result.unwrap(), "0");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test19_exists_key_non_exist_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.exists("key");
+        assert_eq!(result.unwrap(), "0");
+        assert_eq!(database.get("key").unwrap_err().to_string(), "(nil)");
+    }
+
+    #[test]
+    fn test19_exists_key_hello_returns_0() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.exists("key");
+        assert_eq!(result.unwrap(), "1");
+        assert_eq!(database.get("key").unwrap(), "hello");
+    }
+
+    #[test]
+    fn test20_obtain_keys_with_name() {
+        let mut database = Database::new();
+        let _ = database.set("firstname", "Alex");
+        let _ = database.set("lastname", "Arbieto");
+        let _ = database.set("age", "22");
+
+        let result = database.keys("name").unwrap();
+        let result: HashSet<_> = result.split("\r\n").collect();
+        assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
+    }
+
+    #[test]
+    fn test21_obtain_keys_with_nomatch_returns_empty_string() {
+        let mut database = Database::new();
+        let _ = database.set("firstname", "Alex");
+        let _ = database.set("lastname", "Arbieto");
+        let _ = database.set("age", "22");
+
+        let result = database.keys("nomatch");
+        assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
+    }
+
+    #[test]
+    fn test22_rename_key_with_mykey_get_hello() {
+        let mut database = Database::new();
+        let _ = database.set("key", "hello");
+
+        let result = database.rename("key", "mykey").unwrap();
+        assert_eq!(result, "Ok");
+
+        let result = database.get("mykey").unwrap();
+        assert_eq!(result, "hello");
+
+        let result = database.get("key").unwrap_err().to_string();
+        assert_eq!(result, "(nil)");
+    }
+
+    #[test]
+    fn test22_rename_key_non_exists_error() {
+        let mut database = Database::new();
+
+        let result = database.rename("key", "mykey").unwrap_err().to_string();
+        assert_eq!(result, "ERR ERR no such key");
     }
 }

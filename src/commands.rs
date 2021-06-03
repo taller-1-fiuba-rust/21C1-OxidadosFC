@@ -6,6 +6,11 @@ pub enum Command<'a> {
     Getdel(&'a str),
     Getset(&'a str, &'a str),
     Set(&'a str, &'a str),
+    Copy(&'a str, &'a str),
+    Del(&'a str),
+    Exists(&'a str),
+    Keys(&'a str),
+    Rename(&'a str, &'a str),
     Print,
     None,
 }
@@ -22,6 +27,11 @@ impl<'a> Command<'a> {
             ["getdel", key] => Command::Getdel(key),
             ["getset", key, value] => Command::Getset(key, value),
             ["set", key, value] => Command::Set(key, value),
+            ["copy", key, to_key] => Command::Copy(key, to_key),
+            ["del", key] => Command::Del(key),
+            ["exists", key] => Command::Exists(key),
+            ["keys", pattern] => Command::Keys(pattern),
+            ["rename", old_key, new_key] => Command::Rename(old_key, new_key),
             ["print"] => Command::Print,
             _ => Command::None,
         }
