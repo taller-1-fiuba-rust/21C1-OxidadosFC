@@ -55,7 +55,7 @@ impl Database {
     pub fn rename(&mut self, old_key: String, new_key: String) -> Result<String, DataBaseError> {
         match self.dictionary.remove(&old_key) {
             Some(value) => {
-                self.dictionary.insert(new_key.to_string(), value);
+                self.dictionary.insert(new_key, value);
                 Ok("Ok".to_string())
             }
             None => Err(DataBaseError::NonExistentKey),
@@ -92,7 +92,7 @@ impl Database {
             None => return Err(DataBaseError::NonExistentKey),
         };
         self.dictionary
-            .insert(String::from(to_key), StorageValue::String(value));
+            .insert(to_key, StorageValue::String(value));
         Ok(String::from("1"))
     }
 
@@ -138,7 +138,7 @@ impl Database {
     }
 
     pub fn incrby(&mut self, key: String, number_of_incr: String) -> Result<String, DataBaseError> {
-        let mut number_incr = String::from(number_of_incr);
+        let mut number_incr = number_of_incr;
         number_incr.insert(0, '-');
         self.decrby(key, number_incr)
     }
@@ -152,7 +152,7 @@ impl Database {
     }
 
     pub fn getset(&mut self, key: String, _new_val: String) -> Result<String, DataBaseError> {
-        let mut _copy_key = key.clone();
+        let mut _copy_key = key;
         if let Some(storage_value) = self.dictionary.get(&_copy_key) {
             match storage_value {
                 StorageValue::String(old_value) => Ok(old_value.to_string()),

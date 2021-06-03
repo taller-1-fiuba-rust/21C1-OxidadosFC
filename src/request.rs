@@ -51,7 +51,7 @@ impl Request {
         }
     }
 
-    pub fn execute<'a>(self, db: &Arc<Mutex<Database>>) -> Reponse {
+    pub fn execute(self, db: &Arc<Mutex<Database>>) -> Reponse {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();
@@ -87,14 +87,14 @@ impl Reponse {
     pub fn respond(self, stream: &mut TcpStream, log_sender: &Sender<String>) {
         match self {
             Reponse::Valid(message) => {
-                if let Err(_) = writeln!(stream, "{}\n", message) {
+                if writeln!(stream, "{}\n", message).is_err() {
                     log_sender
                         .send("response could not be sent".to_string())
                         .unwrap();
                 }
             }
             Reponse::Error(message) => {
-                if let Err(_) = writeln!(stream, "Error: {}\n", message) {
+                if  writeln!(stream, "Error: {}\n", message).is_err() {
                     log_sender
                         .send("response could not be sent".to_string())
                         .unwrap();
