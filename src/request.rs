@@ -94,7 +94,7 @@ impl Reponse {
                 }
             }
             Reponse::Error(message) => {
-                if  writeln!(stream, "Error: {}\n", message).is_err() {
+                if writeln!(stream, "Error: {}\n", message).is_err() {
                     log_sender
                         .send("response could not be sent".to_string())
                         .unwrap();

@@ -91,8 +91,7 @@ impl Database {
             }
             None => return Err(DataBaseError::NonExistentKey),
         };
-        self.dictionary
-            .insert(to_key, StorageValue::String(value));
+        self.dictionary.insert(to_key, StorageValue::String(value));
         Ok(String::from("1"))
     }
 
