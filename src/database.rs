@@ -32,10 +32,6 @@ impl fmt::Display for DataBaseError {
     }
 }
 
-pub fn es_par(a_positive_value: &usize) -> bool {
-    *a_positive_value % 2 == 0
-}
-
 impl Database {
     pub fn new() -> Database {
         Database {
@@ -52,8 +48,7 @@ impl Database {
 
         new_value.push_str(&value);
         let len = new_value.len().to_string();
-        self.dictionary
-            .insert(String::from(key), StorageValue::String(new_value));
+        self.dictionary.insert(key, StorageValue::String(new_value));
 
         return Ok(format!("(integer) {}", len));
     }
@@ -165,21 +160,25 @@ impl Database {
         }
     }
 
-    pub fn mset(&mut self, params: &[&str]) -> Result<String, DataBaseError> {
-        if es_par(&params.len()) {
-            for i in (0..params.len()).step_by(2) {
-                let key = params[i];
-                let value = params[i + 1];
-                self.dictionary
-                    .insert(key.to_string(), StorageValue::String(value.to_string()));
-            }
-            Ok("OK".to_string())
-        } else {
-            Err(DataBaseError::NumberOfParamsIsIncorrectly)
+    pub fn mset(&mut self, params: &[String]) -> Result<String, DataBaseError> {
+        for i in (0..params.len()).step_by(2) {
+            let key = match params.get(i) {
+                Some(val) => val,
+                None => return Err(DataBaseError::NumberOfParamsIsIncorrectly),
+            };
+
+            let value = match params.get(i + 1) {
+                Some(val) => val,
+                None => return Err(DataBaseError::NumberOfParamsIsIncorrectly),
+            };
+
+            self.dictionary
+                .insert(key.to_string(), StorageValue::String(value.to_string()));
         }
+        Ok("OK".to_string())
     }
 
-    pub fn mget(&mut self, params: &[&str]) -> Result<String, DataBaseError> {
+    pub fn mget(&mut self, params: &[String]) -> Result<String, DataBaseError> {
         let mut result = String::from("");
         let mut count = 0;
         for key in params {
@@ -424,7 +423,12 @@ mod group_string {
 
     #[test]
     fn test_mset_set_multiple_key_and_value_ok() {
-        let vect_key_value = vec!["key1", "value1", "key2", "value2"];
+        let vect_key_value = vec![
+            "key1".to_string(),
+            "value1".to_string(),
+            "key2".to_string(),
+            "value2".to_string(),
+        ];
         let mut database = Database::new();
 
         let result = database.mset(&vect_key_value);
@@ -440,7 +444,7 @@ mod group_string {
     #[test]
     fn test_mset_returns_err_if_multiple_key_and_value_are_inconsistent_in_number() {
         //without value for key2
-        let vect_key_value = vec!["key1", "value1", "key2"];
+        let vect_key_value = vec!["key1".to_string(), "value1".to_string(), "key2".to_string()];
 
         let mut database = Database::new();
 
@@ -456,7 +460,7 @@ mod group_string {
     #[test]
     fn test_mget_return_all_values_of_keys_if_all_keys_are_in_database() {
         //without value for key2
-        let vect_key_value = vec!["key1", "key2"];
+        let vect_key_value = vec!["key1".to_string(), "key2".to_string()];
 
         let mut database = Database::new();
 
@@ -472,7 +476,7 @@ mod group_string {
     #[test]
     fn test_mget_returns_nil_for_some_key_that_no_exists_in_database() {
         //without value for key2
-        let vect_key_value = vec!["key1", "key2", "key3"];
+        let vect_key_value = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
 
         let mut database = Database::new();
 
