@@ -176,9 +176,9 @@ impl Database {
 
         let _ = self.set(key, new_val);
         Ok(old_val)
-     }
+    }
 
-     pub fn mset(&mut self, params: &[String]) -> Result<String, DataBaseError> {
+    pub fn mset(&mut self, params: &[String]) -> Result<String, DataBaseError> {
         for i in (0..params.len()).step_by(2) {
             let key = match params.get(i) {
                 Some(val) => val,
@@ -565,10 +565,7 @@ mod group_keys {
         let mut database = Database::new();
 
         let result = database.del("key".to_string());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "Non-existent key"
-        );
+        assert_eq!(result.unwrap_err().to_string(), "Non-existent key");
     }
 
     #[test]
