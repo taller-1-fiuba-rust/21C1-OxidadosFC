@@ -32,6 +32,7 @@ pub enum Command {
     Strlen(String),
     Mset(Vec<String>),
     Mget(Vec<String>),
+    Lpush(String, String),
     None,
 }
 
@@ -75,6 +76,7 @@ impl Request {
                     Command::Strlen(key) => db.strlen(&key),
                     Command::Mset(vec_str) => db.mset(&vec_str[1..]),
                     Command::Mget(vec_str) => db.mget(&vec_str[1..]),
+                    Command::Lpush(key, val) => db.lpush(key,val),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -134,6 +136,7 @@ impl Command {
             ["strlen", key] => Command::Strlen(key.to_owned()),
             ["mset", ..] => Command::Mset(command.iter().map(|x| x.to_string()).collect()),
             ["mget", ..] => Command::Mget(command.iter().map(|x| x.to_string()).collect()),
+            ["lpush", key, value] => Command::Lpush(key.to_owned(), value.to_owned()),
             _ => Command::None,
         }
     }
@@ -171,6 +174,7 @@ impl Display for Command {
             Command::Strlen(key) => write!(f, "Get length of the value with key {}", key),
             Command::Mget(params) => write!(f, "Mget {:?}", params),
             Command::Mset(params) => write!(f, "Mset {:?}", params),
+            Command::Lpush(key, val) => write!(f, "Push {} into the list with key {}", val, key),
             Command::None => write!(f, "Wrong Command"),
         }
     }
