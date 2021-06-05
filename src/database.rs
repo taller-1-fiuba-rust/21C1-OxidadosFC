@@ -119,8 +119,7 @@ impl Database {
     pub fn set(&mut self, key: String, val: String) -> Result<String, DataBaseError> {
         match val.parse::<i32>() {
             Ok(val) => self.dictionary.insert(key, StorageValue::Integer(val)),
-            Err(_) => self.dic
-tionary.insert(key, StorageValue::String(val)),
+            Err(_) => self.dictionary.insert(key, StorageValue::String(val)),
         };
 
         Ok(String::from(SUCCES))
