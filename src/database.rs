@@ -42,55 +42,7 @@ impl Database {
         }
     }
 
-    pub fn append(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
-        if self.dictionary.contains_key(&key) {
-            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(&key) {
-                val.push_str(&value);
-                let len_result = val.len();
-                Ok(format!("{} {}", INTEGER, len_result))
-            } else {
-                Err(DataBaseError::NotAString)
-            }
-        } else {
-            let val_len = value.len();
-            match self.set(key, value) {
-                Ok(_) => Ok(format!("{} {}", INTEGER, val_len)),
-                Err(err) => Err(err),
-            }
-        }
-    }
-
-    pub fn rename(&mut self, old_key: String, new_key: String) -> Result<String, DataBaseError> {
-        match self.dictionary.remove(&old_key) {
-            Some(value) => {
-                self.dictionary.insert(new_key, value);
-                Ok(SUCCES.to_owned())
-            }
-            None => Err(DataBaseError::NonExistentKey),
-        }
-    }
-
-    pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
-        let result: String = self
-            .dictionary
-            .keys()
-            .filter(|x| x.contains(&pattern))
-            .map(|x| x.to_string() + "\r\n")
-            .collect();
-
-        match result.strip_suffix("\r\n") {
-            Some(s) => Ok(s.to_string()),
-            None => Err(DataBaseError::NoMatch),
-        }
-    }
-
-    pub fn exists(&mut self, key: String) -> Result<String, DataBaseError> {
-        Ok(format!(
-            "{} {}",
-            INTEGER,
-            self.dictionary.contains_key(&key) as i8
-        ))
-    }
+    // KEYS
 
     pub fn copy(&mut self, key: String, to_key: String) -> Result<String, DataBaseError> {
         if self.dictionary.contains_key(&to_key) {
@@ -114,16 +66,70 @@ impl Database {
         }
     }
 
-    pub fn get(&mut self, key: String) -> Result<String, DataBaseError> {
-        match self.dictionary.get(&key) {
-            Some(StorageValue::String(val)) => Ok(val.to_string()),
+    pub fn exists(&mut self, key: String) -> Result<String, DataBaseError> {
+        Ok(format!(
+            "{} {}",
+            INTEGER,
+            self.dictionary.contains_key(&key) as i8
+        ))
+    }
+
+    //expire
+
+    //expireat
+
+    pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
+        let result: String = self
+            .dictionary
+            .keys()
+            .filter(|x| x.contains(&pattern))
+            .map(|x| x.to_string() + "\r\n")
+            .collect();
+
+        match result.strip_suffix("\r\n") {
+            Some(s) => Ok(s.to_string()),
+            None => Err(DataBaseError::NoMatch),
+        }
+    }
+
+    //persist
+
+    pub fn rename(&mut self, old_key: String, new_key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.remove(&old_key) {
+            Some(value) => {
+                self.dictionary.insert(new_key, value);
+                Ok(SUCCES.to_owned())
+            }
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn set(&mut self, key: String, val: String) -> Result<String, DataBaseError> {
-        self.dictionary.insert(key, StorageValue::String(val));
-        Ok(String::from(SUCCES))
+    //sort
+
+    //touch
+
+    //ttl
+
+    //type
+
+    //STRINGS
+
+    pub fn append(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
+        if self.dictionary.contains_key(&key) {
+            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(&key) {
+                val.push_str(&value);
+                let len_result = val.len();
+                Ok(format!("{} {}", INTEGER, len_result))
+            } else {
+                Err(DataBaseError::NotAString)
+            }
+        } else {
+            let val_len = value.len();
+            match self.set(key, value) {
+                Ok(_) => Ok(format!("{} {}", INTEGER, val_len)),
+                Err(err) => Err(err),
+            }
+        }
     }
 
     pub fn decrby(&mut self, key: String, number_of_decr: String) -> Result<String, DataBaseError> {
@@ -147,10 +153,11 @@ impl Database {
         }
     }
 
-    pub fn incrby(&mut self, key: String, number_of_incr: String) -> Result<String, DataBaseError> {
-        let mut number_incr = number_of_incr;
-        number_incr.insert(0, '-');
-        self.decrby(key, number_incr)
+    pub fn get(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get(&key) {
+            Some(StorageValue::String(val)) => Ok(val.to_string()),
+            None => Err(DataBaseError::NonExistentKey),
+        }
     }
 
     pub fn getdel(&mut self, key: String) -> Result<String, DataBaseError> {
@@ -168,6 +175,31 @@ impl Database {
 
         let _ = self.set(key, new_val);
         Ok(old_val)
+    }
+
+    pub fn incrby(&mut self, key: String, number_of_incr: String) -> Result<String, DataBaseError> {
+        let mut number_incr = number_of_incr;
+        number_incr.insert(0, '-');
+        self.decrby(key, number_incr)
+    }
+
+    pub fn mget(&mut self, params: &[String]) -> Result<String, DataBaseError> {
+        let mut result = String::from("");
+        let mut count = 0;
+        for key in params {
+            count += 1;
+            result.push_str((count.to_string() + &") ".to_string()).as_str());
+            match self.get(key.to_string()) {
+                Ok(result_ok) => {
+                    result.push_str(&result_ok);
+                }
+                Err(error_database) => {
+                    result.push_str(&error_database.to_string());
+                }
+            }
+            result.push_str(&'\n'.to_string());
+        }
+        Ok(result)
     }
 
     pub fn mset(&mut self, params: &[String]) -> Result<String, DataBaseError> {
@@ -188,23 +220,9 @@ impl Database {
         Ok("OK".to_string())
     }
 
-    pub fn mget(&mut self, params: &[String]) -> Result<String, DataBaseError> {
-        let mut result = String::from("");
-        let mut count = 0;
-        for key in params {
-            count += 1;
-            result.push_str((count.to_string() + &") ".to_string()).as_str());
-            match self.get(key.to_string()) {
-                Ok(result_ok) => {
-                    result.push_str(&result_ok);
-                }
-                Err(error_database) => {
-                    result.push_str(&error_database.to_string());
-                }
-            }
-            result.push_str(&'\n'.to_string());
-        }
-        Ok(result)
+    pub fn set(&mut self, key: String, val: String) -> Result<String, DataBaseError> {
+        self.dictionary.insert(key, StorageValue::String(val));
+        Ok(String::from(SUCCES))
     }
 
     pub fn strlen(&mut self, key: &str) -> Result<String, DataBaseError> {
