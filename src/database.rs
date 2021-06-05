@@ -15,6 +15,8 @@ pub enum DataBaseError {
     NoMatch,
 }
 
+const SUCCES: &str = "Ok";
+
 impl fmt::Display for DataBaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -56,7 +58,7 @@ impl Database {
         match self.dictionary.remove(&old_key) {
             Some(value) => {
                 self.dictionary.insert(new_key, value);
-                Ok("Ok".to_string())
+                Ok(SUCCES.to_owned())
             }
             None => Err(DataBaseError::NonExistentKey),
         }
@@ -81,58 +83,64 @@ impl Database {
     }
 
     pub fn copy(&mut self, key: String, to_key: String) -> Result<String, DataBaseError> {
-        let value = match self.dictionary.get(&key) {
-            Some(StorageValue::String(val)) => {
+        match self.dictionary.get(&key) {
+            Some(val) => {
                 if self.dictionary.contains_key(&to_key) {
                     return Err(DataBaseError::KeyAlredyExist);
-                } else {
-                    val.clone()
                 }
+
+                let val = match val {
+                    StorageValue::String(val) => StorageValue::String(val.clone()),
+                    StorageValue::Integer(val) => StorageValue::Integer(*val),
+                };
+
+                self.dictionary.insert(to_key, val);
+                Ok(String::from(SUCCES))
             }
-            None => return Err(DataBaseError::NonExistentKey),
-        };
-        self.dictionary.insert(to_key, StorageValue::String(value));
-        Ok(String::from("1"))
+            None => Err(DataBaseError::NonExistentKey),
+        }
     }
 
     pub fn del(&mut self, key: String) -> Result<String, DataBaseError> {
         match self.dictionary.remove(&key) {
-            Some(_) => Ok(String::from("1")),
-            None => Ok(String::from("0")),
+            Some(_) => Ok(SUCCES.to_owned()),
+            None => Err(DataBaseError::NonExistentKey),
         }
     }
 
     pub fn get(&mut self, key: String) -> Result<String, DataBaseError> {
-        if let Some(StorageValue::String(val)) = self.dictionary.get(&key) {
-            Ok(val.to_string())
-        } else {
-            Err(DataBaseError::NonExistentKey)
+        match self.dictionary.get(&key) {
+            Some(StorageValue::String(val)) => Ok(val.to_string()),
+            Some(StorageValue::Integer(val)) => Ok(val.to_string()),
+            None => Err(DataBaseError::NonExistentKey),
         }
     }
 
     pub fn set(&mut self, key: String, val: String) -> Result<String, DataBaseError> {
-        self.dictionary.insert(key, StorageValue::String(val));
-        Ok(String::from("OK"))
+        match val.parse::<i32>() {
+            Ok(val) => self.dictionary.insert(key, StorageValue::Integer(val)),
+            Err(_) => self.dic
+tionary.insert(key, StorageValue::String(val)),
+        };
+
+        Ok(String::from(SUCCES))
     }
 
     pub fn decrby(&mut self, key: String, number_of_decr: String) -> Result<String, DataBaseError> {
-        if let Some(StorageValue::String(val)) = self.dictionary.get_mut(&key) {
-            if let Ok(number_of_decr) = number_of_decr.parse::<i64>() {
-                if let Ok(mut number) = val.parse::<i64>() {
-                    number -= number_of_decr;
+        let number_of_decr = match number_of_decr.parse::<i32>() {
+            Ok(val) => val,
+            Err(_) => return Err(DataBaseError::NotAnInteger),
+        };
 
-                    match self.set(key, number.to_string()) {
-                        Ok(_) => Ok(format!("(integer) {}", number.to_string())),
-                        Err(err) => Err(err),
-                    }
-                } else {
-                    Err(DataBaseError::NotAnInteger)
-                }
-            } else {
-                Err(DataBaseError::NotAnInteger)
+        if let Some(StorageValue::Integer(val)) = self.dictionary.get_mut(&key) {
+            let val = *val - number_of_decr;
+
+            match self.set(key, val.to_string()) {
+                Ok(_) => Ok(format!("(integer) {}", val.to_string())),
+                Err(err) => Err(err),
             }
         } else {
-            Err(DataBaseError::NotAString)
+            Err(DataBaseError::NotAnInteger)
         }
     }
 
@@ -143,22 +151,24 @@ impl Database {
     }
 
     pub fn getdel(&mut self, key: String) -> Result<String, DataBaseError> {
-        if let Some(StorageValue::String(value)) = self.dictionary.remove(&key) {
-            Ok(value)
-        } else {
-            Err(DataBaseError::NonExistentKey)
+        match self.dictionary.remove(&key) {
+            Some(StorageValue::String(val)) => Ok(val),
+            Some(StorageValue::Integer(val)) => Ok(val.to_string()),
+            None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn getset(&mut self, key: String, _new_val: String) -> Result<String, DataBaseError> {
-        let mut _copy_key = key;
-        if let Some(storage_value) = self.dictionary.get(&_copy_key) {
-            match storage_value {
-                StorageValue::String(old_value) => Ok(old_value.to_string()),
-            }
-        } else {
-            Err(DataBaseError::NonExistentKey)
-        }
+    pub fn getset(&mut self, key: String, new_val: String) -> Result<String, DataBaseError> {
+        let old_val = match self.dictionary.get(&key) {
+            Some(val) => match val {
+                StorageValue::String(old_value) => old_value.to_string(),
+                StorageValue::Integer(old_value) => old_value.to_string(),
+            },
+            None => return Err(DataBaseError::NonExistentKey),
+        };
+
+        let _ = self.set(key, new_val);
+        Ok(old_val)
     }
 }
 
