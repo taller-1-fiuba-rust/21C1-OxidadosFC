@@ -83,8 +83,12 @@ impl Database {
         let result: String = self
             .dictionary
             .keys()
-            .filter(|x| x.contains(&pattern))
-            .map(|x| x.to_string() + "\r\n")
+            .filter(|x| 
+                match Regex::new(&pattern) {
+                    Ok(re) => re.is_match(x),
+                    Err(_) => false,
+                }
+            ).map(|x| x.to_string() + "\r\n")
             .collect();
 
         match result.strip_suffix("\r\n") {
@@ -611,6 +615,45 @@ mod group_keys {
         let result = database.keys("name".to_string()).unwrap();
         let result: HashSet<_> = result.split("\r\n").collect();
         assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
+    }
+
+    #[test]
+    fn test_keys_obtain_all_keys_with_a_special_expresion() {
+        let mut database = Database::new();
+        let _ = database.set("key".to_string(), "val1".to_string());
+        let _ = database.set("keeeey".to_string(), "val2".to_string());
+        let _ = database.set("ky".to_string(), "val3".to_string());
+        let _ = database.set("notmatch".to_string(), "val4".to_string());
+
+        let result = database.keys("k*y".to_string()).unwrap();
+        let result: HashSet<_> = result.split("\r\n").collect();
+        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
+    }
+
+    #[test]
+    fn test_keys_obtain_all_keys_with_other_special_expresion() {
+        let mut database = Database::new();
+        let _ = database.set("key".to_string(), "val1".to_string());
+        let _ = database.set("keeeey".to_string(), "val2".to_string());
+        let _ = database.set("ky".to_string(), "val3".to_string());
+        let _ = database.set("notmatch".to_string(), "val4".to_string());
+
+        let result = database.keys("k?y".to_string()).unwrap();
+        let result: HashSet<_> = result.split("\r\n").collect();
+        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
+    }
+
+    #[test]
+    fn test_keys_obtain_all_keys_with_a_symbol() {
+        let mut database = Database::new();
+        let _ = database.set("key".to_string(), "val1".to_string());
+        let _ = database.set("keeeey".to_string(), "val2".to_string());
+        let _ = database.set("ky".to_string(), "val3".to_string());
+        let _ = database.set("notmatch".to_string(), "val4".to_string());
+
+        let result = database.keys("k*y".to_string()).unwrap();
+        let result: HashSet<_> = result.split("\r\n").collect();
+        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
     }
 
     #[test]
