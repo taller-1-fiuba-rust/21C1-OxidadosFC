@@ -162,7 +162,7 @@ impl Database {
 
     pub fn getset(&mut self, key: String, new_val: String) -> Result<String, DataBaseError> {
         let old_val = match self.dictionary.get(&key) {
-            Some(StorageValue::String(old_value) ) => old_value.to_string(),
+            Some(StorageValue::String(old_value)) => old_value.to_string(),
             None => return Err(DataBaseError::NonExistentKey),
         };
 
