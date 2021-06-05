@@ -1,6 +1,6 @@
 use crate::storagevalue::StorageValue;
-use std::collections::HashMap;
 use regex::Regex;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -83,12 +83,11 @@ impl Database {
         let result: String = self
             .dictionary
             .keys()
-            .filter(|x| 
-                match Regex::new(&pattern) {
-                    Ok(re) => re.is_match(x),
-                    Err(_) => false,
-                }
-            ).map(|x| x.to_string() + "\r\n")
+            .filter(|x| match Regex::new(&pattern) {
+                Ok(re) => re.is_match(x),
+                Err(_) => false,
+            })
+            .map(|x| x.to_string() + "\r\n")
             .collect();
 
         match result.strip_suffix("\r\n") {
