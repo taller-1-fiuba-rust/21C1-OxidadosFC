@@ -1,5 +1,6 @@
 use core::fmt::{Display, Formatter, Result};
 
+#[derive(Clone)]
 pub enum StorageValue {
     String(String),
     //Integer(i64),
