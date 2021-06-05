@@ -244,11 +244,23 @@ impl Database {
 
     // Lists
 
+    //lindex
+
+    pub fn llen(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get(&key) {
+            Some(StorageValue::List(list)) => Ok(format!("{} {}", INTEGER, list.len().to_string())),
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(format!("{} 0", INTEGER)),
+        }
+    }
+
+    //lpop
+
     pub fn lpush(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
         match self.dictionary.get_mut(&key) {
             Some(StorageValue::List(list)) => {
                 list.push(value);
-                Ok(list.len().to_string())
+                Ok(format!("{} {}", INTEGER, list.len().to_string()))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => {
@@ -256,7 +268,7 @@ impl Database {
                 list.push(value);
                 let len = list.len();
                 self.dictionary.insert(key, StorageValue::List(list));
-                Ok(len.to_string())
+                Ok(format!("{} {}", INTEGER, len.to_string()))
             }
         }
     }
@@ -681,10 +693,66 @@ mod group_list {
 
     use super::*;
 
+    mod llen_test {
+
+        use super::*;
+
+        #[test]
+        fn test_llen_on_a_non_existent_key_gets_len_zero() {
+            let mut database = Database::new();
+            match database.llen("Key".to_owned()) {
+                Ok(result) => assert_eq!(result, format!("{} 0", INTEGER)),
+                Err(err) => panic!(format!("{}", err.to_string())),
+            }
+        }
+
+        #[test]
+        fn test_llen_on_a_list_with_one_value() {
+            let mut database = Database::new();
+            database.lpush("Key".to_owned(), "Value".to_owned()).unwrap();
+
+            match  database.llen("Key".to_owned()) {
+                Ok(result) => assert_eq!(result, format!("{} 1", INTEGER)),
+                Err(err) => panic!(format!("{}", err.to_string())),
+            }
+        }
+       
+        #[test]
+        fn test_llen_on_a_with_more_than_one_value() {
+            let mut database = Database::new();
+           
+            database.lpush("Key".to_owned(), "ValueA".to_owned()).unwrap();
+            database.lpush("Key".to_owned(), "ValueB".to_owned()).unwrap();
+            database.lpush("Key".to_owned(), "ValueC".to_owned()).unwrap();
+            database.lpush("Key".to_owned(), "ValueD".to_owned()).unwrap();
+
+            match  database.llen("Key".to_owned()) {
+                Ok(result) => assert_eq!(result, format!("{} 4", INTEGER)),
+                Err(err) => panic!(format!("{}", err.to_string())),
+            }
+        }
+
+        #[test]
+        fn test_llen_on_an_existent_key_that_isnt_a_list() {
+            let mut database = Database::new();
+            database
+                .append("Key".to_owned(), "Value".to_owned())
+                .unwrap();
+
+            let result = database.llen("Key".to_owned());
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                DataBaseError::NotAList.to_string()
+            );
+        }
+
+
+    }
+
     mod lpush_test {
 
         use super::*;
-        
+
         #[test]
         fn test_lpush_on_a_non_existent_key_creates_a_list_with_new_value() {
             let mut database = Database::new();
@@ -694,7 +762,7 @@ mod group_list {
                 Some(StorageValue::List(list)) => {
                     assert_eq!(list.len(), 1);
                     assert_eq!(list[0], "Value");
-                    assert_eq!(result.unwrap(), "1");
+                    assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
                 }
                 Some(_) => panic!("There isn a list"),
                 None => panic!("Non-Existen Value"),
@@ -710,7 +778,7 @@ mod group_list {
                 Some(StorageValue::List(list)) => {
                     assert_eq!(list.len(), 1);
                     assert_eq!(list[0], "ValueA");
-                    assert_eq!(result.unwrap(), "1");
+                    assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
                 }
                 Some(_) => panic!("There isn a list"),
                 None => panic!("Non-Existen Value"),
@@ -722,7 +790,7 @@ mod group_list {
                 Some(StorageValue::List(list)) => {
                     assert_eq!(list.len(), 2);
                     assert_eq!(list[1], "ValueB");
-                    assert_eq!(result.unwrap(), "2");
+                    assert_eq!(result.unwrap(), format!("{} 2", INTEGER));
                 }
                 Some(_) => panic!("There isn a list"),
                 None => panic!("Non-Existen Value"),
@@ -742,4 +810,5 @@ mod group_list {
             );
         }
     }
+
 }
