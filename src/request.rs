@@ -29,6 +29,9 @@ pub enum Command {
     Getdel(String),
     Getset(String, String),
     Set(String, String),
+    Strlen(String),
+    Mset(Vec<String>),
+    Mget(Vec<String>),
     None,
 }
 
@@ -69,6 +72,9 @@ impl Request {
                     Command::Exists(key) => db.exists(key),
                     Command::Keys(pattern) => db.keys(pattern),
                     Command::Rename(old_key, new_key) => db.rename(old_key, new_key),
+                    Command::Strlen(key) => db.strlen(&key),
+                    Command::Mset(vec_str) => db.mset(&vec_str[1..]),
+                    Command::Mget(vec_str) => db.mget(&vec_str[1..]),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -125,6 +131,9 @@ impl Command {
             ["exists", key] => Command::Exists(key.to_owned()),
             ["keys", pattern] => Command::Keys(pattern.to_owned()),
             ["rename", old_key, new_key] => Command::Rename(old_key.to_owned(), new_key.to_owned()),
+            ["strlen", key] => Command::Strlen(key.to_owned()),
+            ["mset", ..] => Command::Mset(command.iter().map(|x| x.to_string()).collect()),
+            ["mget", ..] => Command::Mget(command.iter().map(|x| x.to_string()).collect()),
             _ => Command::None,
         }
     }
@@ -151,14 +160,17 @@ impl Display for Command {
             Command::Exists(key) => write!(f, "Is the key {} present?", key),
             Command::Keys(pattern) => write!(
                 f,
-                "Get the kays that match the following pattern {}",
+                "Get the keys that match the following pattern {}",
                 pattern
             ),
             Command::Rename(old_key, new_key) => write!(
                 f,
-                "Reneame the key with name {} to name {}",
+                "Rename the key with name {} to name {}",
                 old_key, new_key
             ),
+            Command::Strlen(key) => write!(f, "Get length of the value with key {}", key),
+            Command::Mget(params) => write!(f, "Mget {:?}", params),
+            Command::Mset(params) => write!(f, "Mset {:?}", params),
             Command::None => write!(f, "Wrong Command"),
         }
     }
