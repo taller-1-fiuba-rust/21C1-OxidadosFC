@@ -20,6 +20,7 @@ pub enum DataBaseError {
 
 const SUCCES: &str = "Ok";
 const INTEGER: &str = "(integer)";
+const NIL: &str = "(nil)";
 
 impl fmt::Display for DataBaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -244,7 +245,29 @@ impl Database {
 
     // Lists
 
-    //lindex
+    pub fn lindex(&mut self, key: String, index: String) -> Result<String, DataBaseError> {
+        let index = match index.parse::<i32>() {
+            Ok(val) => val,
+            Err(_) => return Err(DataBaseError::NotAnInteger),
+        };
+
+        match self.dictionary.get(&key) {
+            Some(StorageValue::List(list)) => {
+                let index = if index < 0 {
+                    ((list.len() as i32) + index) as usize
+                } else {
+                    index as usize
+                };
+
+                match list.get(index) {
+                    Some(val) => Ok(val.to_string()),
+                    None => Ok(format!("{}", NIL)),
+                }
+            }
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(format!("{}", NIL)),
+        }
+    }
 
     pub fn llen(&mut self, key: String) -> Result<String, DataBaseError> {
         match self.dictionary.get(&key) {
@@ -254,7 +277,16 @@ impl Database {
         }
     }
 
-    //lpop
+    pub fn lpop(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get_mut(&key) {
+            Some(StorageValue::List(list)) => match list.pop() {
+                Some(value) => Ok(format!("{}", value)),
+                None => Ok(format!("{}", NIL)),
+            },
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(format!("{}", NIL)),
+        }
+    }
 
     pub fn lpush(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
         match self.dictionary.get_mut(&key) {
@@ -709,24 +741,33 @@ mod group_list {
         #[test]
         fn test_llen_on_a_list_with_one_value() {
             let mut database = Database::new();
-            database.lpush("Key".to_owned(), "Value".to_owned()).unwrap();
+            database
+                .lpush("Key".to_owned(), "Value".to_owned())
+                .unwrap();
 
-            match  database.llen("Key".to_owned()) {
+            match database.llen("Key".to_owned()) {
                 Ok(result) => assert_eq!(result, format!("{} 1", INTEGER)),
                 Err(err) => panic!(format!("{}", err.to_string())),
             }
         }
-       
         #[test]
-        fn test_llen_on_a_with_more_than_one_value() {
+        fn test_llen_on_a_list_with_more_than_one_value() {
             let mut database = Database::new();
-           
-            database.lpush("Key".to_owned(), "ValueA".to_owned()).unwrap();
-            database.lpush("Key".to_owned(), "ValueB".to_owned()).unwrap();
-            database.lpush("Key".to_owned(), "ValueC".to_owned()).unwrap();
-            database.lpush("Key".to_owned(), "ValueD".to_owned()).unwrap();
 
-            match  database.llen("Key".to_owned()) {
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            match database.llen("Key".to_owned()) {
                 Ok(result) => assert_eq!(result, format!("{} 4", INTEGER)),
                 Err(err) => panic!(format!("{}", err.to_string())),
             }
@@ -745,9 +786,177 @@ mod group_list {
                 DataBaseError::NotAList.to_string()
             );
         }
-
-
     }
+
+    mod lindex_test {
+        use super::*;
+
+        #[test]
+        fn test_lindex_on_a_non_existent_key() {
+            let mut database = Database::new();
+            let result = database.lindex("Key".to_owned(), "10".to_owned());
+            match result {
+                Ok(val) => assert_eq!(val, format!("{}", NIL)),
+                Err(_) => panic!("Non-Existen Value"),
+            }
+        }
+
+        #[test]
+        fn test_lindex_with_a_wrong_idex() {
+            let mut database = Database::new();
+            let result = database.lindex("Key".to_owned(), "asdasd".to_owned());
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                DataBaseError::NotAnInteger.to_string()
+            );
+        }
+
+        #[test]
+        fn test_lindex_with_a_list_with_one_value_on_idex_zero() {
+            let mut database = Database::new();
+            database.lpush("Key".to_owned(), "val".to_owned()).unwrap();
+
+            let result = database.lindex("Key".to_owned(), "0".to_owned());
+
+            assert_eq!(result.unwrap(), "val");
+        }
+
+        #[test]
+        fn test_lindex_with_more_than_one_value() {
+            let mut database = Database::new();
+
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+            let result = database.lindex("Key".to_owned(), "3".to_owned());
+
+            assert_eq!(result.unwrap(), "ValueD");
+        }
+
+        #[test]
+        fn test_lindex_with_more_than_one_value_with_an_index_out_of_bound() {
+            let mut database = Database::new();
+
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+            let result = database.lindex("Key".to_owned(), "4".to_owned());
+
+            assert_eq!(result.unwrap(), NIL);
+        }
+
+        #[test]
+        fn test_lindex_with_more_than_one_value_with_a_negative_index() {
+            let mut database = Database::new();
+
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+            let result = database.lindex("Key".to_owned(), "-1".to_owned());
+
+            assert_eq!(result.unwrap(), "ValueD");
+        }
+
+        #[test]
+        fn test_lindex_on_a_reverse_out_of_bound() {
+            let mut database = Database::new();
+
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lindex("Key".to_owned(), "-5".to_owned());
+
+            assert_eq!(result.unwrap(), NIL);
+        }
+
+        #[test]
+        fn test_lindex_on_an_out_of_bound() {
+            let mut database = Database::new();
+
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lindex("Key".to_owned(), "1000".to_owned());
+
+            assert_eq!(result.unwrap(), NIL);
+        }
+    }
+
+    mod lpop_test {
+        use super::*;
+
+        #[test]
+        fn test_lpop_on_a_non_existent_key() {
+            let mut database = Database::new();
+            let result = database.lpop("Key".to_owned());
+            match result {
+                Ok(val) => assert_eq!(val, format!("{}", NIL)),
+                Err(_) => panic!("Non-Existen Value"),
+            }
+        }
+
+        #[test]
+        fn test_lpop_with_a_list_with_one_value_on_idex_zero() {
+            let mut database = Database::new();
+            database.lpush("Key".to_owned(), "val".to_owned()).unwrap();
+            let result = database.lpop("Key".to_owned());
+
+            assert_eq!(result.unwrap(), "val");
+
+            let result = database.llen("Key".to_owned());
+
+            assert_eq!(result.unwrap(), format!("{} 0", INTEGER))
+        }
+    }
+
+    
 
     mod lpush_test {
 
@@ -810,5 +1019,4 @@ mod group_list {
             );
         }
     }
-
 }
