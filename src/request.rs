@@ -32,6 +32,9 @@ pub enum Command {
     Strlen(String),
     Mset(Vec<String>),
     Mget(Vec<String>),
+    Sadd(String, String),
+    Sismember(String, String),
+    Scard(String),
     None,
 }
 
@@ -75,6 +78,9 @@ impl Request {
                     Command::Strlen(key) => db.strlen(&key),
                     Command::Mset(vec_str) => db.mset(&vec_str[1..]),
                     Command::Mget(vec_str) => db.mget(&vec_str[1..]),
+                    Command::Sadd(set_key, value) => db.sadd(set_key, value),
+                    Command::Sismember(set_key, value) => db.sismember(set_key, value),
+                    Command::Scard(set_key) => db.scard(set_key),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -134,6 +140,11 @@ impl Command {
             ["strlen", key] => Command::Strlen(key.to_owned()),
             ["mset", ..] => Command::Mset(command.iter().map(|x| x.to_string()).collect()),
             ["mget", ..] => Command::Mget(command.iter().map(|x| x.to_string()).collect()),
+            ["sadd", key_set, element] => Command::Sadd(key_set.to_owned(), element.to_owned()),
+            ["sismember", key_set, element] => {
+                Command::Sismember(key_set.to_owned(), element.to_owned())
+            }
+            ["scard", key_set] => Command::Scard(key_set.to_owned()),
             _ => Command::None,
         }
     }
@@ -171,6 +182,15 @@ impl Display for Command {
             Command::Strlen(key) => write!(f, "Get length of the value with key {}", key),
             Command::Mget(params) => write!(f, "Mget {:?}", params),
             Command::Mset(params) => write!(f, "Mset {:?}", params),
+            Command::Sadd(key_set, element) => {
+                write!(f, "Sadd to key_set: {} and element: {}", key_set, element)
+            }
+            Command::Sismember(key_set, element) => write!(
+                f,
+                "Sismember to key_set: {} and element: {}",
+                key_set, element
+            ),
+            Command::Scard(key_set) => write!(f, "Scard to key_set: {} ", key_set),
             Command::None => write!(f, "Wrong Command"),
         }
     }
