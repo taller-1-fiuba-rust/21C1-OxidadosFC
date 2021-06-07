@@ -21,6 +21,7 @@ pub enum DataBaseError {
 const SUCCES: &str = "Ok";
 const INTEGER: &str = "(integer)";
 const NIL: &str = "(nil)";
+const EMPTY: &str = "(empty list or set)";
 
 impl fmt::Display for DataBaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -302,6 +303,57 @@ impl Database {
                 self.dictionary.insert(key, StorageValue::List(list));
                 Ok(format!("{} {}", INTEGER, len.to_string()))
             }
+        }
+    }
+
+    pub fn lpushx(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get_mut(&key) {
+            Some(StorageValue::List(list)) => {
+                list.push(value);
+                Ok(format!("{} {}", INTEGER, list.len().to_string()))
+            }
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(format!("{} 0", INTEGER)),
+        }
+    }
+
+    pub fn lrange(
+        &mut self,
+        key: String,
+        beg: String,
+        end: String,
+    ) -> Result<String, DataBaseError> {
+        let beg = match beg.parse::<i32>() {
+            Ok(val) => val,
+            Err(_) => return Err(DataBaseError::NotAnInteger),
+        };
+
+        let end = match end.parse::<i32>() {
+            Ok(val) => val,
+            Err(_) => return Err(DataBaseError::NotAnInteger),
+        };
+
+        match self.dictionary.get(&key) {
+            Some(StorageValue::List(list)) => {
+                let len: i32 = list.len() as i32;
+                let beg = if beg < 0 { len + beg } else { beg };
+                let end = if end < 0 { len + end } else { end };
+
+                if beg >= 0 && end <= len && beg <= end {
+                    let mut list_srt = String::new();
+
+                    for (i, elem) in list[(beg as usize)..(end as usize + 1)].iter().enumerate() {
+                        let row = format!("{}) {}\n", i+1, elem);
+                        list_srt.push_str(&row);
+                    };
+
+                    Ok(format!("{}", list_srt))
+                } else {
+                    Ok(format!("{}", EMPTY))
+                }
+            }
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(format!("{}", EMPTY)),
         }
     }
 }
@@ -750,6 +802,7 @@ mod group_list {
                 Err(err) => panic!(format!("{}", err.to_string())),
             }
         }
+
         #[test]
         fn test_llen_on_a_list_with_more_than_one_value() {
             let mut database = Database::new();
@@ -956,8 +1009,6 @@ mod group_list {
         }
     }
 
-    
-
     mod lpush_test {
 
         use super::*;
@@ -1019,4 +1070,164 @@ mod group_list {
             );
         }
     }
+
+    mod lrange_test {
+        use super::*;
+
+        #[test]
+        fn test_lrange_on_zero_zero_range() {
+            let mut database = Database::new();
+            database
+                .lpush("Key".to_owned(), "Value".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "0".to_owned(), "0".to_owned());
+            assert_eq!(result.unwrap(), "1) Value\n")
+        }
+
+
+        #[test]
+        fn test_lrange_on_zero_two_range_applied_to_a_list_with_four_elements() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "0".to_owned(), "2".to_owned());
+            
+            assert_eq!(result.unwrap(), "1) ValueA\n2) ValueB\n3) ValueC\n");
+        }
+
+
+
+        #[test]
+        fn test_lrange_on_one_three_range_applied_to_a_list_with_four_elements() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "1".to_owned(), "3".to_owned());
+            
+            assert_eq!(result.unwrap(), "1) ValueB\n2) ValueC\n3) ValueD\n");
+        }
+
+
+        #[test]
+        fn test_lrange_on_a_superior_out_of_bound() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "1".to_owned(), "5".to_owned());
+            
+            assert_eq!(result.unwrap(),format!("{}", EMPTY));
+        }
+
+
+        #[test]
+        fn test_lrange_on_an_inferior_out_of_bound() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "-10".to_owned(), "3".to_owned());
+            
+            assert_eq!(result.unwrap(),format!("{}", EMPTY));
+        }
+
+
+
+        #[test]
+        fn test_lrange_on_an_two_way_out_of_bound() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "-10".to_owned(), "10".to_owned());
+            
+            assert_eq!(result.unwrap(),format!("{}", EMPTY));
+        }
+
+
+
+
+        #[test]
+        fn test_lrange_with_valid_negative_bounds() {
+            let mut database = Database::new();
+            
+            database
+                .lpush("Key".to_owned(), "ValueA".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueB".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueC".to_owned())
+                .unwrap();
+            database
+                .lpush("Key".to_owned(), "ValueD".to_owned())
+                .unwrap();
+
+            let result = database.lrange("Key".to_owned(), "-3".to_owned(), "-1".to_owned());
+            
+            assert_eq!(result.unwrap(), "1) ValueB\n2) ValueC\n3) ValueD\n");
+        }
+    }
 }
+
+
+
