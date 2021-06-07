@@ -80,12 +80,15 @@ impl Database {
     //expireat
 
     pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
+        let patt: String = r"^".to_owned() + &pattern + r"$";
         let result: String = self
             .dictionary
             .keys()
-            .filter(|x| match Regex::new(&pattern) {
-                Ok(re) => re.is_match(x),
-                Err(_) => false,
+            .filter(|x| {
+                match Regex::new(&patt) {
+                    Ok(re) => re.is_match(x),
+                    Err(_) => false,
+                }
             })
             .map(|x| x.to_string() + "\r\n")
             .collect();
@@ -604,67 +607,71 @@ mod group_keys {
         assert_eq!(database.get("key".to_string()).unwrap(), "hello");
     }
 
-    #[test]
-    fn test_keys_obtain_keys_with_name() {
-        let mut database = Database::new();
-        let _ = database.set("firstname".to_string(), "Alex".to_string());
-        let _ = database.set("lastname".to_string(), "Arbieto".to_string());
-        let _ = database.set("age".to_string(), "22".to_string());
+    #[cfg(test)]
+    mod command_keys {
+        use super::*;
+        #[test]
+        fn test_keys_obtain_keys_with_name() {
+            let mut database = Database::new();
+            let _ = database.set("firstname".to_string(), "Alex".to_string());
+            let _ = database.set("lastname".to_string(), "Arbieto".to_string());
+            let _ = database.set("age".to_string(), "22".to_string());
+    
+            let result = database.keys("*name".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
+        }
+    
+        #[test]
+        fn test_keys_obtain_keys_with_four_question_name() {
+            let mut database = Database::new();
+            let _ = database.set("firstname".to_string(), "Alex".to_string());
+            let _ = database.set("lastname".to_string(), "Arbieto".to_string());
+            let _ = database.set("age".to_string(), "22".to_string());
+    
+            let result = database.keys("[a-z]?[a-z]?[a-z]?[a-z]?name".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["lastname"].iter().cloned().collect());
+        }
+    
+        #[test]
+        fn test_keys_obtain_all_keys_with_an_asterisk_in_the_middle() {
+            let mut database = Database::new();
+            let _ = database.set("key".to_string(), "val1".to_string());
+            let _ = database.set("keeeey".to_string(), "val2".to_string());
+            let _ = database.set("ky".to_string(), "val3".to_string());
+            let _ = database.set("notmatch".to_string(), "val4".to_string());
+    
+            let result = database.keys("k[a-z]*y".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
+        }
+    
+        #[test]
+        fn test_keys_obtain_all_keys_with_question_in_the_middle() {
+            let mut database = Database::new();
+            let _ = database.set("key".to_string(), "val1".to_string());
+            let _ = database.set("keeeey".to_string(), "val2".to_string());
+            let _ = database.set("ky".to_string(), "val3".to_string());
+            let _ = database.set("notmatch".to_string(), "val4".to_string());
+    
+            let result = database.keys("k[a-z]{1}y".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["key"].iter().cloned().collect());
+        }
 
-        let result = database.keys("name".to_string()).unwrap();
-        let result: HashSet<_> = result.split("\r\n").collect();
-        assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
+        #[test]
+        fn test_keys_obtain_keys_with_nomatch_returns_empty_string() {
+            let mut database = Database::new();
+            let _ = database.set("firstname".to_string(), "Alex".to_string());
+            let _ = database.set("lastname".to_string(), "Arbieto".to_string());
+            let _ = database.set("age".to_string(), "22".to_string());
+    
+            let result = database.keys("nomatch".to_string());
+            assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
+        }
     }
 
-    #[test]
-    fn test_keys_obtain_all_keys_with_a_special_expresion() {
-        let mut database = Database::new();
-        let _ = database.set("key".to_string(), "val1".to_string());
-        let _ = database.set("keeeey".to_string(), "val2".to_string());
-        let _ = database.set("ky".to_string(), "val3".to_string());
-        let _ = database.set("notmatch".to_string(), "val4".to_string());
-
-        let result = database.keys("k*y".to_string()).unwrap();
-        let result: HashSet<_> = result.split("\r\n").collect();
-        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
-    }
-
-    #[test]
-    fn test_keys_obtain_all_keys_with_other_special_expresion() {
-        let mut database = Database::new();
-        let _ = database.set("key".to_string(), "val1".to_string());
-        let _ = database.set("keeeey".to_string(), "val2".to_string());
-        let _ = database.set("ky".to_string(), "val3".to_string());
-        let _ = database.set("notmatch".to_string(), "val4".to_string());
-
-        let result = database.keys("k?y".to_string()).unwrap();
-        let result: HashSet<_> = result.split("\r\n").collect();
-        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
-    }
-
-    #[test]
-    fn test_keys_obtain_all_keys_with_a_symbol() {
-        let mut database = Database::new();
-        let _ = database.set("key".to_string(), "val1".to_string());
-        let _ = database.set("keeeey".to_string(), "val2".to_string());
-        let _ = database.set("ky".to_string(), "val3".to_string());
-        let _ = database.set("notmatch".to_string(), "val4".to_string());
-
-        let result = database.keys("k*y".to_string()).unwrap();
-        let result: HashSet<_> = result.split("\r\n").collect();
-        assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
-    }
-
-    #[test]
-    fn test_keys_obtain_keys_with_nomatch_returns_empty_string() {
-        let mut database = Database::new();
-        let _ = database.set("firstname".to_string(), "Alex".to_string());
-        let _ = database.set("lastname".to_string(), "Arbieto".to_string());
-        let _ = database.set("age".to_string(), "22".to_string());
-
-        let result = database.keys("nomatch".to_string());
-        assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
-    }
 
     #[test]
     fn test_rename_key_with_mykey_get_hello() {
