@@ -1,5 +1,6 @@
 mod config_parser;
 mod database;
+mod database_errors;
 mod logger;
 mod redis;
 mod request;
