@@ -81,6 +81,8 @@ impl Database {
 
     pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
         let patt: String = r"^".to_owned() + &pattern + r"$";
+        let patt: String = patt.replace("*", ".*");
+        let patt: String = patt.replace("?", ".");
         let result: String = self
             .dictionary
             .keys()
@@ -629,7 +631,7 @@ mod group_keys {
             let _ = database.set("lastname".to_string(), "Arbieto".to_string());
             let _ = database.set("age".to_string(), "22".to_string());
     
-            let result = database.keys("[a-z]?[a-z]?[a-z]?[a-z]?name".to_string()).unwrap();
+            let result = database.keys("????name".to_string()).unwrap();
             let result: HashSet<_> = result.split("\r\n").collect();
             assert_eq!(result, ["lastname"].iter().cloned().collect());
         }
@@ -642,7 +644,7 @@ mod group_keys {
             let _ = database.set("ky".to_string(), "val3".to_string());
             let _ = database.set("notmatch".to_string(), "val4".to_string());
     
-            let result = database.keys("k[a-z]*y".to_string()).unwrap();
+            let result = database.keys("k*y".to_string()).unwrap();
             let result: HashSet<_> = result.split("\r\n").collect();
             assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
         }
@@ -655,9 +657,42 @@ mod group_keys {
             let _ = database.set("ky".to_string(), "val3".to_string());
             let _ = database.set("notmatch".to_string(), "val4".to_string());
     
-            let result = database.keys("k[a-z]{1}y".to_string()).unwrap();
+            let result = database.keys("k?y".to_string()).unwrap();
             let result: HashSet<_> = result.split("\r\n").collect();
             assert_eq!(result, ["key"].iter().cloned().collect());
+        }
+
+        #[test]
+        fn test_keys_obtain_keys_with_h_question_llo_matches_correctly() {
+            let mut database = Database::new();
+            let _ = database.set("hello".to_string(), "a".to_string());
+            let _ = database.set("hallo".to_string(), "b".to_string());
+            let _ = database.set("hxllo".to_string(), "c".to_string());
+            let _ = database.set("hllo".to_string(), "d".to_string());
+            let _ = database.set(r"h\llo".to_string(), "d".to_string());
+            let _ = database.set("ahllo".to_string(), "e".to_string());
+            let _ = database.set("hallown".to_string(), "e".to_string());
+            
+            let result = database.keys("h?llo".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["hello", "hallo", "hxllo", "h\\llo"].iter().cloned().collect());
+        }
+
+        #[test]
+        fn test_keys_obtain_keys_with_h_asterisk_llo_matches_correctly() {
+            let mut database = Database::new();
+            let _ = database.set("hello".to_string(), "a".to_string());
+            let _ = database.set("heeeeeello".to_string(), "a".to_string());
+            let _ = database.set("hallo".to_string(), "b".to_string());
+            let _ = database.set("hxllo".to_string(), "c".to_string());
+            let _ = database.set("hllo".to_string(), "d".to_string());
+            let _ = database.set(r"h\llo".to_string(), "d".to_string());
+            let _ = database.set("ahllo".to_string(), "e".to_string());
+            let _ = database.set("hallown".to_string(), "e".to_string());
+            
+            let result = database.keys("h*llo".to_string()).unwrap();
+            let result: HashSet<_> = result.split("\r\n").collect();
+            assert_eq!(result, ["hllo", "hello", "heeeeeello", "hallo", "hxllo", "h\\llo"].iter().cloned().collect());
         }
 
         #[test]
