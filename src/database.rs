@@ -31,6 +31,10 @@ impl Database {
         Ok(SUCCES.to_string())
     }
 
+    pub fn dbsize(&self) -> Result<String, DataBaseError> {
+        Ok(format!("{} {}", INTEGER, self.dictionary.len()))
+    }
+
     // KEYS
 
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, DataBaseError> {
@@ -1529,5 +1533,42 @@ mod group_server {
         let r = db.flushdb().unwrap();
         assert_eq!(r, "Ok");
         assert!(db.dictionary.is_empty());
+    }
+
+    #[test]
+    fn dbsize_empty_gets_0() {
+        let db = Database::new();
+
+        let r = db.dbsize().unwrap();
+        assert_eq!(r, "(integer) 0");
+    }
+
+    #[test]
+    fn dbsize_with_one_element_gets_1() {
+        let mut db = Database::new();
+        let _ = db.set("key1", "1".to_string());
+        let r = db.get("key1").unwrap();
+        assert_eq!(r, "1");
+
+        let r = db.dbsize().unwrap();
+        assert_eq!(r, "(integer) 1");
+    }
+
+    #[test]
+    fn dbsize_with_two_element_gets_2() {
+        let mut db = Database::new();
+        let _ = db.mset(&[
+            "key1".to_string(),
+            "1".to_string(),
+            "key2".to_string(),
+            "2".to_string(),
+        ]);
+        let r = db.get("key1").unwrap();
+        assert_eq!(r, "1");
+        let r = db.get("key2").unwrap();
+        assert_eq!(r, "2");
+
+        let r = db.dbsize().unwrap();
+        assert_eq!(r, "(integer) 2");
     }
 }

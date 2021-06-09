@@ -47,6 +47,7 @@ pub enum Command {
     Sismember(String, String),
     Scard(String),
     Flushdb(),
+    Dbsize(),
     None,
 }
 
@@ -105,6 +106,7 @@ impl Request {
                     Command::Sismember(set_key, value) => db.sismember(set_key, value),
                     Command::Scard(set_key) => db.scard(set_key),
                     Command::Flushdb() => db.flushdb(),
+                    Command::Dbsize() => db.dbsize(),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -181,6 +183,7 @@ impl Command {
             ["sismember", key, element] => Command::Sismember(key.to_owned(), element.to_owned()),
             ["scard", key] => Command::Scard(key.to_owned()),
             ["flushdb"] => Command::Flushdb(),
+            ["dbsize"] => Command::Dbsize(),
             _ => Command::None,
         }
     }
@@ -287,6 +290,7 @@ impl Display for Command {
             ),
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
+            Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
             Command::None => write!(f, "Wrong Command"),
         }
     }
