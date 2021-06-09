@@ -43,6 +43,9 @@ pub enum Command {
     Rpop(String),
     Rpush(String, String),
     Rpushx(String, String),
+    Sadd(String, String),
+    Sismember(String, String),
+    Scard(String),
     None,
 }
 
@@ -97,6 +100,9 @@ impl Request {
                     Command::Rpop(key) => db.rpop(&key),
                     Command::Rpush(key, value) => db.rpush(&key, value),
                     Command::Rpushx(key, value) => db.rpushx(&key, value),
+                    Command::Sadd(set_key, value) => db.sadd(set_key, value),
+                    Command::Sismember(set_key, value) => db.sismember(set_key, value),
+                    Command::Scard(set_key) => db.scard(set_key),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -169,6 +175,9 @@ impl Command {
             ["rpop", key] => Command::Rpop(key.to_owned()),
             ["rpush", key, value] => Command::Rpush(key.to_owned(), value.to_owned()),
             ["rpushx", key, value] => Command::Rpushx(key.to_owned(), value.to_owned()),
+            ["sadd", key, element] => Command::Sadd(key.to_owned(), element.to_owned()),
+            ["sismember", key, element] => Command::Sismember(key.to_owned(), element.to_owned()),
+            ["scard", key] => Command::Scard(key.to_owned()),
             _ => Command::None,
         }
     }
@@ -265,6 +274,15 @@ impl Display for Command {
             Command::Rpushx(key, value) => {
                 write!(f, "CommandList::Rpushx - Key: {} - Value: {} ", key, value)
             }
+            Command::Sadd(key, element) => {
+                write!(f, "CommandSet::Sadd - Key: {} - Element: {}", key, element)
+            }
+            Command::Sismember(key, element) => write!(
+                f,
+                "CommandSet::Sismember - Key: {} - Element: {}",
+                key, element
+            ),
+            Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::None => write!(f, "Wrong Command"),
         }
     }

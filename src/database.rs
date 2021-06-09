@@ -1,6 +1,8 @@
+use crate::database_errors::DataBaseError;
 use crate::storagevalue::StorageValue;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -8,39 +10,12 @@ pub struct Database {
     dictionary: HashMap<String, StorageValue>,
 }
 
-#[derive(Debug)]
-pub enum DataBaseError {
-    NotAString,
-    NonExistentKey,
-    NotAnInteger,
-    KeyAlredyExist,
-    NoMatch,
-    NumberOfParamsIsIncorrectly,
-    NotAList,
-    IndexOutOfRange,
-}
-
 const SUCCES: &str = "Ok";
 const INTEGER: &str = "(integer)";
 const NIL: &str = "(nil)";
 const EMPTY: &str = "(empty list or set)";
-
-impl fmt::Display for DataBaseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            DataBaseError::NonExistentKey => write!(f, "Non-existent key"),
-            DataBaseError::NotAString => write!(f, "Value isn't a String"),
-            DataBaseError::NotAnInteger => write!(f, "Value isn't an Integer"),
-            DataBaseError::KeyAlredyExist => write!(f, "the key alredy exist in the database"),
-            DataBaseError::NoMatch => write!(f, "(empty list or set)"),
-            DataBaseError::NumberOfParamsIsIncorrectly => {
-                write!(f, "number of parameters is incorrectly")
-            }
-            DataBaseError::NotAList => write!(f, "Value isn't a List"),
-            DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
-        }
-    }
-}
+const NUMBER_INSERT_SUCCESS: u32 = 1;
+const NUMBER_NOT_INSERT: u32 = 0;
 
 impl Database {
     pub fn new() -> Database {
@@ -464,6 +439,50 @@ impl Database {
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(format!("{} 0", INTEGER)),
+        }
+    }
+
+    pub fn sismember(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get_mut(&key) {
+            Some(StorageValue::Set(hash_set)) => match hash_set.get(&value) {
+                Some(_val) => Ok(format!("{} {}", INTEGER, NUMBER_INSERT_SUCCESS)),
+                None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+            },
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+        }
+    }
+
+    pub fn scard(&mut self, key: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get_mut(&key) {
+            Some(StorageValue::Set(hash_set)) => {
+                let len = hash_set.len();
+                Ok(format!("{} {}", INTEGER, len))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+        }
+    }
+
+    pub fn sadd(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
+        match self.dictionary.get_mut(&key) {
+            Some(StorageValue::Set(hash_set)) => {
+                let mut number_response = NUMBER_INSERT_SUCCESS;
+                let _ = match hash_set.get(&value) {
+                    Some(_val) => number_response = NUMBER_NOT_INSERT,
+                    None => {
+                        let _ = hash_set.insert(value);
+                    }
+                };
+                Ok(format!("{} {}", INTEGER, number_response))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => {
+                let mut set: HashSet<String> = HashSet::new();
+                set.insert(value);
+                self.dictionary.insert(key, StorageValue::Set(set));
+                Ok(format!("{} {}", INTEGER, NUMBER_INSERT_SUCCESS))
+            }
         }
     }
 }
@@ -1248,5 +1267,146 @@ mod group_list {
                 assert_eq!(list[0], "ValueA");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod group_set {
+    use super::*;
+
+    #[test]
+    fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
+        let mut database = Database::new();
+
+        let result = database.sadd("set1".to_string(), "element".to_string());
+        let is_member = database.sismember("set1".to_string(), "element".to_string());
+
+        assert_eq!(is_member.unwrap(), "(integer) 1");
+        assert_eq!(result.unwrap(), "(integer) 1");
+    }
+
+    #[test]
+    fn test_sadd_create_set_with_repeating_elements_returns_0() {
+        let mut database = Database::new();
+
+        let _ = database.sadd("set1".to_string(), "element".to_string());
+        let result = database.sadd("set1".to_string(), "element".to_string());
+        let len_set = database.scard("set1".to_string());
+
+        assert_eq!(len_set.unwrap(), "(integer) 1");
+        assert_eq!(result.unwrap(), "(integer) 0");
+    }
+
+    #[test]
+    fn test_sadd_key_with_another_type_of_set_returns_err() {
+        let mut database = Database::new();
+
+        let _ = database.set("key", "value1".to_string());
+        let result = database.sadd("key".to_string(), "element".to_string());
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "element of key isn't a Set"
+        );
+    }
+
+    #[test]
+    fn test_sadd_add_element_with_set_created_returns_1() {
+        let mut database = Database::new();
+
+        let _ = database.sadd("set1".to_string(), "element".to_string());
+        let result = database.sadd("set1".to_string(), "element2".to_string());
+        let len_set = database.scard("set1".to_string());
+
+        assert_eq!(len_set.unwrap(), "(integer) 2");
+        assert_eq!(result.unwrap(), "(integer) 1");
+    }
+
+    #[test]
+    fn test_sismember_set_with_element_returns_1() {
+        let mut database = Database::new();
+
+        let _ = database.sadd("set1".to_string(), "element".to_string());
+        let is_member = database.sismember("set1".to_string(), "element".to_string());
+
+        assert_eq!(is_member.unwrap(), "(integer) 1");
+    }
+
+    #[test]
+    fn test_sismember_set_without_element_returns_0() {
+        let mut database = Database::new();
+
+        let _ = database.sadd("set1".to_string(), "element".to_string());
+        let result = database.sismember("set1".to_string(), "other_element".to_string());
+
+        assert_eq!(result.unwrap(), "(integer) 0");
+    }
+
+    #[test]
+    fn test_sismember_key_with_another_type_of_set_returns_err() {
+        let mut database = Database::new();
+
+        let _ = database.set("key", "value1".to_string());
+        let result = database.sismember("key".to_string(), "element".to_string());
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "element of key isn't a Set"
+        );
+    }
+
+    #[test]
+    fn test_sismember_with_non_exist_key_set_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.sismember("set1".to_string(), "element".to_string());
+
+        assert_eq!(result.unwrap(), "(integer) 0");
+    }
+
+    #[test]
+    fn test_scard_set_with_one_element_returns_1() {
+        let mut database = Database::new();
+
+        let _ = database.sadd("set1".to_string(), "element".to_string());
+        let len_set = database.scard("set1".to_string());
+
+        assert_eq!(len_set.unwrap(), "(integer) 1");
+    }
+
+    #[test]
+    fn test_scard_create_set_with_multiple_elements_returns_lenght_of_set() {
+        let mut database = Database::new();
+
+        for i in 0..10 {
+            let _ = database.sadd("set1".to_string(), i.to_string());
+        }
+        let len_set = database.scard("set1".to_string());
+
+        assert_eq!(len_set.unwrap(), "(integer) 10");
+    }
+
+    #[test]
+    fn test_scard_key_with_another_type_of_set_returns_err() {
+        let mut database = Database::new();
+
+        let _ = database.set("key", "value1".to_string());
+        let result = database.scard("key".to_string());
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "element of key isn't a Set"
+        );
+    }
+
+    #[test]
+    fn test_scard_key_set_not_exist_in_database_returns_0() {
+        let mut database = Database::new();
+
+        let result = database.scard("set1".to_string());
+        assert_eq!(result.unwrap(), "(integer) 0");
     }
 }
