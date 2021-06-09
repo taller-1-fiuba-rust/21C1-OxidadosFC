@@ -9,6 +9,8 @@ pub enum DataBaseError {
     NoMatch,
     NumberOfParamsIsIncorrectly,
     NotASet,
+    NotAList,
+    IndexOutOfRange,
 }
 
 impl fmt::Display for DataBaseError {
@@ -23,6 +25,8 @@ impl fmt::Display for DataBaseError {
                 write!(f, "number of parameters is incorrectly")
             }
             DataBaseError::NotASet => write!(f, "element of key isn't a Set"),
+            DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
+            DataBaseError::NotAList => write!(f, "Value isn't a List"),
         }
     }
 }
