@@ -32,7 +32,17 @@ pub enum Command {
     Strlen(String),
     Mset(Vec<String>),
     Mget(Vec<String>),
+    Lindex(String, String),
+    Llen(String),
+    Lpop(String),
     Lpush(String, String),
+    Lpushx(String, String),
+    Lrange(String, String, String),
+    Lrem(String, String, String),
+    Lset(String, String, String),
+    Rpop(String),
+    Rpush(String, String),
+    Rpushx(String, String),
     None,
 }
 
@@ -61,22 +71,32 @@ impl Request {
                 let mut db = db.lock().unwrap();
 
                 let result = match command {
-                    Command::Append(key, value) => db.append(key, value),
-                    Command::Incrby(key, number_of_incr) => db.incrby(key, number_of_incr),
-                    Command::Decrby(key, number_of_decr) => db.decrby(key, number_of_decr),
-                    Command::Get(key) => db.get(key),
-                    Command::Getdel(key) => db.getdel(key),
-                    Command::Getset(key, value) => db.getset(key, value),
-                    Command::Set(key, value) => db.set(key, value),
-                    Command::Copy(key, to_key) => db.copy(key, to_key),
-                    Command::Del(key) => db.del(key),
-                    Command::Exists(key) => db.exists(key),
+                    Command::Append(key, value) => db.append(&key, value),
+                    Command::Incrby(key, number_of_incr) => db.incrby(&key, number_of_incr),
+                    Command::Decrby(key, number_of_decr) => db.decrby(&key, number_of_decr),
+                    Command::Get(key) => db.get(&key),
+                    Command::Getdel(key) => db.getdel(&key),
+                    Command::Getset(key, value) => db.getset(&key, value),
+                    Command::Set(key, value) => db.set(&key, value),
+                    Command::Copy(key, to_key) => db.copy(&key, &to_key),
+                    Command::Del(key) => db.del(&key),
+                    Command::Exists(key) => db.exists(&key),
                     Command::Keys(pattern) => db.keys(pattern),
-                    Command::Rename(old_key, new_key) => db.rename(old_key, new_key),
+                    Command::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
                     Command::Strlen(key) => db.strlen(&key),
                     Command::Mset(vec_str) => db.mset(&vec_str[1..]),
                     Command::Mget(vec_str) => db.mget(&vec_str[1..]),
-                    Command::Lpush(key, val) => db.lpush(key,val),
+                    Command::Lindex(key, indx) => db.lindex(&key, indx),
+                    Command::Llen(key) => db.llen(&key),
+                    Command::Lpop(key) => db.lpop(&key),
+                    Command::Lpush(key, value) => db.lpush(&key, value),
+                    Command::Lpushx(key, value) => db.lpushx(&key, value),
+                    Command::Lrange(key, beg, end) => db.lrange(&key, beg, end),
+                    Command::Lrem(key, rem, value) => db.lrem(&key, rem, value),
+                    Command::Lset(key, index, value) => db.lset(&key, &index, &value),
+                    Command::Rpop(key) => db.rpop(&key),
+                    Command::Rpush(key, value) => db.rpush(&key, value),
+                    Command::Rpushx(key, value) => db.rpushx(&key, value),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -118,12 +138,8 @@ impl Command {
 
         match command[..] {
             ["append", key, value] => Command::Append(key.to_owned(), value.to_owned()),
-            ["incrby", key, number_of_incr] => {
-                Command::Incrby(key.to_owned(), number_of_incr.to_owned())
-            }
-            ["decrby", key, number_of_decr] => {
-                Command::Decrby(key.to_owned(), number_of_decr.to_owned())
-            }
+            ["incrby", key, n] => Command::Incrby(key.to_owned(), n.to_owned()),
+            ["decrby", key, n] => Command::Decrby(key.to_owned(), n.to_owned()),
             ["get", key] => Command::Get(key.to_owned()),
             ["getdel", key] => Command::Getdel(key.to_owned()),
             ["getset", key, value] => Command::Getset(key.to_owned(), value.to_owned()),
@@ -136,7 +152,23 @@ impl Command {
             ["strlen", key] => Command::Strlen(key.to_owned()),
             ["mset", ..] => Command::Mset(command.iter().map(|x| x.to_string()).collect()),
             ["mget", ..] => Command::Mget(command.iter().map(|x| x.to_string()).collect()),
+            ["lindex", key, value] => Command::Lindex(key.to_owned(), value.to_owned()),
+            ["llen", key] => Command::Llen(key.to_owned()),
+            ["lpop", key] => Command::Lpop(key.to_owned()),
             ["lpush", key, value] => Command::Lpush(key.to_owned(), value.to_owned()),
+            ["lpushx", key, value] => Command::Lpushx(key.to_owned(), value.to_owned()),
+            ["lrange", key, beg, end] => {
+                Command::Lrange(key.to_owned(), beg.to_owned(), end.to_owned())
+            }
+            ["lrem", key, rem, value] => {
+                Command::Lrem(key.to_owned(), rem.to_owned(), value.to_owned())
+            }
+            ["lset", key, index, value] => {
+                Command::Lset(key.to_owned(), index.to_owned(), value.to_owned())
+            }
+            ["rpop", key] => Command::Rpop(key.to_owned()),
+            ["rpush", key, value] => Command::Rpush(key.to_owned(), value.to_owned()),
+            ["rpushx", key, value] => Command::Rpushx(key.to_owned(), value.to_owned()),
             _ => Command::None,
         }
     }
@@ -145,36 +177,94 @@ impl Command {
 impl Display for Command {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            Command::Append(key, value) => write!(f, "Append {} to key {}", value, key),
-            Command::Incrby(key, value) => write!(f, "Incrby {} the value with key {}", value, key),
-            Command::Decrby(key, value) => write!(f, "Decrby {} the value with key {}", value, key),
-            Command::Get(key) => write!(f, "Get the value with key {}", key),
-            Command::Getdel(key) => write!(f, "Get the value with key {} and delete", key),
-            Command::Getset(key, value) => write!(
+            Command::Append(key, value) => write!(
                 f,
-                "Get the value with key {} and set the new value {}",
+                "CommandString::Append - Key: {} - Value: {} ",
                 key, value
             ),
-            Command::Set(key, value) => write!(f, "Set the value {} with key {}", value, key),
-            Command::Copy(key, to_key) => {
-                write!(f, "Copy the value in key {} to the key {} ", key, to_key)
-            }
-            Command::Del(key) => write!(f, "Delete the key {}", key),
-            Command::Exists(key) => write!(f, "Is the key {} present?", key),
-            Command::Keys(pattern) => write!(
+            Command::Incrby(key, incr) => write!(
                 f,
-                "Get the keys that match the following pattern {}",
-                pattern
+                "CommandString::Incrby - Key: {} - Increment: {}",
+                key, incr
             ),
+            Command::Decrby(key, incr) => write!(
+                f,
+                "CommandString::Decrby - Key: {} - Increment: {}",
+                key, incr
+            ),
+            Command::Get(key) => write!(f, "CommandString::Get - Key: {}", key),
+            Command::Getdel(key) => write!(f, "CommandString::Getdel - Key: {}", key),
+            Command::Getset(key, value) => {
+                write!(f, "CommandString::Getset - Key: {} - Value: {}", key, value)
+            }
+
+            Command::Mget(params) => {
+                let mut parms_string = String::new();
+
+                for elem in params {
+                    parms_string.push_str(elem);
+                    parms_string.push(' ');
+                }
+
+                write!(f, "CommandString::Mget Keys: {}", parms_string)
+            }
+            Command::Mset(params) => {
+                let mut parms_string = String::new();
+
+                for elem in params {
+                    parms_string.push_str(elem);
+                    parms_string.push(' ');
+                }
+                write!(f, "CommandString::Mset pair: {}", parms_string)
+            }
+            Command::Strlen(key) => write!(f, "CommandString::Strlen - Key: {}", key),
+            Command::Set(key, value) => {
+                write!(f, "CommandString::Set - Key: {} - Value: {}", key, value)
+            }
+            Command::Copy(key, to_key) => {
+                write!(f, "CommandKeys::Copy - Key: {} - To_Key: {}", key, to_key)
+            }
+            Command::Del(key) => write!(f, "CommandKeys::Del - Key: {}", key),
+            Command::Exists(key) => write!(f, "CommandKeys::Exists - Key: {}", key),
+            Command::Keys(pattern) => write!(f, "CommandKeys::Keys - Pattern: {}", pattern),
             Command::Rename(old_key, new_key) => write!(
                 f,
-                "Rename the key with name {} to name {}",
+                "CommandKeys::Rename - Old_Key {} - New_Key {}",
                 old_key, new_key
             ),
-            Command::Strlen(key) => write!(f, "Get length of the value with key {}", key),
-            Command::Mget(params) => write!(f, "Mget {:?}", params),
-            Command::Mset(params) => write!(f, "Mset {:?}", params),
-            Command::Lpush(key, val) => write!(f, "Push {} into the list with key {}", val, key),
+            Command::Lindex(key, indx) => {
+                write!(f, "CommandList::Lindex - Key: {} - Index: {}", key, indx)
+            }
+            Command::Llen(key) => write!(f, "CommandList::Llen - Key {}", key),
+            Command::Lpop(key) => write!(f, "CommandList::Lpop - Key {}", key),
+            Command::Lpush(key, value) => {
+                write!(f, "CommandList::Lpush - Key: {} - Value: {}", key, value)
+            }
+            Command::Lpushx(key, value) => {
+                write!(f, "CommandList::Lpushx - Key: {} - Value: {}", key, value)
+            }
+            Command::Lrange(key, beg, end) => write!(
+                f,
+                "CommandList::Lrange - Key: {} - Begining: {} - End {}",
+                key, beg, end
+            ),
+            Command::Lrem(key, rem, value) => write!(
+                f,
+                "CommandList::Lrem - Key: {} - Rem: {} - Value: {}",
+                key, rem, value
+            ),
+            Command::Lset(key, index, value) => write!(
+                f,
+                "CommandList::Lset - Key: {} - Index: {} - Value: {}",
+                key, index, value
+            ),
+            Command::Rpop(key) => write!(f, "CommandList::Rpop - Key: {}", key),
+            Command::Rpush(key, value) => {
+                write!(f, "CommandList::Rpush - Key: {} - Value: {} ", key, value)
+            }
+            Command::Rpushx(key, value) => {
+                write!(f, "CommandList::Rpushx - Key: {} - Value: {} ", key, value)
+            }
             Command::None => write!(f, "Wrong Command"),
         }
     }

@@ -11,10 +11,14 @@ impl Display for StorageValue {
         match self {
             StorageValue::String(val) => write!(f, "{}", val),
             StorageValue::List(val) => {
+                let mut parms_string = String::new();
+
                 for elem in val {
-                    write!(f, "{}", elem);
+                    parms_string.push_str(elem);
+                    parms_string.push(' ');
                 }
-                Ok(())
+
+                write!(f, "{}", parms_string)
             }
         }
     }
