@@ -25,6 +25,12 @@ impl Database {
         }
     }
 
+    // SERVER
+    pub fn flushdb(&mut self) -> Result<String, DataBaseError> {
+        self.dictionary.clear();
+        Ok(SUCCES.to_string())
+    }
+
     // KEYS
 
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, DataBaseError> {
@@ -1501,5 +1507,27 @@ mod group_set {
 
         let result = database.scard("set1".to_string());
         assert_eq!(result.unwrap(), "(integer) 0");
+    }
+}
+
+#[cfg(test)]
+mod group_server {
+    use super::*;
+
+    #[test]
+    fn flushdb_clear_dictionary() {
+        let mut db = Database::new();
+        let _ = db.mset(&[
+            "key1".to_string(),
+            "1".to_string(),
+            "key2".to_string(),
+            "2".to_string(),
+        ]);
+        let r = db.get("key1").unwrap();
+        assert_eq!(r, "1");
+
+        let r = db.flushdb().unwrap();
+        assert_eq!(r, "Ok");
+        assert!(db.dictionary.is_empty());
     }
 }

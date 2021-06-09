@@ -46,6 +46,7 @@ pub enum Command {
     Sadd(String, String),
     Sismember(String, String),
     Scard(String),
+    Flushdb(),
     None,
 }
 
@@ -103,6 +104,7 @@ impl Request {
                     Command::Sadd(set_key, value) => db.sadd(set_key, value),
                     Command::Sismember(set_key, value) => db.sismember(set_key, value),
                     Command::Scard(set_key) => db.scard(set_key),
+                    Command::Flushdb() => db.flushdb(),
                     Command::None => return Reponse::Error("Unknown Command".to_owned()),
                 };
 
@@ -178,6 +180,7 @@ impl Command {
             ["sadd", key, element] => Command::Sadd(key.to_owned(), element.to_owned()),
             ["sismember", key, element] => Command::Sismember(key.to_owned(), element.to_owned()),
             ["scard", key] => Command::Scard(key.to_owned()),
+            ["flushdb"] => Command::Flushdb(),
             _ => Command::None,
         }
     }
@@ -283,6 +286,7 @@ impl Display for Command {
                 key, element
             ),
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
+            Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::None => write!(f, "Wrong Command"),
         }
     }
