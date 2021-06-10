@@ -31,18 +31,20 @@ impl ConfigParser {
         Ok(ConfigParser { data: d })
     }
 
-    // Use for log_file and dbfilename
-    // pub fn get(&self, k: &str) -> Option<&String> {
-    //     self.data.get(k)
-    // }
+    pub fn get(&self, k: &str) -> Result<String, String> {
+        match self.data.get(k) {
+            Some(value) => Ok(value.to_string()),
+            None => return Err(format!("There's no {} field", k))
+        }
+    }
 
     pub fn getu32(&self, k: &str) -> Result<u32, String> {
         match self.data.get(k) {
             Some(value) => match value.parse::<u32>() {
                 Ok(v) => Ok(v),
-                _ => Err("Invalid value for port".to_string()),
+                _ => Err(format!("Invalid value for {}", k)),
             },
-            None => Err("There's no port field".to_string()),
+            None => Err(format!("There's no {} field", k)),
         }
     }
 }
@@ -54,14 +56,14 @@ mod tests {
     fn verbose_save_correctly() {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
-        assert_eq!(cp.data.get("verbose").unwrap(), "1");
+        assert_eq!(cp.get("verbose").unwrap(), "1");
     }
 
     #[test]
     fn port_save_correctly() {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
-        assert_eq!(cp.data.get("port").unwrap(), "8888");
+        assert_eq!(cp.get("port").unwrap(), "8888");
     }
 
     #[test]
@@ -75,21 +77,21 @@ mod tests {
     fn timeout_save_correctly() {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
-        assert_eq!(cp.data.get("timeout").unwrap(), "0");
+        assert_eq!(cp.get("timeout").unwrap(), "0");
     }
 
     #[test]
     fn dbfilename_save_correctly() {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
-        assert_eq!(cp.data.get("dbfilename").unwrap(), "dump.rdb");
+        assert_eq!(cp.get("dbfilename").unwrap(), "dump.rdb");
     }
 
     #[test]
     fn logfile_save_correctly() {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
-        assert_eq!(cp.data.get("logfile").unwrap(), "lf.log");
+        assert_eq!(cp.get("logfile").unwrap(), "lf.log");
     }
 
     #[test]

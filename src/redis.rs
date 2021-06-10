@@ -9,8 +9,8 @@ impl Redis {
         let cp = ConfigParser::new(config_file)?;
 
         let port = cp.getu32("port")?;
-
         let addr = "0.0.0.0:".to_owned() + &port.to_string();
+        let lf = cp.get("logfile")?;
         let server = Server::new(&addr);
 
         Ok(Redis { server })
