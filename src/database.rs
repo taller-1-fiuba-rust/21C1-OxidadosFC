@@ -1,5 +1,4 @@
-use crate::database_errors::DataBaseError;
-use crate::storagevalue::StorageValue;
+use crate::databasehelper::{DataBaseError, StorageValue, SuccessQuery};
 use regex::Regex;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -11,13 +10,6 @@ pub struct Database {
     dictionary: HashMap<String, StorageValue>,
 }
 
-const SUCCES: &str = "Ok";
-const INTEGER: &str = "(integer)";
-const NIL: &str = "(nil)";
-const EMPTY: &str = "(empty list or set)";
-const NUMBER_INSERT_SUCCESS: u32 = 1;
-const NUMBER_NOT_INSERT: u32 = 0;
-
 impl Database {
     pub fn new() -> Database {
         Database {
@@ -27,7 +19,7 @@ impl Database {
 
     // KEYS
 
-    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<String, DataBaseError> {
+    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(to_key) {
             return Err(DataBaseError::KeyAlredyExist);
         }
@@ -36,58 +28,52 @@ impl Database {
             Some(val) => {
                 let val = val.clone();
                 self.dictionary.insert(to_key.to_owned(), val);
-                Ok(String::from(SUCCES))
+                Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn del(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn del(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.remove(key) {
-            Some(_) => Ok(SUCCES.to_owned()),
+            Some(_) => Ok(SuccessQuery::Success),
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn exists(&mut self, key: &str) -> Result<String, DataBaseError> {
-        Ok(format!(
-            "{} {}",
-            INTEGER,
-            self.dictionary.contains_key(key) as i8
-        ))
+    pub fn exists(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let bool = self.dictionary.contains_key(key);
+        Ok(SuccessQuery::Boolean(bool))
     }
 
     //expire
 
     //expireat
 
-    pub fn keys(&mut self, pattern: String) -> Result<String, DataBaseError> {
-        let patt: String = r"^".to_owned() + &pattern + r"$";
+    pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
+        let patt: String = r"^".to_owned() + pattern + r"$";
         let patt: String = patt.replace("*", ".*");
         let patt: String = patt.replace("?", ".");
-        let result: String = self
+        let list: Vec<SuccessQuery> = self
             .dictionary
             .keys()
             .filter(|x| match Regex::new(&patt) {
                 Ok(re) => re.is_match(x),
                 Err(_) => false,
             })
-            .map(|x| x.to_string() + "\r\n")
-            .collect();
+            .map(|item| SuccessQuery::String(item.to_owned()))
+            .collect::<Vec<SuccessQuery>>();
 
-        match result.strip_suffix("\r\n") {
-            Some(s) => Ok(s.to_string()),
-            None => Err(DataBaseError::NoMatch),
-        }
+        Ok(SuccessQuery::List(list))
     }
 
     //persist
 
-    pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<String, DataBaseError> {
+    pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.remove(old_key) {
             Some(value) => {
                 self.dictionary.insert(new_key.to_owned(), value);
-                Ok(SUCCES.to_owned())
+                Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
         }
@@ -103,38 +89,33 @@ impl Database {
 
     //STRINGS
 
-    pub fn append(&mut self, key: &str, value: String) -> Result<String, DataBaseError> {
+    pub fn append(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(key) {
             if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
                 val.push_str(&value);
-                let len_result = val.len();
-                Ok(format!("{} {}", INTEGER, len_result))
+                let len_result = val.len() as i32;
+                Ok(SuccessQuery::Integer(len_result))
             } else {
                 Err(DataBaseError::NotAString)
             }
         } else {
-            let val_len = value.len();
+            let len_result = value.len() as i32;
             match self.set(key, value) {
-                Ok(_) => Ok(format!("{} {}", INTEGER, val_len)),
+                Ok(_) => Ok(SuccessQuery::Integer(len_result)),
                 Err(err) => Err(err),
             }
         }
     }
 
-    pub fn decrby(&mut self, key: &str, number_of_decr: String) -> Result<String, DataBaseError> {
-        let number_of_decr = match number_of_decr.parse::<i32>() {
-            Ok(val) => val,
-            Err(_) => return Err(DataBaseError::NotAnInteger),
-        };
-
+    pub fn decrby(&mut self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
         if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
             let val = match val.parse::<i32>() {
-                Ok(val) => val - number_of_decr,
+                Ok(val) => val - decr,
                 Err(_) => return Err(DataBaseError::NotAnInteger),
             };
 
-            match self.set(key, val.to_string()) {
-                Ok(_) => Ok(format!("{} {}", INTEGER, val.to_string())),
+            match self.set(key, &val.to_string()) {
+                Ok(_) => Ok(SuccessQuery::Integer(val)),
                 Err(err) => Err(err),
             }
         } else {
@@ -142,102 +123,81 @@ impl Database {
         }
     }
 
-    pub fn get(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get(key) {
-            Some(StorageValue::String(val)) => Ok(val.to_string()),
+            Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val.clone())),
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn getdel(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn getdel(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.remove(key) {
-            Some(StorageValue::String(val)) => Ok(val),
+            Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val)),
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn getset(&mut self, key: &str, new_val: String) -> Result<String, DataBaseError> {
-        let old_val = match self.dictionary.get(key) {
-            Some(StorageValue::String(old_value)) => old_value.to_string(),
+    pub fn getset(&mut self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
+        let old_value = match self.dictionary.remove(key) {
+            Some(StorageValue::String(old_value)) => old_value,
             Some(_) => return Err(DataBaseError::NotAString),
             None => return Err(DataBaseError::NonExistentKey),
         };
 
-        let _ = self.set(key, new_val);
-        Ok(old_val)
+        self.set(key, new_val).unwrap();
+        Ok(SuccessQuery::String(old_value))
     }
 
-    pub fn incrby(&mut self, key: &str, number_of_incr: String) -> Result<String, DataBaseError> {
-        let mut number_incr = number_of_incr;
-        number_incr.insert(0, '-');
-        self.decrby(key, number_incr)
+    pub fn incrby(&mut self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
+        self.decrby(key, -incr)
     }
+    pub fn mget(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+        let mut list: Vec<SuccessQuery> = Vec::new();
 
-    pub fn mget(&mut self, params: &[String]) -> Result<String, DataBaseError> {
-        let mut result = String::from("");
-        let mut count = 0;
         for key in params {
-            count += 1;
-            result.push_str((count.to_string() + &") ".to_string()).as_str());
-            match self.get(key) {
-                Ok(result_ok) => {
-                    result.push_str(&result_ok);
-                }
-                Err(error_database) => {
-                    result.push_str(&error_database.to_string());
-                }
+            match self.dictionary.get(key) {
+                Some(StorageValue::String(value)) => list.push(SuccessQuery::String(value.clone())),
+                Some(_) | None => list.push(SuccessQuery::Nil),
             }
-            result.push_str(&'\n'.to_string());
         }
-        Ok(result)
+
+        Ok(SuccessQuery::List(list))
     }
 
-    pub fn mset(&mut self, params: &[String]) -> Result<String, DataBaseError> {
+    pub fn mset(&mut self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         for i in (0..params.len()).step_by(2) {
-            let key = match params.get(i) {
-                Some(val) => val,
-                None => return Err(DataBaseError::NumberOfParamsIsIncorrectly),
-            };
-
-            let value = match params.get(i + 1) {
-                Some(val) => val,
-                None => return Err(DataBaseError::NumberOfParamsIsIncorrectly),
-            };
+            let key = params.get(i).unwrap();
+            let value = params.get(i + 1).unwrap();
 
             self.dictionary
                 .insert(key.to_string(), StorageValue::String(value.to_string()));
         }
-        Ok("OK".to_string())
+        Ok(SuccessQuery::Success)
     }
 
-    pub fn set(&mut self, key: &str, val: String) -> Result<String, DataBaseError> {
+    pub fn set(&mut self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary
-            .insert(key.to_owned(), StorageValue::String(val));
-        Ok(String::from(SUCCES))
+            .insert(key.to_owned(), StorageValue::String(val.to_owned()));
+        Ok(SuccessQuery::Success)
     }
 
-    pub fn strlen(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn strlen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(key) {
             if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
-                Ok(format!("{}", val.len()))
+                Ok(SuccessQuery::Integer(val.len() as i32))
             } else {
                 Err(DataBaseError::NotAString)
             }
         } else {
-            Ok("0".to_string())
+            Ok(SuccessQuery::Integer(0))
         }
     }
 
     // Lists
 
-    pub fn lindex(&mut self, key: &str, index: String) -> Result<String, DataBaseError> {
-        let index = match index.parse::<i32>() {
-            Ok(val) => val,
-            Err(_) => return Err(DataBaseError::NotAnInteger),
-        };
-
+    pub fn lindex(&mut self, key: &str, index: i32) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get(key) {
             Some(StorageValue::List(list)) => {
                 let index = if index < 0 {
@@ -247,111 +207,103 @@ impl Database {
                 };
 
                 match list.get(index) {
-                    Some(val) => Ok(val.to_string()),
-                    None => Ok(NIL.to_owned()),
+                    Some(val) => Ok(SuccessQuery::String(val.clone())),
+                    None => Ok(SuccessQuery::Nil),
                 }
             }
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(NIL.to_owned()),
+            None => Ok(SuccessQuery::Nil),
         }
     }
 
-    pub fn llen(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn llen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get(key) {
-            Some(StorageValue::List(list)) => Ok(format!("{} {}", INTEGER, list.len().to_string())),
+            Some(StorageValue::List(list)) => Ok(SuccessQuery::Integer(list.len() as i32)),
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(format!("{} 0", INTEGER)),
+            None => Ok(SuccessQuery::Integer(0)),
         }
     }
 
-    pub fn lpop(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn lpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 if list.is_empty() {
-                    Ok(NIL.to_owned())
+                    Ok(SuccessQuery::Nil)
                 } else {
-                    Ok(list.remove(0))
+                    Ok(SuccessQuery::String(list.remove(0)))
                 }
             }
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(NIL.to_owned()),
+            None => Ok(SuccessQuery::Nil),
         }
     }
 
-    pub fn lpush(&mut self, key: &str, value: String) -> Result<String, DataBaseError> {
+    pub fn lpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
-                list.insert(0, value);
-                Ok(format!("{} {}", INTEGER, list.len().to_string()))
+                list.insert(0, value.to_owned());
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => {
-                let list: Vec<String> = vec![value];
+                let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
                 self.dictionary
                     .insert(key.to_owned(), StorageValue::List(list));
-                Ok(format!("{} {}", INTEGER, len.to_string()))
+                Ok(SuccessQuery::Integer(len as i32))
             }
         }
     }
 
-    pub fn lpushx(&mut self, key: &str, value: String) -> Result<String, DataBaseError> {
+    pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
-                list.insert(0, value);
-                Ok(format!("{} {}", INTEGER, list.len().to_string()))
+                list.insert(0, value.to_owned());
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(format!("{} 0", INTEGER)),
+            None => Ok(SuccessQuery::Integer(0)),
         }
     }
 
-    pub fn lrange(&mut self, key: &str, beg: String, end: String) -> Result<String, DataBaseError> {
-        let beg = match beg.parse::<i32>() {
-            Ok(val) => val,
-            Err(_) => return Err(DataBaseError::NotAnInteger),
-        };
-
-        let end = match end.parse::<i32>() {
-            Ok(val) => val,
-            Err(_) => return Err(DataBaseError::NotAnInteger),
-        };
+    pub fn lrange(&mut self, key: &str, ini: i32, end: i32) -> Result<SuccessQuery, DataBaseError> {
+        let mut sub_list: Vec<SuccessQuery> = Vec::new();
 
         match self.dictionary.get(key) {
             Some(StorageValue::List(list)) => {
-                let len: i32 = list.len() as i32;
-                let beg = if beg < 0 { len + beg } else { beg };
-                let end = if end < 0 { len + end } else { end };
+                let len = list.len() as i32;
+                let ini = if ini < 0 {
+                    (len + ini) as usize
+                } else {
+                    ini as usize
+                };
+                let end = if end < 0 {
+                    (len + end) as usize
+                } else {
+                    end as usize
+                };
 
-                if beg >= 0 && end <= len && beg <= end {
-                    let mut list_srt = String::new();
-
-                    for (i, elem) in list[(beg as usize)..(end as usize + 1)].iter().enumerate() {
-                        let row = format!("{}) {}\n", i + 1, elem);
-                        list_srt.push_str(&row);
+                if end < len as usize && ini <= end {
+                    for elem in list[ini..(end + 1)].iter() {
+                        sub_list.push(SuccessQuery::String(elem.clone()));
                     }
 
-                    Ok(list_srt)
+                    Ok(SuccessQuery::List(sub_list))
                 } else {
-                    Ok(EMPTY.to_owned())
+                    Ok(SuccessQuery::List(sub_list))
                 }
             }
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(EMPTY.to_owned()),
+            None => Ok(SuccessQuery::List(sub_list)),
         }
     }
 
     pub fn lrem(
         &mut self,
         key: &str,
-        count: String,
-        elem: String,
-    ) -> Result<String, DataBaseError> {
-        let mut count = match count.parse::<i32>() {
-            Ok(val) => val,
-            Err(_) => return Err(DataBaseError::NotAnInteger),
-        };
-
+        mut count: i32,
+        elem: &str,
+    ) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match count.cmp(&0) {
                 Ordering::Greater => {
@@ -366,7 +318,7 @@ impl Database {
                         }
                     }
 
-                    Ok(format!("{} {}", INTEGER, list.len()))
+                    Ok(SuccessQuery::Integer(list.len() as i32))
                 }
                 Ordering::Less => {
                     let mut exist_elem = true;
@@ -380,115 +332,115 @@ impl Database {
                         }
                     }
 
-                    Ok(format!("{} {}", INTEGER, list.len()))
+                    Ok(SuccessQuery::Integer(list.len() as i32))
                 }
                 Ordering::Equal => {
                     list.retain(|x| *x != elem);
-                    Ok(format!("{} {}", INTEGER, list.len()))
+                    Ok(SuccessQuery::Integer(list.len() as i32))
                 }
             },
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(format!("{} 0", INTEGER)),
+            None => Ok(SuccessQuery::Integer(0)),
         }
     }
 
-    pub fn lset(&mut self, key: &str, index: &str, value: &str) -> Result<String, DataBaseError> {
-        match index.parse::<usize>() {
-            Ok(index) => match self.dictionary.get_mut(key) {
-                Some(StorageValue::List(list)) => match list.get_mut(index) {
-                    Some(val) => {
-                        val.clear();
-                        val.push_str(value);
-                        Ok(SUCCES.to_owned())
-                    }
-                    None => Err(DataBaseError::IndexOutOfRange),
-                },
-                Some(_) => Err(DataBaseError::NotAList),
-                None => Err(DataBaseError::NonExistentKey),
-            },
-            Err(_) => Err(DataBaseError::NotAnInteger),
-        }
-    }
-
-    pub fn rpop(&mut self, key: &str) -> Result<String, DataBaseError> {
+    pub fn lset(
+        &mut self,
+        key: &str,
+        index: usize,
+        value: &str,
+    ) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
-            Some(StorageValue::List(list)) => match list.pop() {
-                Some(value) => Ok(value),
-                None => Ok(NIL.to_owned()),
+            Some(StorageValue::List(list)) => match list.get_mut(index) {
+                Some(val) => {
+                    val.clear();
+                    val.push_str(value);
+                    Ok(SuccessQuery::Success)
+                }
+                None => Err(DataBaseError::IndexOutOfRange),
             },
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(NIL.to_owned()),
+            None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn rpush(&mut self, key: &str, value: String) -> Result<String, DataBaseError> {
+    pub fn rpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.get_mut(key) {
+            Some(StorageValue::List(list)) => match list.pop() {
+                Some(value) => Ok(SuccessQuery::String(value)),
+                None => Ok(SuccessQuery::Nil),
+            },
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(SuccessQuery::Nil),
+        }
+    }
+
+    pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
-                list.push(value);
-                Ok(format!("{} {}", INTEGER, list.len().to_string()))
+                list.push(value.to_owned());
+                Ok(SuccessQuery::Integer(value.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => {
-                let list: Vec<String> = vec![value];
+                let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
                 self.dictionary
                     .insert(key.to_owned(), StorageValue::List(list));
-                Ok(format!("{} {}", INTEGER, len.to_string()))
+                Ok(SuccessQuery::Integer(len as i32))
             }
         }
     }
 
-    pub fn rpushx(&mut self, key: &str, value: String) -> Result<String, DataBaseError> {
+    pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
-                list.push(value);
-                Ok(format!("{} {}", INTEGER, list.len().to_string()))
+                list.push(value.to_owned());
+                Ok(SuccessQuery::Integer(value.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(format!("{} 0", INTEGER)),
+            None => Ok(SuccessQuery::Boolean(false)),
         }
     }
 
-    pub fn sismember(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
-        match self.dictionary.get_mut(&key) {
-            Some(StorageValue::Set(hash_set)) => match hash_set.get(&value) {
-                Some(_val) => Ok(format!("{} {}", INTEGER, NUMBER_INSERT_SUCCESS)),
-                None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+    //SETS
+
+    pub fn sismember(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.get_mut(key) {
+            Some(StorageValue::Set(hash_set)) => match hash_set.get(value) {
+                Some(_val) => Ok(SuccessQuery::Boolean(true)),
+                None => Ok(SuccessQuery::Boolean(false)),
             },
             Some(_) => Err(DataBaseError::NotASet),
-            None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+            None => Ok(SuccessQuery::Boolean(false)),
         }
     }
 
-    pub fn scard(&mut self, key: String) -> Result<String, DataBaseError> {
-        match self.dictionary.get_mut(&key) {
-            Some(StorageValue::Set(hash_set)) => {
-                let len = hash_set.len();
-                Ok(format!("{} {}", INTEGER, len))
-            }
+    pub fn scard(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.get_mut(key) {
+            Some(StorageValue::Set(hash_set)) => Ok(SuccessQuery::Integer(hash_set.len() as i32)),
             Some(_) => Err(DataBaseError::NotASet),
-            None => Ok(format!("{} {}", INTEGER, NUMBER_NOT_INSERT)),
+            None => Ok(SuccessQuery::Boolean(false)),
         }
     }
 
-    pub fn sadd(&mut self, key: String, value: String) -> Result<String, DataBaseError> {
-        match self.dictionary.get_mut(&key) {
+    pub fn sadd(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
-                let mut number_response = NUMBER_INSERT_SUCCESS;
-                let _ = match hash_set.get(&value) {
-                    Some(_val) => number_response = NUMBER_NOT_INSERT,
-                    None => {
-                        let _ = hash_set.insert(value);
-                    }
-                };
-                Ok(format!("{} {}", INTEGER, number_response))
+                if hash_set.contains(value) {
+                    Ok(SuccessQuery::Boolean(false))
+                } else {
+                    hash_set.insert(value.to_owned());
+                    Ok(SuccessQuery::Boolean(true))
+                }
             }
             Some(_) => Err(DataBaseError::NotASet),
             None => {
                 let mut set: HashSet<String> = HashSet::new();
-                set.insert(value);
-                self.dictionary.insert(key, StorageValue::Set(set));
-                Ok(format!("{} {}", INTEGER, NUMBER_INSERT_SUCCESS))
+                set.insert(value.to_owned());
+                self.dictionary
+                    .insert(key.to_owned(), StorageValue::Set(set));
+                Ok(SuccessQuery::Boolean(true))
             }
         }
     }
@@ -509,438 +461,520 @@ mod group_string {
     use super::*;
 
     const KEY: &str = "KEY";
+    const VALUE: &str = "VALUE";
 
-    #[test]
-    fn test_append_new_key_return_lenght_of_the_value() {
+    fn create_database_with_string() -> Database {
         let mut database = Database::new();
 
-        let result = database.append(KEY, "value".to_string()).unwrap();
+        database.set(KEY, VALUE).unwrap();
 
-        assert_eq!(result, "(integer) 5");
+        database
     }
 
-    #[test]
-    fn test_append_key_with_valueold_return_lenght_of_the_total_value() {
-        let mut database = Database::new();
+    mod append_test {
 
-        let _ = database.append(KEY, "value".to_string());
+        use super::*;
 
-        let result = database.append(KEY, "_concat".to_string()).unwrap();
+        #[test]
+        fn test_append_new_key_return_lenght_of_the_value() {
+            let mut database = Database::new();
 
-        assert_eq!(result, "(integer) 12");
+            if let SuccessQuery::Integer(lenght) = database.append(KEY, VALUE).unwrap() {
+                assert_eq!(lenght, 5);
+            }
+        }
+
+        #[test]
+        fn test_append_key_with_old_value_return_lenght_of_the_total_value() {
+            let mut database = Database::new();
+
+            if let SuccessQuery::Integer(lenght) = database.append(KEY, VALUE).unwrap() {
+                assert_eq!(lenght, 5);
+                if let SuccessQuery::Integer(lenght) = database.append(KEY, VALUE).unwrap() {
+                    assert_eq!(lenght, 10);
+                }
+            }
+        }
     }
 
-    #[test]
-    fn test_get_returns_value_of_key() {
-        let mut database = Database::new();
+    mod get_test {
 
-        database.set(KEY, "value".to_string()).unwrap();
+        use super::*;
 
-        let result = database.get(KEY).unwrap();
+        #[test]
+        fn test_get_returns_value_of_key() {
+            let mut database = create_database_with_string();
 
-        assert_eq!(result, "value");
+            if let SuccessQuery::String(value) = database.get(KEY).unwrap() {
+                assert_eq!(VALUE, value.to_string());
+            }
+        }
+
+        #[test]
+        fn test_get_returns_error_if_the_key_does_not_exist() {
+            let mut database = Database::new();
+
+            let result = database.get(KEY).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NonExistentKey);
+        }
     }
 
-    #[test]
-    fn test_get_returns_error_if_the_key_does_not_exist() {
-        let mut database = Database::new();
-        let result = database.get(KEY).unwrap_err().to_string();
+    mod set_test {
+        use super::*;
 
-        assert_eq!(result, "Non-existent key")
+        #[test]
+        fn test_set_returns_ok() {
+            let mut database = Database::new();
+
+            let result = database.set(KEY, VALUE).unwrap();
+            assert_eq!(SuccessQuery::Success, result);
+
+            if let SuccessQuery::String(value) = database.get(KEY).unwrap() {
+                assert_eq!(VALUE, value.to_string());
+            }
+        }
     }
 
-    #[test]
-    fn test_set_returns_ok() {
-        let mut database = Database::new();
-        let result = database.set(KEY, "1".to_string()).unwrap();
-        let value = database.get(KEY).unwrap();
+    mod getdel_test {
+        use super::*;
 
-        assert_eq!(result, "Ok");
-        assert_eq!(value, "1");
+        #[test]
+        fn test_getdel_returns_old_value_of_key_and_after_value_of_key_what_not_exists_in_database_is_nul(
+        ) {
+            let mut database = create_database_with_string();
+
+            if let SuccessQuery::String(value) = database.getdel(KEY).unwrap() {
+                assert_eq!(value.to_string(), VALUE);
+            }
+
+            let result = database.get(KEY).unwrap_err();
+            assert_eq!(result, DataBaseError::NonExistentKey);
+        }
+
+        #[test]
+        fn test_getdel_returns_nil_value_if_key_not_exist_in_database() {
+            let mut database = Database::new();
+
+            let result = database.getdel(KEY).unwrap_err();
+            assert_eq!(result, DataBaseError::NonExistentKey);
+        }
     }
 
-    #[test]
-    fn test_getdel_returns_old_value_of_key_and_after_value_of_key_what_not_exists_in_database_is_nul(
-    ) {
-        let mut database = Database::new();
-        database.set(KEY, "1".to_string()).unwrap();
-        let value = database.getdel(KEY).unwrap();
+    mod incrby_test {
+        use super::*;
 
-        let current_value_key = database.get(KEY).unwrap_err().to_string();
+        #[test]
+        fn test_incrby_returns_lenght_of_the_resulting_value_after_increment() {
+            let mut database = Database::new();
+            database.set(KEY, "1").unwrap();
 
-        assert_eq!(value, "1");
-        assert_eq!(current_value_key, "Non-existent key");
+            let result = database.incrby(KEY, 4).unwrap();
+
+            assert_eq!(result, SuccessQuery::Integer(5));
+        }
     }
 
-    #[test]
-    fn test_getdel_returns_nil_value_if_key_not_exist_in_database() {
-        let mut database = Database::new();
+    mod decrby_test {
+        use super::*;
 
-        let value = database.getdel(KEY).unwrap_err().to_string();
+        #[test]
+        fn test_decrby_returns_lenght_of_the_resulting_value_after_increment() {
+            let mut database = Database::new();
+            database.set(KEY, "5").unwrap();
+            let result = database.decrby(KEY, 4).unwrap();
 
-        assert_eq!(value, "Non-existent key");
+            assert_eq!(result, SuccessQuery::Integer(1));
+        }
     }
 
-    #[test]
-    fn test_incrby_returns_lenght_of_the_resulting_value_after_increment() {
-        let mut database = Database::new();
+    mod strlen_test {
+        use super::*;
 
-        let _ = database.set(KEY, "1".to_string());
+        #[test]
+        fn test_strlen_returns_the_lenght_of_value_key() {
+            let mut database = Database::new();
+            database.set(KEY, VALUE).unwrap();
 
-        let result = database.incrby(KEY, "4".to_string()).unwrap();
+            if let SuccessQuery::Integer(value) = database.strlen(KEY).unwrap() {
+                assert_eq!(value, 5);
+            }
+        }
 
-        assert_eq!(result, "(integer) 5".to_string());
+        #[test]
+        fn test_strlen_returns_zero_if_the_key_not_exists_in_database() {
+            let mut database = Database::new();
+            if let SuccessQuery::Integer(value) = database.strlen(KEY).unwrap() {
+                assert_eq!(value, 0);
+            }
+        }
     }
 
-    #[test]
-    fn test_incrby_returns_err_if_the_value_can_not_be_parse_to_int() {
-        let mut database = Database::new();
+    mod mset_test {
+        use super::*;
 
-        let _ = database.set(KEY, "1".to_string());
+        const KEY_A: &str = "KEY_A";
+        const VALUE_A: &str = "VALUE_A";
 
-        let result = database
-            .incrby(KEY, "4a".to_string())
-            .unwrap_err()
-            .to_string();
+        const KEY_B: &str = "KEY_B";
+        const VALUE_B: &str = "VALUE_B";
 
-        assert_eq!(result, "Value isn't an Integer");
+        const KEY_C: &str = "KEY_C";
+        const VALUE_C: &str = "VALUE_C";
+
+        const KEY_D: &str = "KEY_D";
+        const VALUE_D: &str = "VALUE_D";
+
+        #[test]
+        fn test_mset_set_multiple_key_and_value_ok() {
+            let mut database = Database::new();
+            let vec_key_value = vec![
+                KEY_A, VALUE_A, KEY_B, VALUE_B, KEY_C, VALUE_C, KEY_D, VALUE_D,
+            ];
+
+            let result = database.mset(vec_key_value).unwrap();
+            assert_eq!(result, SuccessQuery::Success);
+
+            let result_get1 = database.get(KEY_A).unwrap();
+            let result_get2 = database.get(KEY_B).unwrap();
+            let result_get3 = database.get(KEY_C).unwrap();
+            let result_get4 = database.get(KEY_D).unwrap();
+
+            assert_eq!(result_get1, SuccessQuery::String(VALUE_A.to_owned()));
+            assert_eq!(result_get2, SuccessQuery::String(VALUE_B.to_owned()));
+            assert_eq!(result_get3, SuccessQuery::String(VALUE_C.to_owned()));
+            assert_eq!(result_get4, SuccessQuery::String(VALUE_D.to_owned()));
+        }
     }
 
-    #[test]
-    fn test_decrby_returns_lenght_of_the_resulting_value_after_increment() {
-        let mut database = Database::new();
+    mod mget_test {
+        use super::*;
 
-        let _ = database.set(KEY, "5".to_string());
+        const KEY_A: &str = "KEY_A";
+        const VALUE_A: &str = "VALUE_A";
 
-        let result = database.decrby(KEY, "4".to_string()).unwrap();
+        const KEY_B: &str = "KEY_B";
+        const VALUE_B: &str = "VALUE_B";
 
-        assert_eq!(result, "(integer) 1");
-    }
+        const KEY_C: &str = "KEY_C";
+        const VALUE_C: &str = "VALUE_C";
 
-    #[test]
-    fn test_decrby_returns_err_if_the_value_can_not_be_parse_to_int() {
-        let mut database = Database::new();
-        let _ = database.set(KEY, "1".to_string());
-        let result = database
-            .decrby(KEY, "4a".to_string())
-            .unwrap_err()
-            .to_string();
+        const KEY_D: &str = "KEY_D";
+        const VALUE_D: &str = "VALUE_D";
 
-        assert_eq!(result, "Value isn't an Integer");
-    }
+        fn create_a_database_with_key_values() -> Database {
+            let mut database = Database::new();
 
-    #[test]
-    fn test_strlen_returns_the_lenght_of_value_key() {
-        let mut database = Database::new();
+            database.set(KEY_A, VALUE_A).unwrap();
+            database.set(KEY_B, VALUE_B).unwrap();
+            database.set(KEY_C, VALUE_C).unwrap();
+            database.set(KEY_D, VALUE_D).unwrap();
 
-        let _ = database.set(KEY, "abcd".to_string());
+            database
+        }
 
-        let result = database.strlen(KEY).unwrap();
+        #[test]
+        fn test_mget_return_all_values_of_keys_if_all_keys_are_in_database() {
+            let database = create_a_database_with_key_values();
 
-        assert_eq!(result, "4");
-    }
+            let vec_keys = vec![KEY_A, KEY_B, KEY_C, KEY_D];
 
-    #[test]
-    fn test_strlen_returns_zero_if_the_key_not_exists_in_database() {
-        let mut database = Database::new();
+            if let SuccessQuery::List(list) = database.mget(vec_keys).unwrap() {
+                assert_eq!(list[0], SuccessQuery::String(VALUE_A.to_owned()));
+                assert_eq!(list[1], SuccessQuery::String(VALUE_B.to_owned()));
+                assert_eq!(list[2], SuccessQuery::String(VALUE_C.to_owned()));
+                assert_eq!(list[3], SuccessQuery::String(VALUE_D.to_owned()));
+            }
+        }
 
-        let result = database.strlen("no_exists_key").unwrap();
+        #[test]
 
-        assert_eq!(result, "0");
-    }
+        fn test_mget_returns_nil_for_some_key_that_no_exists_in_database() {
+            let mut database = Database::new();
+            database.set(KEY_A, VALUE_A).unwrap();
+            database.set(KEY_B, VALUE_B).unwrap();
 
-    #[test]
-    fn test_mset_set_multiple_key_and_value_ok() {
-        let vect_key_value = vec![
-            "key1".to_string(),
-            "value1".to_string(),
-            "key2".to_string(),
-            "value2".to_string(),
-        ];
-        let mut database = Database::new();
+            let vec_keys = vec![KEY_A, KEY_B, KEY_C, KEY_D];
 
-        let result = database.mset(&vect_key_value);
-
-        let result_get1 = database.get("key1");
-        let result_get2 = database.get("key2");
-
-        assert_eq!(result.unwrap().to_string(), "OK");
-        assert_eq!(result_get1.unwrap().to_string(), "value1");
-        assert_eq!(result_get2.unwrap().to_string(), "value2");
-    }
-
-    #[test]
-    fn test_mset_returns_err_if_multiple_key_and_value_are_inconsistent_in_number() {
-        let vect_key_value = vec!["key1".to_string(), "value1".to_string(), "key2".to_string()];
-
-        let mut database = Database::new();
-
-        let result = database.mset(&vect_key_value);
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            String::from("number of parameters is incorrectly")
-        );
-    }
-
-    #[test]
-    fn test_mget_return_all_values_of_keys_if_all_keys_are_in_database() {
-        let vect_key_value = vec!["key1".to_string(), "key2".to_string()];
-
-        let mut database = Database::new();
-
-        database.set("key1", "value1".to_string()).unwrap();
-        database.set("key2", "value2".to_string()).unwrap();
-
-        let result = database.mget(&vect_key_value);
-
-        assert_eq!(result.unwrap(), "1) value1\n2) value2\n");
-    }
-
-    #[test]
-    fn test_mget_returns_nil_for_some_key_that_no_exists_in_database() {
-        let vect_key_value = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
-
-        let mut database = Database::new();
-
-        database.set("key1", "value1".to_string()).unwrap();
-        database.set("key3", "value3".to_string()).unwrap();
-
-        let result = database.mget(&vect_key_value);
-
-        assert_eq!(
-            result.unwrap(),
-            "1) value1\n2) Non-existent key\n3) value3\n"
-        );
+            if let SuccessQuery::List(list) = database.mget(vec_keys).unwrap() {
+                assert_eq!(list[0], SuccessQuery::String(VALUE_A.to_owned()));
+                assert_eq!(list[1], SuccessQuery::String(VALUE_B.to_owned()));
+                assert_eq!(list[2], SuccessQuery::Nil);
+                assert_eq!(list[3], SuccessQuery::Nil);
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod group_keys {
     use super::*;
-    use std::collections::HashSet;
 
     const KEY: &str = "KEY";
+    const SECOND_KEY: &str = "SECOND_KEY";
 
-    #[test]
-    fn test_copy_set_dolly_sheep_then_copy_to_clone() {
-        let mut database = Database::new();
-        let key_a = "dolly";
-        let key_b = "clone";
+    const VALUE: &str = "VALUE";
+    const SECOND_VALUE: &str = "SECOND_VALUE";
 
-        database.set(key_a, "sheep".to_string()).unwrap();
-
-        let result = database.copy(key_a, key_b);
-        assert_eq!(result.unwrap(), SUCCES);
-        assert_eq!(database.get(key_b).unwrap(), "sheep");
-    }
-
-    #[test]
-    fn test_copy_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
-        let mut database = Database::new();
-        let key_a = "dolly";
-        let key_b = "clone";
-
-        database.set(key_a, "sheep".to_string()).unwrap();
-        database.set(key_b, "whatever".to_string()).unwrap();
-
-        let result = database.copy(key_a, key_b);
-
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "the key alredy exist in the database"
-        );
-    }
-
-    #[test]
-    fn test_copy_try_to_copy_a_key_does_not_exist() {
-        let mut database = Database::new();
-        let key_a = "dolly";
-        let key_b = "clone";
-
-        let result = database.copy(key_a, key_b);
-
-        assert_eq!(result.unwrap_err().to_string(), "Non-existent key");
-    }
-
-    #[test]
-    fn test_del_key_hello_returns_1() {
-        let mut database = Database::new();
-        database.set(KEY, "hello".to_string()).unwrap();
-
-        let result = database.del(KEY);
-
-        assert_eq!(result.unwrap(), SUCCES);
-        assert_eq!(
-            database.get(KEY).unwrap_err().to_string(),
-            "Non-existent key"
-        );
-    }
-
-    #[test]
-    fn test_del_key_non_exist_returns_0() {
-        let mut database = Database::new();
-
-        let result = database.del(KEY);
-
-        assert_eq!(result.unwrap_err().to_string(), "Non-existent key");
-    }
-
-    #[test]
-    fn test_exists_key_non_exist_returns_0() {
-        let mut database = Database::new();
-
-        let result = database.exists(KEY);
-        assert_eq!(result.unwrap(), "(integer) 0");
-        assert_eq!(
-            database.get(KEY).unwrap_err().to_string(),
-            "Non-existent key"
-        );
-    }
-
-    #[test]
-    fn test_exists_key_hello_returns_0() {
-        let mut database = Database::new();
-        database.set(KEY, "hello".to_string()).unwrap();
-
-        let result = database.exists(KEY);
-        assert_eq!(result.unwrap(), "(integer) 1");
-        assert_eq!(database.get(KEY).unwrap(), "hello");
-    }
-
-    #[cfg(test)]
-    mod command_keys {
+    mod copy_test {
         use super::*;
+
+        #[test]
+        fn test_copy_set_dolly_sheep_then_copy_to_clone() {
+            let mut database = Database::new();
+
+            database.set(KEY, VALUE).unwrap();
+            let result = database.copy(KEY, SECOND_KEY);
+            assert_eq!(result.unwrap(), SuccessQuery::Success);
+            if let SuccessQuery::String(value) = database.strlen(SECOND_KEY).unwrap() {
+                assert_eq!(value.to_string(), VALUE);
+            }
+        }
+
+        #[test]
+        fn test_copy_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
+            let mut database = Database::new();
+            database.set(KEY, VALUE).unwrap();
+            database.set(SECOND_KEY, SECOND_VALUE).unwrap();
+            let result = database.copy(KEY, SECOND_KEY);
+
+            assert_eq!(result.unwrap_err(), DataBaseError::KeyAlredyExist);
+        }
+
+        #[test]
+        fn test_copy_try_to_copy_a_key_does_not_exist() {
+            let mut database = Database::new();
+            let result = database.copy(KEY, SECOND_KEY);
+
+            assert_eq!(result.unwrap_err(), DataBaseError::NonExistentKey);
+        }
+    }
+
+    mod del_test {
+        use super::*;
+
+        #[test]
+        fn test_del_key_value_returns_succes() {
+            let mut database = Database::new();
+            database.set(KEY, VALUE).unwrap();
+
+            let result = database.del(KEY);
+            assert_eq!(result.unwrap(), SuccessQuery::Success);
+            assert_eq!(
+                database.get(KEY).unwrap_err(),
+                DataBaseError::NonExistentKey
+            );
+        }
+        #[test]
+        fn test_del_key_non_exist_returns_error() {
+            let mut database = Database::new();
+
+            let result = database.del(KEY);
+            assert_eq!(result.unwrap_err(), DataBaseError::NonExistentKey);
+        }
+    }
+
+    mod exists_test {
+
+        use super::*;
+
+        #[test]
+        fn test_exists_key_non_exist_returns_bool_false() {
+            let mut database = Database::new();
+
+            let result = database.exists(KEY);
+            assert_eq!(result.unwrap(), SuccessQuery::Boolean(false));
+            assert_eq!(
+                database.get(KEY).unwrap_err(),
+                DataBaseError::NonExistentKey
+            );
+        }
+
+        #[test]
+        fn test_exists_key_hello_returns_bool_true() {
+            let mut database = Database::new();
+            database.set(KEY, VALUE).unwrap();
+
+            let result = database.exists(KEY);
+
+            assert_eq!(result.unwrap(), SuccessQuery::Boolean(true));
+
+            if let SuccessQuery::String(value) = database.strlen(KEY).unwrap() {
+                assert_eq!(value.to_string(), VALUE);
+            }
+        }
+    }
+
+    mod keys_test {
+        use super::*;
+
+        const FIRST_NAME: &str = "firstname";
+        const LAST_NAME: &str = "lastname";
+        const AGE: &str = "age";
+
+        const FIRST_NAME_VALUE: &str = "Alex";
+        const LAST_NAME_VALUE: &str = "Arbieto";
+        const AGE_VALUE: &str = "22";
+
+        fn create_database_with_keys() -> Database {
+            let mut database = Database::new();
+            database.set(FIRST_NAME, FIRST_NAME_VALUE).unwrap();
+            database.set(LAST_NAME, LAST_NAME_VALUE).unwrap();
+            database.set(AGE, AGE_VALUE).unwrap();
+            database
+        }
+
         #[test]
         fn test_keys_obtain_keys_with_name() {
-            let mut database = Database::new();
-            let _ = database.set("firstname", "Alex".to_string());
-            let _ = database.set("lastname", "Arbieto".to_string());
-            let _ = database.set("age", "22".to_string());
+            let mut database = create_database_with_keys();
+            if let Ok(SuccessQuery::List(list)) = database.keys("*name") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
 
-            let result = database.keys("*name".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(result, ["firstname", "lastname"].iter().cloned().collect());
+                assert!(list.contains(&FIRST_NAME.to_owned()));
+                assert!(list.contains(&LAST_NAME.to_owned()));
+            }
         }
 
         #[test]
         fn test_keys_obtain_keys_with_four_question_name() {
-            let mut database = Database::new();
-            let _ = database.set("firstname", "Alex".to_string());
-            let _ = database.set("lastname", "Arbieto".to_string());
-            let _ = database.set("age", "22".to_string());
+            let mut database = create_database_with_keys();
+            if let Ok(SuccessQuery::List(list)) = database.keys("????name") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
 
-            let result = database.keys("????name".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(result, ["lastname"].iter().cloned().collect());
+                assert!(list.contains(&LAST_NAME.to_owned()));
+            }
+        }
+
+        const KEY_A: &str = "key";
+        const KEY_B: &str = "keeeey";
+        const KEY_C: &str = "ky";
+        const NO_MATCH: &str = "notmatch";
+
+        const VAL_A: &str = "valA";
+        const VAL_B: &str = "valB";
+        const VAL_C: &str = "valC";
+        const VAL_D: &str = "valD";
+
+        fn create_database_with_keys_two() -> Database {
+            let mut database = Database::new();
+            database.set(KEY_A, VAL_A).unwrap();
+            database.set(KEY_B, VAL_B).unwrap();
+            database.set(KEY_C, VAL_C).unwrap();
+            database.set(NO_MATCH, VAL_D).unwrap();
+            database
         }
 
         #[test]
         fn test_keys_obtain_all_keys_with_an_asterisk_in_the_middle() {
-            let mut database = Database::new();
-            let _ = database.set("key", "val1".to_string());
-            let _ = database.set("keeeey", "val2".to_string());
-            let _ = database.set("ky", "val3".to_string());
-            let _ = database.set("notmatch", "val4".to_string());
+            let mut database = create_database_with_keys_two();
 
-            let result = database.keys("k*y".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(result, ["key", "keeeey", "ky"].iter().cloned().collect());
+            if let Ok(SuccessQuery::List(list)) = database.keys("k*y") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+                assert!(list.contains(&KEY_A.to_owned()));
+                assert!(list.contains(&KEY_B.to_owned()));
+                assert!(list.contains(&KEY_C.to_owned()));
+            }
         }
 
         #[test]
         fn test_keys_obtain_all_keys_with_question_in_the_middle() {
-            let mut database = Database::new();
-            let _ = database.set("key", "val1".to_string());
-            let _ = database.set("keeeey", "val2".to_string());
-            let _ = database.set("ky", "val3".to_string());
-            let _ = database.set("notmatch", "val4".to_string());
+            let mut database = create_database_with_keys_two();
 
-            let result = database.keys("k?y".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(result, ["key"].iter().cloned().collect());
+            if let Ok(SuccessQuery::List(list)) = database.keys("k?y") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+                assert!(list.contains(&KEY_A.to_owned()));
+            }
+        }
+
+        const HALL: &str = "hall";
+        const HELLO: &str = "hello";
+        const HEEEELLO: &str = "heeeeeello";
+        const HALLO: &str = "hallo";
+        const HXLLO: &str = "hxllo";
+        const HLLO: &str = "hllo";
+        const RHLLO: &str = r"h\llo";
+        const AHLLO: &str = "ahllo";
+        const HALLOWN: &str = "hallown";
+
+        fn create_database_with_keys_three() -> Database {
+            let mut database = Database::new();
+            database.set(HELLO, VAL_A).unwrap();
+            database.set(HEEEELLO, VAL_A).unwrap();
+            database.set(HALLO, VAL_B).unwrap();
+            database.set(HXLLO, VAL_C).unwrap();
+            database.set(HLLO, VAL_C).unwrap();
+            database.set(RHLLO, VAL_D).unwrap();
+            database.set(AHLLO, VAL_D).unwrap();
+            database.set(HALLOWN, VAL_D).unwrap();
+            database.set(HALL, VAL_D).unwrap();
+
+            database
         }
 
         #[test]
         fn test_keys_obtain_keys_with_h_question_llo_matches_correctly() {
-            let mut database = Database::new();
-            let _ = database.set("hello", "a".to_string());
-            let _ = database.set("hallo", "b".to_string());
-            let _ = database.set("hxllo", "c".to_string());
-            let _ = database.set("hllo", "d".to_string());
-            let _ = database.set(r"h\llo", "d".to_string());
-            let _ = database.set("ahllo", "e".to_string());
-            let _ = database.set("hallown", "e".to_string());
+            let mut database = create_database_with_keys_three();
 
-            let result = database.keys("h?llo".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(
-                result,
-                ["hello", "hallo", "hxllo", "h\\llo"]
-                    .iter()
-                    .cloned()
-                    .collect()
-            );
+            if let Ok(SuccessQuery::List(list)) = database.keys("h?llo") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+                assert!(list.contains(&HELLO.to_owned()));
+                assert!(list.contains(&HXLLO.to_owned()));
+                assert!(list.contains(&RHLLO.to_owned()));
+                assert!(list.contains(&HXLLO.to_owned()));
+                assert!(list.contains(&RHLLO.to_owned()));
+            }
         }
 
         #[test]
         fn test_keys_obtain_keys_with_h_asterisk_llo_matches_correctly() {
-            let mut database = Database::new();
-            let _ = database.set("hello", "a".to_string());
-            let _ = database.set("heeeeeello", "a".to_string());
-            let _ = database.set("hallo", "b".to_string());
-            let _ = database.set("hxllo", "c".to_string());
-            let _ = database.set("hllo", "d".to_string());
-            let _ = database.set(r"h\llo", "d".to_string());
-            let _ = database.set("ahllo", "e".to_string());
-            let _ = database.set("hallown", "e".to_string());
+            let mut database = create_database_with_keys_three();
 
-            let result = database.keys("h*llo".to_string()).unwrap();
-            let result: HashSet<_> = result.split("\r\n").collect();
-            assert_eq!(
-                result,
-                ["hllo", "hello", "heeeeeello", "hallo", "hxllo", "h\\llo"]
-                    .iter()
-                    .cloned()
-                    .collect()
-            );
+            if let Ok(SuccessQuery::List(list)) = database.keys("h*llo") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+                assert!(list.contains(&HELLO.to_owned()));
+                assert!(list.contains(&HALLO.to_owned()));
+                assert!(list.contains(&HEEEELLO.to_owned()));
+                assert!(list.contains(&HELLO.to_owned()));
+            }
         }
 
         #[test]
-        fn test_keys_obtain_keys_with_nomatch_returns_empty_string() {
-            let mut database = Database::new();
-            let _ = database.set("firstname", "Alex".to_string());
-            let _ = database.set("lastname", "Arbieto".to_string());
-            let _ = database.set("age", "22".to_string());
+        fn test_keys_obtain_keys_with_nomatch_returns_empty_list() {
+            let mut database = create_database_with_keys();
 
-            let result = database.keys("nomatch".to_string());
-            assert_eq!(result.unwrap_err().to_string(), "(empty list or set)");
+            if let SuccessQuery::List(list) = database.keys("nomatch").unwrap() {
+                assert_eq!(list.len(), 0);
+            }
         }
     }
 
-    #[test]
-    fn test_rename_key_with_mykey_get_hello() {
-        let mut database = Database::new();
-        database.set(KEY, "hello".to_string()).unwrap();
+    mod rename_test {
+        use super::*;
 
-        let result = database.rename(KEY, "mykey").unwrap();
-        assert_eq!(result, "Ok");
+        #[test]
+        fn test_rename_key_with_mykey_get_hello() {
+            let mut database = Database::new();
+            database.set(KEY, VALUE).unwrap();
 
-        let result = database.get("mykey").unwrap();
-        assert_eq!(result, "hello");
+            let result = database.rename(KEY, SECOND_KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Success);
 
-        let result = database.get(KEY).unwrap_err().to_string();
-        assert_eq!(result, "Non-existent key");
-    }
+            let result = database.get(KEY).unwrap_err();
+            assert_eq!(result, DataBaseError::NonExistentKey);
+        }
 
-    #[test]
-    fn test_rename_key_non_exists_error() {
-        let mut database = Database::new();
+        #[test]
+        fn test_rename_key_non_exists_error() {
+            let mut database = Database::new();
 
-        let result = database.rename(KEY, "mykey").unwrap_err().to_string();
+            let result = database.rename(KEY, SECOND_KEY).unwrap_err();
 
-        assert_eq!(result, "Non-existent key");
+            assert_eq!(result, DataBaseError::NonExistentKey);
+        }
     }
 }
 
@@ -948,34 +982,39 @@ mod group_keys {
 mod group_list {
 
     const KEY: &str = "KEY";
+    const VALUE: &str = "VALUE";
+
+    const VALUEA: &str = "ValueA";
+    const VALUEB: &str = "ValueB";
+    const VALUEC: &str = "ValueC";
+    const VALUED: &str = "ValueD";
 
     use super::*;
 
     fn database_with_a_list() -> Database {
         let mut database = Database::new();
 
-        database.lpush(KEY, "ValueA".to_owned()).unwrap();
-        database.lpush(KEY, "ValueB".to_owned()).unwrap();
-        database.lpush(KEY, "ValueC".to_owned()).unwrap();
-        database.lpush(KEY, "ValueD".to_owned()).unwrap();
+        database.lpush(KEY, VALUEA).unwrap();
+        database.lpush(KEY, VALUEB).unwrap();
+        database.lpush(KEY, VALUEC).unwrap();
+        database.lpush(KEY, VALUED).unwrap();
 
         database
     }
 
     fn database_with_a_three_repeated_values() -> Database {
         let mut database = Database::new();
-
-        database.lpush(KEY, "ValueA".to_owned()).unwrap();
-        database.lpush(KEY, "ValueA".to_owned()).unwrap();
-        database.lpush(KEY, "ValueC".to_owned()).unwrap();
-        database.lpush(KEY, "ValueA".to_owned()).unwrap();
+        database.lpush(KEY, VALUEA).unwrap();
+        database.lpush(KEY, VALUEA).unwrap();
+        database.lpush(KEY, VALUEC).unwrap();
+        database.lpush(KEY, VALUEA).unwrap();
 
         database
     }
 
     fn database_with_a_string() -> Database {
         let mut database = Database::new();
-        database.append(KEY, "ValueA".to_owned()).unwrap();
+        database.append(KEY, VALUE).unwrap();
         database
     }
 
@@ -988,39 +1027,36 @@ mod group_list {
             let mut database = Database::new();
 
             let result = database.llen(KEY);
-            assert_eq!(result.unwrap(), format!("{} 0", INTEGER));
+
+            assert_eq!(result.unwrap(), SuccessQuery::Integer(0));
         }
 
         #[test]
         fn test_llen_on_a_list_with_one_value() {
             let mut database = Database::new();
-            database.lpush(KEY, "Value".to_owned()).unwrap();
+            database.lpush(KEY, VALUE).unwrap();
 
             let result = database.llen(KEY);
 
-            assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
+            assert_eq!(result.unwrap(), SuccessQuery::Integer(1));
         }
 
         #[test]
         fn test_llen_on_a_list_with_more_than_one_value() {
             let mut database = database_with_a_list();
 
-            let result = database.llen(KEY);
+            let result = database.llen(KEY).unwrap();
 
-            assert_eq!(result.unwrap(), format!("{} 4", INTEGER));
+            assert_eq!(result, SuccessQuery::Integer(4));
         }
 
         #[test]
         fn test_llen_on_an_existent_key_that_isnt_a_list() {
-            let mut database = Database::new();
+            let mut database = database_with_a_string();
 
-            database.append(KEY, "Value".to_owned()).unwrap();
             let result = database.llen(KEY);
 
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NotAList.to_string()
-            );
+            assert_eq!(result.unwrap_err(), DataBaseError::NotAList);
         }
     }
 
@@ -1031,67 +1067,55 @@ mod group_list {
         fn test_lindex_on_a_non_existent_key() {
             let mut database = Database::new();
 
-            let result = database.lindex(KEY, "10".to_owned());
+            let result = database.lindex(KEY, 10);
 
-            assert_eq!(result.unwrap(), NIL);
-        }
-
-        #[test]
-        fn test_lindex_with_a_wrong_idex() {
-            let mut database = Database::new();
-
-            let result = database.lindex(KEY, "XX".to_owned());
-
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NotAnInteger.to_string()
-            );
+            assert_eq!(result.unwrap(), SuccessQuery::Nil);
         }
 
         #[test]
         fn test_lindex_with_a_list_with_one_value_on_idex_zero() {
             let mut database = Database::new();
-            database.lpush(KEY, "val".to_owned()).unwrap();
+            database.lpush(KEY, VALUE).unwrap();
 
-            let result = database.lindex(KEY, "0".to_owned());
-
-            assert_eq!(result.unwrap(), "val");
+            if let SuccessQuery::String(value) = database.lindex(KEY, 0).unwrap() {
+                assert_eq!(value, VALUE);
+            }
         }
 
         #[test]
         fn test_lindex_with_more_than_one_value() {
             let mut database = database_with_a_list();
 
-            let result = database.lindex(KEY, "3".to_owned());
-
-            assert_eq!(result.unwrap(), "ValueA");
+            if let SuccessQuery::String(value) = database.lindex(KEY, 3).unwrap() {
+                assert_eq!(value, VALUEA);
+            }
         }
 
         #[test]
         fn test_lindex_with_more_than_one_value_with_a_negative_index() {
             let mut database = database_with_a_list();
 
-            let result = database.lindex(KEY, "-1".to_owned());
-
-            assert_eq!(result.unwrap(), "ValueA");
+            if let SuccessQuery::String(value) = database.lindex(KEY, -1).unwrap() {
+                assert_eq!(value, VALUEA);
+            }
         }
 
         #[test]
         fn test_lindex_on_a_reverse_out_of_bound() {
             let mut database = database_with_a_list();
 
-            let result = database.lindex(KEY, "-5".to_owned());
+            let result = database.lindex(KEY, -5);
 
-            assert_eq!(result.unwrap(), NIL);
+            assert_eq!(result.unwrap(), SuccessQuery::Nil);
         }
 
         #[test]
         fn test_lindex_on_an_out_of_bound() {
             let mut database = database_with_a_list();
 
-            let result = database.lindex(KEY, "1000".to_owned());
+            let result = database.lindex(KEY, 100);
 
-            assert_eq!(result.unwrap(), NIL);
+            assert_eq!(result.unwrap(), SuccessQuery::Nil);
         }
     }
 
@@ -1101,44 +1125,48 @@ mod group_list {
         #[test]
         fn test_lpop_on_a_non_existent_key() {
             let mut database = Database::new();
-            let result = database.lpop(KEY);
-            assert_eq!(result.unwrap(), NIL);
+
+            let result = database.lpop(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
         fn test_lpop_with_a_list_with_one_value_on_idex_zero() {
             let mut database = Database::new();
-            database.lpush(KEY, "val".to_owned()).unwrap();
-            let result = database.lpop(KEY);
+            database.lpush(KEY, VALUE).unwrap();
 
-            assert_eq!(result.unwrap(), "val");
-            let result = database.llen(KEY);
-            assert_eq!(result.unwrap(), format!("{} 0", INTEGER))
+            if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
+                assert_eq!(val.to_string(), VALUE);
+            }
+
+            let result = database.llen(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(0));
         }
 
         #[test]
         fn test_lpop_with_a_list_with_more_than_one_value() {
             let mut database = database_with_a_list();
 
-            let result = database.lpop(KEY);
-            assert_eq!(result.unwrap(), "ValueD");
+            if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
+                assert_eq!(val.to_string(), VALUED);
+            }
 
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueC");
+                assert_eq!(list[0], VALUEC);
             }
         }
 
         #[test]
         fn test_lpop_on_an_empty_list() {
             let mut database = Database::new();
-            database.lpush(KEY, "val".to_owned()).unwrap();
+            database.lpush(KEY, VALUE).unwrap();
 
-            let result = database.lpop(KEY);
-            assert_eq!(result.unwrap(), "val");
+            if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
+                assert_eq!(val.to_string(), VALUE);
+            }
 
-            let result = database.lpop(KEY);
-
-            assert_eq!(result.unwrap(), NIL);
+            let value = database.lpop(KEY).unwrap();
+            assert_eq!(value, SuccessQuery::Nil);
 
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
                 assert!(list.is_empty());
@@ -1154,39 +1182,38 @@ mod group_list {
         fn test_lpush_on_a_non_existent_key_creates_a_list_with_new_value() {
             let mut database = Database::new();
 
-            let result = database.lpush(KEY, "Value".to_owned());
+            let result = database.lpush(KEY, VALUE).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(1));
 
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 1);
-                assert_eq!(list[0], "Value");
-                assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
+                assert_eq!(list[0], VALUE);
             }
         }
 
         #[test]
         fn test_lpush_on_an_existent_key_is_valid() {
             let mut database = Database::new();
-            let result = database.lpush(KEY, "ValueA".to_owned()).unwrap();
-            assert_eq!(result, format!("{} 1", INTEGER));
-            let result = database.lpush(KEY, "ValueB".to_owned()).unwrap();
-            assert_eq!(result, format!("{} 2", INTEGER));
+            database.lpush(KEY, VALUEA).unwrap();
+            let result = database.lpush(KEY, VALUEB).unwrap();
+
+            assert_eq!(result, SuccessQuery::Integer(2));
 
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 2);
-                assert_eq!(list[0], "ValueB");
-                assert_eq!(list[1], "ValueA");
+                assert_eq!(list[1], VALUEA);
+                assert_eq!(list[0], VALUEB);
             }
         }
 
         #[test]
         fn test_lpush_on_an_existent_key_that_isnt_a_list() {
             let mut database = Database::new();
-            database.append(KEY, "Value".to_owned()).unwrap();
-            let result = database.lpush(KEY, "Value".to_owned());
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NotAList.to_string()
-            );
+            database.append(KEY, VALUE).unwrap();
+
+            let result = database.lpush(KEY, VALUE).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotAList);
         }
     }
 
@@ -1196,63 +1223,80 @@ mod group_list {
         #[test]
         fn test_lrange_on_zero_zero_range() {
             let mut database = Database::new();
-            database.lpush(KEY, "Value".to_owned()).unwrap();
+            database.lpush(KEY, VALUE).unwrap();
 
-            let result = database.lrange(KEY, "0".to_owned(), "0".to_owned());
-
-            assert_eq!(result.unwrap(), "1) Value\n")
+            if let SuccessQuery::List(list) = database.lrange(KEY, 0, 0).unwrap() {
+                assert_eq!(list[0].to_string(), VALUE);
+            }
         }
 
         #[test]
         fn test_lrange_on_zero_two_range_applied_to_a_list_with_four_elements() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "0".to_owned(), "2".to_owned());
-            assert_eq!(result.unwrap(), "1) ValueD\n2) ValueC\n3) ValueB\n");
+            if let SuccessQuery::List(list) = database.lrange(KEY, 0, 2).unwrap() {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let second_list: Vec<&str> = vec![VALUED, VALUEC, VALUEB];
+                let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                })
+            }
         }
 
         #[test]
         fn test_lrange_on_one_three_range_applied_to_a_list_with_four_elements() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "1".to_owned(), "3".to_owned());
-
-            assert_eq!(result.unwrap(), "1) ValueC\n2) ValueB\n3) ValueA\n");
+            if let SuccessQuery::List(list) = database.lrange(KEY, 1, 3).unwrap() {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let second_list: Vec<&str> = vec![VALUEC, VALUEB, VALUEA];
+                let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                })
+            }
         }
 
         #[test]
         fn test_lrange_on_a_superior_out_of_bound() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "1".to_owned(), "5".to_owned());
+            let result = database.lrange(KEY, 1, 5).unwrap();
 
-            assert_eq!(result.unwrap(), EMPTY);
+            assert_eq!(result, SuccessQuery::List(Vec::new()));
         }
 
         #[test]
         fn test_lrange_on_an_inferior_out_of_bound() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "-10".to_owned(), "3".to_owned());
+            let result = database.lrange(KEY, -10, 3).unwrap();
 
-            assert_eq!(result.unwrap(), EMPTY);
+            assert_eq!(result, SuccessQuery::List(Vec::new()));
         }
 
         #[test]
         fn test_lrange_on_an_two_way_out_of_bound() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "-10".to_owned(), "10".to_owned());
+            let result = database.lrange(KEY, -10, 10).unwrap();
 
-            assert_eq!(result.unwrap(), EMPTY);
+            assert_eq!(result, SuccessQuery::List(Vec::new()));
         }
 
         #[test]
         fn test_lrange_with_valid_negative_bounds() {
             let mut database = database_with_a_list();
 
-            let result = database.lrange(KEY, "-3".to_owned(), "-1".to_owned());
-            assert_eq!(result.unwrap(), "1) ValueC\n2) ValueB\n3) ValueA\n");
+            if let SuccessQuery::List(list) = database.lrange(KEY, -3, -1).unwrap() {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let second_list: Vec<&str> = vec![VALUEC, VALUEB, VALUEA];
+                let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                })
+            }
         }
     }
 
@@ -1263,12 +1307,13 @@ mod group_list {
         fn test_lrem_2_on_a_list() {
             let mut database = database_with_a_three_repeated_values();
 
-            let result = database.lrem(KEY, "2".to_owned(), "ValueA".to_owned());
-            assert_eq!(result.unwrap(), format!("{} 2", INTEGER));
+            let result = database.lrem(KEY, 2, VALUEA);
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueC");
-                assert_eq!(list[1], "ValueA");
+            assert_eq!(SuccessQuery::Integer(2), result.unwrap());
+
+            if let Some(StorageValue::List(list)) = database.dictionary.get(KEY) {
+                assert_eq!(list[0], VALUEC);
+                assert_eq!(list[1], VALUEA);
             }
         }
 
@@ -1276,12 +1321,12 @@ mod group_list {
         fn test_lrem_negative_2_on_a_list() {
             let mut database = database_with_a_three_repeated_values();
 
-            let result = database.lrem(KEY, "-2".to_owned(), "ValueA".to_owned());
-            assert_eq!(result.unwrap(), format!("{} 2", INTEGER));
+            let result = database.lrem(KEY, -2, VALUEA);
 
+            assert_eq!(SuccessQuery::Integer(2), result.unwrap());
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueA");
-                assert_eq!(list[1], "ValueC");
+                assert_eq!(list[0], VALUEA);
+                assert_eq!(list[1], VALUEC);
             }
         }
 
@@ -1289,75 +1334,41 @@ mod group_list {
         fn test_lrem_zero_on_a_list() {
             let mut database = database_with_a_three_repeated_values();
 
-            let result = database.lrem(KEY, "0".to_owned(), "ValueA".to_owned());
-            assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
+            let result = database.lrem(KEY, 0, VALUEA);
 
+            assert_eq!(SuccessQuery::Integer(1), result.unwrap());
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueC");
+                assert_eq!(list[0], VALUEC);
             }
-        }
-
-        #[test]
-        fn test_lrem_with_a_value_higher_than_lenght_of_list() {
-            let mut database = database_with_a_three_repeated_values();
-
-            let result = database.lrem(KEY, "10".to_owned(), "ValueA".to_owned());
-            assert_eq!(result.unwrap(), format!("{} 1", INTEGER));
-
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueC");
-            }
-        }
-    }
-
-    mod lset_test {
-        use super::*;
-
-        #[test]
-        fn test_lset_with_an_index_that_isnt_a_number() {
-            let mut database = Database::new();
-
-            let result = database.lset(KEY, "XX", "VAL");
-
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NotAnInteger.to_string()
-            );
         }
 
         #[test]
         fn test_lset_with_a_non_existen_key() {
             let mut database = Database::new();
 
-            let result = database.lset(KEY, "0", "VAL");
+            let result = database.lset(KEY, 0, &VALUEA).unwrap_err();
 
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NonExistentKey.to_string()
-            );
+            assert_eq!(result, DataBaseError::NonExistentKey);
         }
 
         #[test]
         fn test_lset_with_a_value_that_isn_a_list() {
             let mut database = database_with_a_string();
 
-            let result = database.lset(KEY, "0", "VAL");
+            let result = database.lset(KEY, 0, &VALUEA).unwrap_err();
 
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                DataBaseError::NotAList.to_string()
-            );
+            assert_eq!(result, DataBaseError::NotAList);
         }
 
         #[test]
         fn test_lset_on_a_list_with_values() {
             let mut database = database_with_a_list();
 
-            let result = database.lset(KEY, "0", "ValueA");
-            assert_eq!(result.unwrap(), SUCCES);
+            let result = database.lset(KEY, 0, &VALUEA);
+            assert_eq!(SuccessQuery::Success, result.unwrap());
 
             if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
-                assert_eq!(list[0], "ValueA");
+                assert_eq!(list[0], VALUEA);
             }
         }
     }
@@ -1367,106 +1378,98 @@ mod group_list {
 mod group_set {
     use super::*;
 
+    const KEY: &str = "KEY";
+    const ELEMENT: &str = "ELEMENT";
+    const OTHER_ELEMENT: &str = "OTHER_ELEMENT";
+
     #[test]
     fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
         let mut database = Database::new();
 
-        let result = database.sadd("set1".to_string(), "element".to_string());
-        let is_member = database.sismember("set1".to_string(), "element".to_string());
-
-        assert_eq!(is_member.unwrap(), "(integer) 1");
-        assert_eq!(result.unwrap(), "(integer) 1");
+        let result = database.sadd(KEY, ELEMENT).unwrap();
+        assert_eq!(result, SuccessQuery::Boolean(true));
+        let is_member = database.sismember(KEY, ELEMENT).unwrap();
+        assert_eq!(is_member, SuccessQuery::Boolean(true));
     }
 
     #[test]
     fn test_sadd_create_set_with_repeating_elements_returns_0() {
         let mut database = Database::new();
+        database.sadd(KEY, ELEMENT).unwrap();
 
-        let _ = database.sadd("set1".to_string(), "element".to_string());
-        let result = database.sadd("set1".to_string(), "element".to_string());
-        let len_set = database.scard("set1".to_string());
-
-        assert_eq!(len_set.unwrap(), "(integer) 1");
-        assert_eq!(result.unwrap(), "(integer) 0");
+        let result = database.sadd(KEY, ELEMENT).unwrap();
+        assert_eq!(result, SuccessQuery::Boolean(false));
+        let len_set = database.scard(KEY).unwrap();
+        assert_eq!(len_set, SuccessQuery::Integer(1));
     }
 
     #[test]
     fn test_sadd_key_with_another_type_of_set_returns_err() {
         let mut database = Database::new();
+        database.set(KEY, ELEMENT).unwrap();
 
-        let _ = database.set("key", "value1".to_string());
-        let result = database.sadd("key".to_string(), "element".to_string());
+        let result = database.sadd(KEY, ELEMENT).unwrap_err();
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "element of key isn't a Set"
-        );
+        assert_eq!(result, DataBaseError::NotASet);
     }
 
     #[test]
     fn test_sadd_add_element_with_set_created_returns_1() {
         let mut database = Database::new();
+        database.sadd(KEY, ELEMENT).unwrap();
 
-        let _ = database.sadd("set1".to_string(), "element".to_string());
-        let result = database.sadd("set1".to_string(), "element2".to_string());
-        let len_set = database.scard("set1".to_string());
-
-        assert_eq!(len_set.unwrap(), "(integer) 2");
-        assert_eq!(result.unwrap(), "(integer) 1");
+        let result = database.sadd(KEY, OTHER_ELEMENT).unwrap();
+        assert_eq!(result, SuccessQuery::Boolean(true));
+        let len_set = database.scard(KEY).unwrap();
+        assert_eq!(len_set, SuccessQuery::Integer(2));
     }
 
     #[test]
     fn test_sismember_set_with_element_returns_1() {
         let mut database = Database::new();
+        database.sadd(KEY, ELEMENT).unwrap();
 
-        let _ = database.sadd("set1".to_string(), "element".to_string());
-        let is_member = database.sismember("set1".to_string(), "element".to_string());
+        let is_member = database.sismember(KEY, ELEMENT).unwrap();
 
-        assert_eq!(is_member.unwrap(), "(integer) 1");
+        assert_eq!(is_member, SuccessQuery::Boolean(true));
     }
 
     #[test]
     fn test_sismember_set_without_element_returns_0() {
         let mut database = Database::new();
+        database.sadd(KEY, ELEMENT).unwrap();
 
-        let _ = database.sadd("set1".to_string(), "element".to_string());
-        let result = database.sismember("set1".to_string(), "other_element".to_string());
+        let result = database.sismember(KEY, OTHER_ELEMENT).unwrap();
 
-        assert_eq!(result.unwrap(), "(integer) 0");
+        assert_eq!(result, SuccessQuery::Boolean(false));
     }
 
     #[test]
     fn test_sismember_key_with_another_type_of_set_returns_err() {
         let mut database = Database::new();
+        database.set(KEY, ELEMENT).unwrap();
+        let result = database.sismember(KEY, ELEMENT).unwrap_err();
 
-        let _ = database.set("key", "value1".to_string());
-        let result = database.sismember("key".to_string(), "element".to_string());
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "element of key isn't a Set"
-        );
+        assert_eq!(result, DataBaseError::NotASet);
     }
 
     #[test]
     fn test_sismember_with_non_exist_key_set_returns_0() {
         let mut database = Database::new();
 
-        let result = database.sismember("set1".to_string(), "element".to_string());
+        let result = database.sismember(KEY, ELEMENT).unwrap();
 
-        assert_eq!(result.unwrap(), "(integer) 0");
+        assert_eq!(result, SuccessQuery::Boolean(false));
     }
 
     #[test]
     fn test_scard_set_with_one_element_returns_1() {
         let mut database = Database::new();
+        database.sadd(KEY, ELEMENT).unwrap();
 
-        let _ = database.sadd("set1".to_string(), "element".to_string());
-        let len_set = database.scard("set1".to_string());
+        let len_set = database.scard(KEY).unwrap();
 
-        assert_eq!(len_set.unwrap(), "(integer) 1");
+        assert_eq!(len_set, SuccessQuery::Integer(1));
     }
 
     #[test]
@@ -1474,32 +1477,30 @@ mod group_set {
         let mut database = Database::new();
 
         for i in 0..10 {
-            let _ = database.sadd("set1".to_string(), i.to_string());
+            let _ = database.sadd(KEY, &i.to_string());
         }
-        let len_set = database.scard("set1".to_string());
 
-        assert_eq!(len_set.unwrap(), "(integer) 10");
+        let len_set = database.scard(KEY).unwrap();
+
+        assert_eq!(len_set, SuccessQuery::Integer(10));
     }
 
     #[test]
     fn test_scard_key_with_another_type_of_set_returns_err() {
         let mut database = Database::new();
+        database.set(KEY, ELEMENT).unwrap();
 
-        let _ = database.set("key", "value1".to_string());
-        let result = database.scard("key".to_string());
+        let result = database.scard(KEY).unwrap_err();
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "element of key isn't a Set"
-        );
+        assert_eq!(result, DataBaseError::NotASet);
     }
 
     #[test]
     fn test_scard_key_set_not_exist_in_database_returns_0() {
         let mut database = Database::new();
 
-        let result = database.scard("set1".to_string());
-        assert_eq!(result.unwrap(), "(integer) 0");
+        let result = database.scard(KEY).unwrap();
+
+        assert_eq!(result, SuccessQuery::Boolean(false));
     }
 }

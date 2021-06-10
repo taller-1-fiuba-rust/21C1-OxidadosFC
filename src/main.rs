@@ -1,11 +1,10 @@
 mod config_parser;
 mod database;
-mod database_errors;
+mod databasehelper;
 mod logger;
 mod redis;
 mod request;
 mod server;
-mod storagevalue;
 
 use redis::Redis;
 use std::env;
