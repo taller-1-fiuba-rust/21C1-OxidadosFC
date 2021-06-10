@@ -1,6 +1,6 @@
 use crate::database::Database;
 use crate::logger::Logger;
-use crate::request::Request;
+use crate::request::{self, Request};
 use std::path::Path;
 
 use std::net::TcpListener;
@@ -44,11 +44,22 @@ impl Server {
                         let log_sender = &log_sender;
                         let database = &database;
                         loop {
-                            let request = Request::parse_request(&mut stream);
-                            log_sender.send(request.to_string()).unwrap();
-                            let reponse = request.execute(database);
-                            log_sender.send(reponse.to_string()).unwrap();
-                            reponse.respond(&mut stream, log_sender);
+                            match request::parse_request(&mut stream) {
+                                Ok(request) => {
+                                    let request = Request::new(&request);
+                                    log_sender.send(request.to_string()).unwrap();
+                                    let reponse = request.execute(database);
+                                    log_sender.send(reponse.to_string()).unwrap();
+                                    reponse.respond(&mut stream, log_sender);
+                                }
+                                Err(err) => {
+                                    let request = Request::invalid_request(err);
+                                    log_sender.send(request.to_string()).unwrap();
+                                    let reponse = request.execute(database);
+                                    log_sender.send(reponse.to_string()).unwrap();
+                                    reponse.respond(&mut stream, log_sender);
+                                }
+                            }
                         }
                     });
                 }
