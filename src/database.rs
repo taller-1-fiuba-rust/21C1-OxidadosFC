@@ -18,13 +18,13 @@ impl Database {
     }
 
     // SERVER
-    pub fn flushdb(&mut self) -> Result<String, DataBaseError> {
+    pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.clear();
-        Ok(SUCCES.to_string())
+        Ok(SuccessQuery::Success)
     }
 
-    pub fn dbsize(&self) -> Result<String, DataBaseError> {
-        Ok(format!("{} {}", INTEGER, self.dictionary.len()))
+    pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
+        Ok(SuccessQuery::Integer(self.dictionary.len() as i32))
     }
 
     // KEYS
@@ -1518,6 +1518,10 @@ mod group_set {
 #[cfg(test)]
 mod group_server {
     use super::*;
+    const KEY1: &str = "key1";
+    const VALUE1: &str = "value1";
+    const KEY2: &str = "key2";
+    const VALUE2: &str = "value2";
 
     mod flushdb_test {
         use super::*;
@@ -1525,17 +1529,14 @@ mod group_server {
         #[test]
         fn flushdb_clear_dictionary() {
             let mut db = Database::new();
-            let _ = db.mset(&[
-                "key1".to_string(),
-                "1".to_string(),
-                "key2".to_string(),
-                "2".to_string(),
-            ]);
-            let r = db.get("key1").unwrap();
-            assert_eq!(r, "1");
+            let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
     
             let r = db.flushdb().unwrap();
-            assert_eq!(r, "Ok");
+            assert_eq!(r, SuccessQuery::Success);
             assert!(db.dictionary.is_empty());
         }
     }
@@ -1548,36 +1549,31 @@ mod group_server {
             let db = Database::new();
     
             let r = db.dbsize().unwrap();
-            assert_eq!(r, "(integer) 0");
+            assert_eq!(r, SuccessQuery::Integer(0));
         }
     
         #[test]
         fn dbsize_with_one_element_gets_1() {
             let mut db = Database::new();
-            let _ = db.set("key1", "1".to_string());
-            let r = db.get("key1").unwrap();
-            assert_eq!(r, "1");
+            let _ = db.set(KEY1, VALUE1);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
     
             let r = db.dbsize().unwrap();
-            assert_eq!(r, "(integer) 1");
+            assert_eq!(r, SuccessQuery::Integer(1));
         }
     
         #[test]
         fn dbsize_with_two_element_gets_2() {
             let mut db = Database::new();
-            let _ = db.mset(&[
-                "key1".to_string(),
-                "1".to_string(),
-                "key2".to_string(),
-                "2".to_string(),
-            ]);
-            let r = db.get("key1").unwrap();
-            assert_eq!(r, "1");
-            let r = db.get("key2").unwrap();
-            assert_eq!(r, "2");
+            let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
     
             let r = db.dbsize().unwrap();
-            assert_eq!(r, "(integer) 2");
+            assert_eq!(r, SuccessQuery::Integer(2));
         }
     }
 

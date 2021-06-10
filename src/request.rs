@@ -124,6 +124,8 @@ impl<'a> Request<'a> {
             ["sadd", key, element] => Request::Valid(Command::Sadd(key, element)),
             ["sismember", key, element] => Request::Valid(Command::Sismember(key, element)),
             ["scard", key] => Request::Valid(Command::Scard(key)),
+            ["flushdb"] => Request::Valid(Command::Flushdb()),
+            ["dbsize"] => Request::Valid(Command::Dbsize()),
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -318,7 +320,6 @@ impl<'a> Display for Command<'a> {
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
-            Command::None => write!(f, "Wrong Command"),
         }
     }
 }
