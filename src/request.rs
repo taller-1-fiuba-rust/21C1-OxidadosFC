@@ -128,7 +128,7 @@ impl<'a> Request<'a> {
             ["srem", key, ..] => {
                 let tail = &request[1..];
                 Request::Valid(Command::Srem(key, tail.to_vec()))
-            },
+            }
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -329,8 +329,12 @@ impl<'a> Display for Command<'a> {
                     members_str.push_str(member);
                     members_str.push(' ');
                 }
-                write!(f, "CommandSet::Srem - Key: {} - members: {}", key, members_str)
-            },
+                write!(
+                    f,
+                    "CommandSet::Srem - Key: {} - members: {}",
+                    key, members_str
+                )
+            }
         }
     }
 }

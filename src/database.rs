@@ -446,36 +446,39 @@ impl Database {
         }
     }
 
-    pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError>{
-        let mut result : Vec<SuccessQuery> = Vec::new();
+    pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let mut result: Vec<SuccessQuery> = Vec::new();
         match self.dictionary.get_mut(key) {
-                Some(StorageValue::Set(hash_set)) => {
-                    for elem in hash_set.iter(){
-                        result.push(SuccessQuery::String(elem.clone()));
-                    }
-                    Ok(SuccessQuery::List(result))
-                },
-                Some(_) => Err(DataBaseError::NotASet),
-                None => Ok(SuccessQuery::List(result)),
+            Some(StorageValue::Set(hash_set)) => {
+                for elem in hash_set.iter() {
+                    result.push(SuccessQuery::String(elem.clone()));
+                }
+                Ok(SuccessQuery::List(result))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(SuccessQuery::List(result)),
         }
     }
 
-    pub fn srem(&mut self, key: &str, members_to_rmv: Vec<&str>)-> Result<SuccessQuery, DataBaseError>{
+    pub fn srem(
+        &mut self,
+        key: &str,
+        members_to_rmv: Vec<&str>,
+    ) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.get_mut(key) {
-                Some(StorageValue::Set(hash_set)) => {
-                    let mut count : i32 = 0;
-                    for member in members_to_rmv{
-                        if let Some(_mem) = hash_set.take(member){
-                            count += 1;
-                        }
+            Some(StorageValue::Set(hash_set)) => {
+                let mut count: i32 = 0;
+                for member in members_to_rmv {
+                    if let Some(_mem) = hash_set.take(member) {
+                        count += 1;
                     }
-                    Ok(SuccessQuery::Integer(count))
-                },
-                Some(_) => Err(DataBaseError::NotASet),
-                None => Ok(SuccessQuery::Boolean(false)),
+                }
+                Ok(SuccessQuery::Integer(count))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(SuccessQuery::Boolean(false)),
         }
     }
-
 }
 
 impl fmt::Display for Database {
@@ -1420,7 +1423,7 @@ mod group_set {
     const ELEMENT_3: &str = "ELEMENT3";
     const OTHER_ELEMENT: &str = "OTHER_ELEMENT";
 
-    mod saad_test{
+    mod saad_test {
         use super::*;
 
         #[test]
@@ -1466,7 +1469,7 @@ mod group_set {
         }
     }
 
-    mod sismember_test{
+    mod sismember_test {
         use super::*;
 
         #[test]
@@ -1508,7 +1511,7 @@ mod group_set {
         }
     }
 
-    mod scard_test{
+    mod scard_test {
         use super::*;
 
         #[test]
@@ -1554,18 +1557,17 @@ mod group_set {
         }
     }
 
-    mod smembers_test{
+    mod smembers_test {
         use super::*;
 
         #[test]
         fn test_smembers_with_elements_return_list_of_elements() {
-            
             let mut database = Database::new();
             database.sadd(KEY, ELEMENT).unwrap();
             database.sadd(KEY, OTHER_ELEMENT).unwrap();
 
-            if let SuccessQuery::List(list) = database.smembers(KEY).unwrap(){
-                for elem in list{
+            if let SuccessQuery::List(list) = database.smembers(KEY).unwrap() {
+                for elem in list {
                     let is_member = database.sismember(KEY, &elem.to_string()).unwrap();
                     assert_eq!(is_member, SuccessQuery::Boolean(true));
                 }
@@ -1577,19 +1579,9 @@ mod group_set {
             let mut database = Database::new();
 
             let result = database.smembers(NON_EXIST_KEY).unwrap();
-            
+
             assert_eq!(result, SuccessQuery::List(Vec::new()));
         }
-
-        /*#[test]
-        fn test_smembers_without_elements_return_empty_list() {
-            let mut database = Database::new();
-
-            let result = database.smembers(NON_EXIST_KEY).unwrap_err();
-            
-            assert_eq!(result, DataBaseError::NotASet);
-        }
-        */
 
         #[test]
         fn test_smembers_key_with_another_type_another_besides_set_return_err() {
@@ -1597,12 +1589,12 @@ mod group_set {
             let _ = database.set(KEY_WITH_STR, VALUE_A);
 
             let result = database.smembers(KEY_WITH_STR).unwrap_err();
-            
+
             assert_eq!(result, DataBaseError::NotASet);
-        } 
+        }
     }
 
-    mod srem_test{
+    mod srem_test {
         use super::*;
 
         #[test]
@@ -1611,7 +1603,7 @@ mod group_set {
             let mut database = Database::new();
             database.sadd(KEY, ELEMENT).unwrap();
 
-            let result = database.srem(KEY, members).unwrap();    
+            let result = database.srem(KEY, members).unwrap();
             let is_member = database.sismember(KEY, &ELEMENT.to_string()).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(1));
@@ -1623,7 +1615,7 @@ mod group_set {
             let mut database = Database::new();
             let members_to_rmv = vec![ELEMENT];
 
-            let result = database.srem(KEY, members_to_rmv).unwrap();    
+            let result = database.srem(KEY, members_to_rmv).unwrap();
 
             assert_eq!(result, SuccessQuery::Boolean(false));
         }
@@ -1632,28 +1624,28 @@ mod group_set {
         fn test_srem_multiple_members_in_set_returns_lenght_of_removed_elements_in_the_set() {
             let mut database = Database::new();
             let members = vec![ELEMENT, ELEMENT_2, ELEMENT_3];
-            let members_to_rmv = vec![ELEMENT,ELEMENT_2, ELEMENT_3, NON_EXIST_ELEMENT];
-            
+            let members_to_rmv = vec![ELEMENT, ELEMENT_2, ELEMENT_3, NON_EXIST_ELEMENT];
+
             for member in &members {
                 let _ = database.sadd(KEY, member.clone());
             }
-            
+
             let result = database.srem(KEY, members_to_rmv).unwrap();
             assert_eq!(result, SuccessQuery::Integer(3));
 
-            for member in members{
+            for member in members {
                 let is_member = database.sismember(KEY, &member.to_string()).unwrap();
                 assert_eq!(is_member, SuccessQuery::Boolean(false));
-            }  
+            }
         }
 
         #[test]
         fn test_srem_key_with_another_type_another_besides_set_return_err() {
             let mut database = Database::new();
             let members_to_rmv = vec![ELEMENT];
-            
+
             let _ = database.set(KEY_WITH_STR, VALUE_A).unwrap();
-            
+
             let result = database.srem(KEY_WITH_STR, members_to_rmv).unwrap_err();
 
             assert_eq!(result, DataBaseError::NotASet);
