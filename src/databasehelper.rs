@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
 use core::fmt::{Display, Formatter, Result};
 use std::collections::HashSet;
 use std::fmt;
+use std::time::SystemTime;
 
 #[derive(Clone)]
 pub enum StorageValue {
@@ -95,5 +97,40 @@ impl fmt::Display for DataBaseError {
             DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
         }
+    }
+}
+
+#[derive(Eq, Clone, Debug)]
+pub struct TTlPair {
+    pub key: String,
+    pub death_time: SystemTime,
+}
+
+impl TTlPair {
+    pub fn new(key: String, death_time: SystemTime) -> TTlPair{
+        TTlPair {
+            key,
+            death_time,
+        }
+    }
+}
+
+impl PartialOrd for TTlPair {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+
+impl Ord for TTlPair {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.death_time.cmp(&other.death_time)
+    }
+}
+
+
+impl PartialEq for TTlPair {
+    fn eq(&self, other: &Self) -> bool {
+        self.death_time == other.death_time && self.key == other.key
     }
 }

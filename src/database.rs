@@ -1,33 +1,128 @@
-use crate::databasehelper::{DataBaseError, StorageValue, SuccessQuery};
+use crate::databasehelper::{DataBaseError, StorageValue, SuccessQuery, TTlPair};
 use regex::Regex;
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Formatter;
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::SystemTime;
+
+type Dictionary = Arc<Mutex<HashMap<String, StorageValue>>>;
+type TtlVector = Arc<Mutex<Vec<Reverse<TTlPair>>>>;
+
+pub struct DatabaseShard {
+    database: Arc<Database>,
+}
+
+impl DatabaseShard {
+    pub fn ttl_supervisor_run(&self, reciver: Receiver<TTlPair>) {
+        let database = self.database.clone();
+
+        database.ttl_supervisor_run(reciver);
+    }
+}
 
 pub struct Database {
-    dictionary: HashMap<String, StorageValue>,
+    dictionary: Dictionary,
 }
 
 impl Database {
     pub fn new() -> Database {
         Database {
-            dictionary: HashMap::new(),
+            dictionary: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn ttl_supervisor_run(&self, reciver: Receiver<TTlPair>) {
+        let dictionary = self.dictionary.clone();
+
+        thread::spawn(move || {
+            let ttl_keys: TtlVector = Arc::new(Mutex::new(Vec::new()));
+
+            for newttlpair in reciver.iter() {
+                let keys = ttl_keys.clone();
+                let mut keys_locked = keys.lock().unwrap();
+
+                match keys_locked.first() {
+                    Some(Reverse(ttlpair)) if newttlpair < *ttlpair => {
+                        let dictionary = dictionary.clone();
+                        let keys = ttl_keys.clone();
+                        println!("hola");
+
+                        thread::spawn(move || {
+                            Database::build_childthread(newttlpair, dictionary, keys)
+                        });
+                    }
+                    Some(Reverse(_)) => {
+                        let new_pair = Reverse(newttlpair);
+
+                        if let Err(pos) = keys_locked.binary_search(&new_pair) {
+                            println!("{}",pos);
+                            keys_locked.insert(pos, new_pair);
+                        }
+                    }
+                    None => {
+                        keys_locked.push(Reverse(newttlpair.clone()));
+                        let dictionary = dictionary.clone();
+                        let keys = ttl_keys.clone();
+
+                        thread::spawn(move || {
+                            Database::build_childthread(newttlpair, dictionary, keys)
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn build_childthread(ttlpair: TTlPair, dictonary: Dictionary, ttl_keys: TtlVector) {
+        if let Ok(ttl) = ttlpair.death_time.duration_since(SystemTime::now()) {
+            thread::sleep(ttl);
+
+            let mut dictonary_locked = dictonary.lock().unwrap();
+
+            if dictonary_locked.contains_key(&ttlpair.key) {
+                dictonary_locked.remove(&ttlpair.key);
+
+                let keys = ttl_keys.clone();
+                let mut ttl_keys_locked = keys.lock().unwrap();
+
+                if let Ok(pos) = ttl_keys_locked.binary_search(&Reverse(ttlpair)) {
+                    ttl_keys_locked.remove(pos);
+                }
+
+                drop(dictonary_locked);
+
+                if let Some(Reverse(value)) = ttl_keys_locked.first() {
+                    let dictonary = dictonary.clone();
+                    let keys = ttl_keys.clone();
+                    let value = value.clone();
+
+                    drop(ttl_keys_locked);
+
+                    Database::build_childthread(value, dictonary, keys);
+                }
+            }
         }
     }
 
     // KEYS
 
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
-        if self.dictionary.contains_key(to_key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        if dictionary.contains_key(to_key) {
             return Err(DataBaseError::KeyAlredyExist);
         }
 
-        match self.dictionary.get(key) {
+        match dictionary.get(key) {
             Some(val) => {
                 let val = val.clone();
-                self.dictionary.insert(to_key.to_owned(), val);
+                dictionary.insert(to_key.to_owned(), val);
                 Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
@@ -35,14 +130,16 @@ impl Database {
     }
 
     pub fn del(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.remove(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        match dictionary.remove(key) {
             Some(_) => Ok(SuccessQuery::Success),
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
     pub fn exists(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let bool = self.dictionary.contains_key(key);
+        let dictionary = self.dictionary.lock().unwrap();
+        let bool = dictionary.contains_key(key);
         Ok(SuccessQuery::Boolean(bool))
     }
 
@@ -51,11 +148,12 @@ impl Database {
     //expireat
 
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+
         let patt: String = r"^".to_owned() + pattern + r"$";
         let patt: String = patt.replace("*", ".*");
         let patt: String = patt.replace("?", ".");
-        let list: Vec<SuccessQuery> = self
-            .dictionary
+        let list: Vec<SuccessQuery> = dictionary
             .keys()
             .filter(|x| match Regex::new(&patt) {
                 Ok(re) => re.is_match(x),
@@ -70,9 +168,11 @@ impl Database {
     //persist
 
     pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.remove(old_key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.remove(old_key) {
             Some(value) => {
-                self.dictionary.insert(new_key.to_owned(), value);
+                dictionary.insert(new_key.to_owned(), value);
                 Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
@@ -90,8 +190,10 @@ impl Database {
     //STRINGS
 
     pub fn append(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        if self.dictionary.contains_key(key) {
-            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        if dictionary.contains_key(key) {
+            if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
                 val.push_str(&value);
                 let len_result = val.len() as i32;
                 Ok(SuccessQuery::Integer(len_result))
@@ -100,31 +202,31 @@ impl Database {
             }
         } else {
             let len_result = value.len() as i32;
-            match self.set(key, value) {
-                Ok(_) => Ok(SuccessQuery::Integer(len_result)),
-                Err(err) => Err(err),
-            }
+            dictionary.insert(key.to_owned(), StorageValue::String(value.to_string()));
+            Ok(SuccessQuery::Integer(len_result))
         }
     }
 
     pub fn decrby(&mut self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
-        if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
             let val = match val.parse::<i32>() {
                 Ok(val) => val - decr,
                 Err(_) => return Err(DataBaseError::NotAnInteger),
             };
 
-            match self.set(key, &val.to_string()) {
-                Ok(_) => Ok(SuccessQuery::Integer(val)),
-                Err(err) => Err(err),
-            }
+            dictionary.insert(key.to_owned(), StorageValue::String(val.to_string()));
+            Ok(SuccessQuery::Integer(val))
         } else {
             Err(DataBaseError::NotAnInteger)
         }
     }
 
     pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get(key) {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val.clone())),
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
@@ -132,7 +234,9 @@ impl Database {
     }
 
     pub fn getdel(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.remove(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.remove(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val)),
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
@@ -140,24 +244,29 @@ impl Database {
     }
 
     pub fn getset(&mut self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
-        let old_value = match self.dictionary.remove(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        let old_value = match dictionary.remove(key) {
             Some(StorageValue::String(old_value)) => old_value,
             Some(_) => return Err(DataBaseError::NotAString),
             None => return Err(DataBaseError::NonExistentKey),
         };
 
-        self.set(key, new_val).unwrap();
+        dictionary.insert(key.to_owned(), StorageValue::String(new_val.to_owned()));
         Ok(SuccessQuery::String(old_value))
     }
 
     pub fn incrby(&mut self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
         self.decrby(key, -incr)
     }
+
     pub fn mget(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+
         let mut list: Vec<SuccessQuery> = Vec::new();
 
         for key in params {
-            match self.dictionary.get(key) {
+            match dictionary.get(key) {
                 Some(StorageValue::String(value)) => list.push(SuccessQuery::String(value.clone())),
                 Some(_) | None => list.push(SuccessQuery::Nil),
             }
@@ -167,25 +276,29 @@ impl Database {
     }
 
     pub fn mset(&mut self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
         for i in (0..params.len()).step_by(2) {
             let key = params.get(i).unwrap();
             let value = params.get(i + 1).unwrap();
 
-            self.dictionary
-                .insert(key.to_string(), StorageValue::String(value.to_string()));
+            dictionary.insert(key.to_string(), StorageValue::String(value.to_string()));
         }
         Ok(SuccessQuery::Success)
     }
 
     pub fn set(&mut self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
-        self.dictionary
-            .insert(key.to_owned(), StorageValue::String(val.to_owned()));
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        dictionary.insert(key.to_owned(), StorageValue::String(val.to_owned()));
         Ok(SuccessQuery::Success)
     }
 
     pub fn strlen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        if self.dictionary.contains_key(key) {
-            if let Some(StorageValue::String(val)) = self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        if dictionary.contains_key(key) {
+            if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
                 Ok(SuccessQuery::Integer(val.len() as i32))
             } else {
                 Err(DataBaseError::NotAString)
@@ -198,7 +311,9 @@ impl Database {
     // Lists
 
     pub fn lindex(&mut self, key: &str, index: i32) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get(key) {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get(key) {
             Some(StorageValue::List(list)) => {
                 let index = if index < 0 {
                     ((list.len() as i32) + index) as usize
@@ -217,7 +332,9 @@ impl Database {
     }
 
     pub fn llen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get(key) {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get(key) {
             Some(StorageValue::List(list)) => Ok(SuccessQuery::Integer(list.len() as i32)),
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Integer(0)),
@@ -225,7 +342,8 @@ impl Database {
     }
 
     pub fn lpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 if list.is_empty() {
                     Ok(SuccessQuery::Nil)
@@ -239,7 +357,9 @@ impl Database {
     }
 
     pub fn lpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.insert(0, value.to_owned());
                 Ok(SuccessQuery::Integer(list.len() as i32))
@@ -248,15 +368,16 @@ impl Database {
             None => {
                 let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
-                self.dictionary
-                    .insert(key.to_owned(), StorageValue::List(list));
+                dictionary.insert(key.to_owned(), StorageValue::List(list));
                 Ok(SuccessQuery::Integer(len as i32))
             }
         }
     }
 
     pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.insert(0, value.to_owned());
                 Ok(SuccessQuery::Integer(list.len() as i32))
@@ -268,8 +389,9 @@ impl Database {
 
     pub fn lrange(&mut self, key: &str, ini: i32, end: i32) -> Result<SuccessQuery, DataBaseError> {
         let mut sub_list: Vec<SuccessQuery> = Vec::new();
+        let dictionary = self.dictionary.lock().unwrap();
 
-        match self.dictionary.get(key) {
+        match dictionary.get(key) {
             Some(StorageValue::List(list)) => {
                 let len = list.len() as i32;
                 let ini = if ini < 0 {
@@ -304,7 +426,8 @@ impl Database {
         mut count: i32,
         elem: &str,
     ) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match count.cmp(&0) {
                 Ordering::Greater => {
                     let mut exist_elem = true;
@@ -350,7 +473,9 @@ impl Database {
         index: usize,
         value: &str,
     ) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match list.get_mut(index) {
                 Some(val) => {
                     val.clear();
@@ -365,7 +490,9 @@ impl Database {
     }
 
     pub fn rpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match list.pop() {
                 Some(value) => Ok(SuccessQuery::String(value)),
                 None => Ok(SuccessQuery::Nil),
@@ -376,7 +503,9 @@ impl Database {
     }
 
     pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.push(value.to_owned());
                 Ok(SuccessQuery::Integer(value.len() as i32))
@@ -385,15 +514,16 @@ impl Database {
             None => {
                 let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
-                self.dictionary
-                    .insert(key.to_owned(), StorageValue::List(list));
+                dictionary.insert(key.to_owned(), StorageValue::List(list));
                 Ok(SuccessQuery::Integer(len as i32))
             }
         }
     }
 
     pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.push(value.to_owned());
                 Ok(SuccessQuery::Integer(value.len() as i32))
@@ -406,7 +536,8 @@ impl Database {
     //SETS
 
     pub fn sismember(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => match hash_set.get(value) {
                 Some(_val) => Ok(SuccessQuery::Boolean(true)),
                 None => Ok(SuccessQuery::Boolean(false)),
@@ -417,7 +548,9 @@ impl Database {
     }
 
     pub fn scard(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => Ok(SuccessQuery::Integer(hash_set.len() as i32)),
             Some(_) => Err(DataBaseError::NotASet),
             None => Ok(SuccessQuery::Boolean(false)),
@@ -425,7 +558,9 @@ impl Database {
     }
 
     pub fn sadd(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        match self.dictionary.get_mut(key) {
+        let mut dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
                 if hash_set.contains(value) {
                     Ok(SuccessQuery::Boolean(false))
@@ -438,8 +573,7 @@ impl Database {
             None => {
                 let mut set: HashSet<String> = HashSet::new();
                 set.insert(value.to_owned());
-                self.dictionary
-                    .insert(key.to_owned(), StorageValue::Set(set));
+                dictionary.insert(key.to_owned(), StorageValue::Set(set));
                 Ok(SuccessQuery::Boolean(true))
             }
         }
@@ -448,10 +582,195 @@ impl Database {
 
 impl fmt::Display for Database {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        for (key, value) in self.dictionary.iter() {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        for (key, value) in dictionary.iter() {
             writeln!(f, "key: {}, value: {}", key, value)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod ttl_commands {
+    use super::*;
+    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::time::Duration;
+
+    const KEY_A: &str = "KEY_A";
+    const VALUE_A: &str = "VALUE_A";
+
+    const KEY_B: &str = "KEY_B";
+    const VALUE_B: &str = "VALUE_B";
+
+    const KEY_C: &str = "KEY_C";
+    const VALUE_C: &str = "VALUE_C";
+
+    const KEY_D: &str = "KEY_D";
+    const VALUE_D: &str = "VALUE_D";
+
+    // duration_since
+
+    #[test]
+    fn ttl_supervisor_run_supervaise_a_key() {
+        let (send, recv): (Sender<TTlPair>, Receiver<TTlPair>) = mpsc::channel();
+        let mut db = Database::new();
+        db.ttl_supervisor_run(recv);
+
+        db.append(KEY_A, VALUE_A).unwrap();
+
+        let now = SystemTime::now();
+        let expire_time_a = now.checked_add(Duration::new(1, 0)).unwrap();
+        let ttl_pair = TTlPair::new(KEY_A.to_owned(), expire_time_a);
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        send.send(ttl_pair).unwrap();
+
+        thread::sleep(Duration::new(2, 0));
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
+    }
+
+    #[test]
+    fn ttl_supervisor_run_supervaise_two_key() {
+        let (send, recv): (Sender<TTlPair>, Receiver<TTlPair>) = mpsc::channel();
+        let mut db = Database::new();
+        db.ttl_supervisor_run(recv);
+
+        db.append(KEY_A, VALUE_A).unwrap();
+        db.append(KEY_B, VALUE_B).unwrap();
+
+        let now = SystemTime::now();
+        let expire_time_a = now.checked_add(Duration::new(1, 0)).unwrap();
+        let expire_time_b = now.checked_add(Duration::new(5, 0)).unwrap();
+
+        let ttl_pair_a = TTlPair::new(KEY_A.to_owned(), expire_time_a);
+        let ttl_pair_b = TTlPair::new(KEY_B.to_owned(), expire_time_b);
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        send.send(ttl_pair_a).unwrap();
+        send.send(ttl_pair_b).unwrap();
+
+        thread::sleep(Duration::new(2, 0));
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
+
+        thread::sleep(Duration::new(5, 0));
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, false);
+        }
+    }
+
+
+
+    #[test]
+    fn ttl_supervisor_run_supervaise_four_keys() {
+        let (send, recv): (Sender<TTlPair>, Receiver<TTlPair>) = mpsc::channel();
+        let mut db = Database::new();
+        db.ttl_supervisor_run(recv);
+
+        db.append(KEY_A, VALUE_A).unwrap();
+        db.append(KEY_B, VALUE_B).unwrap();
+        db.append(KEY_C, VALUE_C).unwrap();
+        db.append(KEY_D, VALUE_D).unwrap();
+
+        let now = SystemTime::now();
+        let expire_time_a = now.checked_add(Duration::new(1, 0)).unwrap();
+        let expire_time_b = now.checked_add(Duration::new(3, 0)).unwrap();
+        let expire_time_c = now.checked_add(Duration::new(5, 0)).unwrap();
+        let expire_time_d = now.checked_add(Duration::new(7, 0)).unwrap();
+
+        let ttl_pair_a = TTlPair::new(KEY_A.to_owned(), expire_time_a);
+        let ttl_pair_b = TTlPair::new(KEY_B.to_owned(), expire_time_b);
+        let ttl_pair_c = TTlPair::new(KEY_C.to_owned(), expire_time_c);
+        let ttl_pair_d = TTlPair::new(KEY_D.to_owned(), expire_time_d);
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        send.send(ttl_pair_b).unwrap();
+        send.send(ttl_pair_a).unwrap();
+        send.send(ttl_pair_c).unwrap();
+        send.send(ttl_pair_d).unwrap();
+
+
+        thread::sleep(Duration::new(2, 0));
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
+
+        // if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+        //     assert_eq!(value, true);
+        // }
+
+        // if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+        //     assert_eq!(value, true);
+        // }
+
+        thread::sleep(Duration::new(4, 0));
+
+        // if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+        //     assert_eq!(value, false);
+        // }
+        // if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+        //     assert_eq!(value, true);
+        // }
+
+        thread::sleep(Duration::new(6, 0));
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, false);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, true);
+        }
+
+        thread::sleep(Duration::new(8, 0));
+
+
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, false);
+        }
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, false);
+        }
+
+
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, false);
+        }
     }
 }
 
@@ -1150,8 +1469,9 @@ mod group_list {
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
                 assert_eq!(val.to_string(), VALUED);
             }
+            let dictionary = database.dictionary.lock().unwrap();
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEC);
             }
         }
@@ -1168,7 +1488,9 @@ mod group_list {
             let value = database.lpop(KEY).unwrap();
             assert_eq!(value, SuccessQuery::Nil);
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert!(list.is_empty());
             }
         }
@@ -1185,7 +1507,9 @@ mod group_list {
             let result = database.lpush(KEY, VALUE).unwrap();
             assert_eq!(result, SuccessQuery::Integer(1));
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 1);
                 assert_eq!(list[0], VALUE);
             }
@@ -1199,7 +1523,9 @@ mod group_list {
 
             assert_eq!(result, SuccessQuery::Integer(2));
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 2);
                 assert_eq!(list[1], VALUEA);
                 assert_eq!(list[0], VALUEB);
@@ -1311,7 +1637,9 @@ mod group_list {
 
             assert_eq!(SuccessQuery::Integer(2), result.unwrap());
 
-            if let Some(StorageValue::List(list)) = database.dictionary.get(KEY) {
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let Some(StorageValue::List(list)) = dictionary.get(KEY) {
                 assert_eq!(list[0], VALUEC);
                 assert_eq!(list[1], VALUEA);
             }
@@ -1324,7 +1652,10 @@ mod group_list {
             let result = database.lrem(KEY, -2, VALUEA);
 
             assert_eq!(SuccessQuery::Integer(2), result.unwrap());
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEA);
                 assert_eq!(list[1], VALUEC);
             }
@@ -1336,8 +1667,10 @@ mod group_list {
 
             let result = database.lrem(KEY, 0, VALUEA);
 
+            let dictionary = database.dictionary.lock().unwrap();
+
             assert_eq!(SuccessQuery::Integer(1), result.unwrap());
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEC);
             }
         }
@@ -1367,7 +1700,9 @@ mod group_list {
             let result = database.lset(KEY, 0, &VALUEA);
             assert_eq!(SuccessQuery::Success, result.unwrap());
 
-            if let StorageValue::List(list) = database.dictionary.get(KEY).unwrap() {
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEA);
             }
         }
