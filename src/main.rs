@@ -2,11 +2,10 @@ mod config_parser;
 mod database;
 mod databasehelper;
 mod logger;
-mod redis;
 mod request;
 mod server;
 
-use redis::Redis;
+use server::Server;
 use std::env;
 
 fn get_path() -> Result<String, String> {
@@ -20,6 +19,6 @@ fn get_path() -> Result<String, String> {
 
 fn main() {
     let config_path = get_path().unwrap();
-    let redis = Redis::new(&config_path).unwrap();
+    let redis = Server::new(&config_path).unwrap();
     redis.run();
 }
