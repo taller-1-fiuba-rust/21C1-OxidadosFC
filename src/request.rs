@@ -48,6 +48,8 @@ pub enum Command<'a> {
     Sadd(&'a str, &'a str),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
+    Smembers(&'a str),
+    Srem(&'a str, Vec<&'a str>),
 }
 
 pub enum Reponse {
@@ -122,6 +124,11 @@ impl<'a> Request<'a> {
             ["sadd", key, element] => Request::Valid(Command::Sadd(key, element)),
             ["sismember", key, element] => Request::Valid(Command::Sismember(key, element)),
             ["scard", key] => Request::Valid(Command::Scard(key)),
+            ["smembers", key] => Request::Valid(Command::Smembers(key)),
+            ["srem", key, ..] => {
+                let tail = &request[1..];
+                Request::Valid(Command::Srem(key, tail.to_vec()))
+            },
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -165,6 +172,8 @@ impl<'a> Request<'a> {
                     Command::Sadd(set_key, value) => db.sadd(&set_key, value),
                     Command::Sismember(set_key, value) => db.sismember(&set_key, value),
                     Command::Scard(set_key) => db.scard(&set_key),
+                    Command::Smembers(key) => db.smembers(&key),
+                    Command::Srem(key, vec_str) => db.srem(&key, vec_str),
                 };
 
                 match result {
@@ -312,6 +321,16 @@ impl<'a> Display for Command<'a> {
                 key, element
             ),
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
+            Command::Smembers(key) => write!(f, "CommandSet::Smembers - Key: {}", key),
+            Command::Srem(key, vec_str) => {
+                let mut members_str = String::new();
+
+                for member in vec_str {
+                    members_str.push_str(member);
+                    members_str.push(' ');
+                }
+                write!(f, "CommandSet::Srem - Key: {} - members: {}", key, members_str)
+            },
         }
     }
 }

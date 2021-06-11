@@ -44,6 +44,7 @@ pub enum SuccessQuery {
     Integer(i32),
     String(String),
     List(Vec<SuccessQuery>),
+    //Set(HashSet<SuccessQuery>),
     Nil,
 }
 
@@ -68,6 +69,23 @@ impl<'a> fmt::Display for SuccessQuery {
                     write!(f, "{}", hash_set_string)
                 }
             }
+            /*SuccessQuery::Set(set) =>{
+                if set.is_empty() {
+                    //ver que imprime realmente el comando smembers.
+                    write!(f, "(empty set)")
+                } else {
+                    let mut hash_set_string = String::new();
+
+                    for elem in set {
+                        hash_set_string.push_str(&elem.to_string());
+                        hash_set_string.push('\n');
+                    }
+
+                    write!(f, "{}", hash_set_string)
+                }
+
+            }
+            */
             SuccessQuery::Nil => write!(f, "(Nil)"),
         }
     }
