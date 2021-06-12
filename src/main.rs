@@ -4,6 +4,7 @@ mod databasehelper;
 mod logger;
 mod request;
 mod server;
+mod matcher;
 
 use server::Server;
 use std::env;
@@ -19,6 +20,6 @@ fn get_path() -> Result<String, String> {
 
 fn main() {
     let config_path = get_path().unwrap();
-    let redis = Server::new(&config_path).unwrap();
-    redis.run();
+    let server = Server::new(&config_path).unwrap();
+    server.run();
 }

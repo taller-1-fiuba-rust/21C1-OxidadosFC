@@ -1,5 +1,5 @@
 use crate::databasehelper::{DataBaseError, StorageValue, SuccessQuery};
-use regex::Regex;
+use crate::matcher::matcher;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -61,16 +61,10 @@ impl Database {
     //expireat
 
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
-        let patt: String = r"^".to_owned() + pattern + r"$";
-        let patt: String = patt.replace("*", ".*");
-        let patt: String = patt.replace("?", ".");
         let list: Vec<SuccessQuery> = self
             .dictionary
             .keys()
-            .filter(|x| match Regex::new(&patt) {
-                Ok(re) => re.is_match(x),
-                Err(_) => false,
-            })
+            .filter(|x| matcher(x, pattern))
             .map(|item| SuccessQuery::String(item.to_owned()))
             .collect::<Vec<SuccessQuery>>();
 

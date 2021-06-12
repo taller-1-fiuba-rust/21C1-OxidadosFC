@@ -3,6 +3,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
+use crate::databasehelper::SuccessQuery;
+use crate::matcher::matcher;
+
 pub struct ConfigParser {
     data: HashMap<String, String>,
 }
@@ -47,6 +50,22 @@ impl ConfigParser {
             None => Err(format!("There's no {} field", k)),
         }
     }
+
+    pub fn get_config(&self, pattern: &str) -> SuccessQuery {
+        let mut list = Vec::new();
+        for (k, v) in &self.data {
+            if !matcher(k, pattern) {
+                continue;
+            }
+
+            list.push(
+                SuccessQuery::String(
+                    format!("{}: {}", k, v)
+                )
+            );
+        }
+        SuccessQuery::List(list)
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +104,30 @@ mod tests {
         let cp = ConfigParser::new("redis.conf").unwrap();
 
         assert_eq!(cp.get("dbfilename").unwrap(), "dump.rdb");
+    }
+
+    #[test]
+    fn get_all_config() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+        if let SuccessQuery::List(list) = cp.get_config("*") {
+            let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+            assert!(list.contains(&"verbose: 1".to_owned()));
+            assert!(list.contains(&"port: 8888".to_owned()));
+            assert!(list.contains(&"timeout: 0".to_owned()));
+            assert!(list.contains(&"dbfilename: dump.rdb".to_owned()));
+            assert!(list.contains(&"logfile: lf.log".to_owned()));
+        }
+    }
+
+    #[test]
+    fn get_verbose_config() {
+        let cp = ConfigParser::new("redis.conf").unwrap();
+        if let SuccessQuery::List(list) = cp.get_config("verbose") {
+            let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+
+            assert!(list.contains(&"verbose: 1".to_owned()));
+        }
     }
 
     #[test]

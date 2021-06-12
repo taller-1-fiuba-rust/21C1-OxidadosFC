@@ -1,3 +1,4 @@
+use crate::config_parser::ConfigParser;
 use crate::database::Database;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
@@ -50,6 +51,7 @@ pub enum Command<'a> {
     Scard(&'a str),
     Flushdb(),
     Dbsize(),
+    ConfigGet(&'a str),
 }
 
 pub enum Reponse {
@@ -126,6 +128,7 @@ impl<'a> Request<'a> {
             ["scard", key] => Request::Valid(Command::Scard(key)),
             ["flushdb"] => Request::Valid(Command::Flushdb()),
             ["dbsize"] => Request::Valid(Command::Dbsize()),
+            ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -134,10 +137,11 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &Arc<Mutex<Database>>) -> Reponse {
+    pub fn execute(self, db: &Arc<Mutex<Database>>, conf: &Arc<Mutex<ConfigParser>>) -> Reponse {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();
+                let config = conf.lock().unwrap();
 
                 let result = match command {
                     Command::Append(key, value) => db.append(&key, value),
@@ -171,6 +175,7 @@ impl<'a> Request<'a> {
                     Command::Scard(set_key) => db.scard(&set_key),
                     Command::Flushdb() => db.flushdb(),
                     Command::Dbsize() => db.dbsize(),
+                    Command::ConfigGet(pattern) => Ok(config.get_config(pattern)),
                 };
 
                 match result {
@@ -320,6 +325,7 @@ impl<'a> Display for Command<'a> {
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
+            Command::ConfigGet(pattern) => write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern)
         }
     }
 }
