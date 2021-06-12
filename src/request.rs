@@ -52,6 +52,7 @@ pub enum Command<'a> {
     Flushdb(),
     Dbsize(),
     ConfigGet(&'a str),
+    ConfigSet(&'a str, &'a str),
 }
 
 pub enum Reponse {
@@ -129,6 +130,7 @@ impl<'a> Request<'a> {
             ["flushdb"] => Request::Valid(Command::Flushdb()),
             ["dbsize"] => Request::Valid(Command::Dbsize()),
             ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
+            ["config", "set", option, new_value] => Request::Valid(Command::ConfigSet(option, new_value)),
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -141,7 +143,7 @@ impl<'a> Request<'a> {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();
-                let config = conf.lock().unwrap();
+                let mut config = conf.lock().unwrap();
 
                 let result = match command {
                     Command::Append(key, value) => db.append(&key, value),
@@ -175,7 +177,8 @@ impl<'a> Request<'a> {
                     Command::Scard(set_key) => db.scard(&set_key),
                     Command::Flushdb() => db.flushdb(),
                     Command::Dbsize() => db.dbsize(),
-                    Command::ConfigGet(pattern) => Ok(config.get_config(pattern)),
+                    Command::ConfigGet(pattern) => config.get_config(pattern),
+                    Command::ConfigSet(option, new_value) => config.set_config(option, new_value),
                 };
 
                 match result {
@@ -325,7 +328,8 @@ impl<'a> Display for Command<'a> {
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
-            Command::ConfigGet(pattern) => write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern)
+            Command::ConfigGet(pattern) => write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern),
+            Command::ConfigSet(option, new_value) => write!(f, "CommandServer::ConfigSet - Option: {} - NewValue: {}", option, new_value)
         }
     }
 }

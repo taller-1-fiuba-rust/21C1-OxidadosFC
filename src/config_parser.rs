@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
+use crate::databasehelper::DataBaseError;
 use crate::databasehelper::SuccessQuery;
 use crate::matcher::matcher;
 
@@ -51,7 +52,7 @@ impl ConfigParser {
         }
     }
 
-    pub fn get_config(&self, pattern: &str) -> SuccessQuery {
+    pub fn get_config(&self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut list = Vec::new();
         for (k, v) in &self.data {
             if !matcher(k, pattern) {
@@ -64,77 +65,41 @@ impl ConfigParser {
                 )
             );
         }
-        SuccessQuery::List(list)
+
+        if list.is_empty() {
+            return Err(DataBaseError::NonExistentConfigOption);
+        }
+
+        Ok(SuccessQuery::List(list))
+    }
+
+    pub fn set_config(&mut self, option: &str, new_value: &str) -> Result<SuccessQuery, DataBaseError> {
+        if self.data.contains_key(option) {
+            self.data.insert(option.to_string(), new_value.to_string());
+            return Ok(SuccessQuery::Success);
+        }
+
+        Err(DataBaseError::NonExistentConfigOption)
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod config_parser_tests {
     use super::*;
-    #[test]
-    fn verbose_save_correctly() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
+    const FILE: &str = "redis.conf";
+    const VERBOSE: &str = "verbose";
+    const PORT: &str = "port";
+    const TIMEOUT: &str = "timeout";
+    const DBFILENAME: &str = "dbfilename";
+    const LOGFILE: &str = "logfile";
+    const VERBOSE_VALUE: &str = "0";
+    const PORT_VALUE: &str = "8888";
+    const TIMEOUT_VALUE: &str = "0";
+    const DBFILENAME_VALUE: &str = "dump.rdb";
+    const LOGFILE_VALUE: &str = "lf.log";
 
-        assert_eq!(cp.get("verbose").unwrap(), "1");
-    }
-
-    #[test]
-    fn port_save_correctly() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-
-        assert_eq!(cp.get("port").unwrap(), "8888");
-    }
-
-    #[test]
-    fn getu32_port_8888() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-
-        assert_eq!(cp.getu32("port").unwrap(), 8888);
-    }
-
-    #[test]
-    fn timeout_save_correctly() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-
-        assert_eq!(cp.get("timeout").unwrap(), "0");
-    }
-
-    #[test]
-    fn dbfilename_save_correctly() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-
-        assert_eq!(cp.get("dbfilename").unwrap(), "dump.rdb");
-    }
-
-    #[test]
-    fn get_all_config() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-        if let SuccessQuery::List(list) = cp.get_config("*") {
-            let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-
-            assert!(list.contains(&"verbose: 1".to_owned()));
-            assert!(list.contains(&"port: 8888".to_owned()));
-            assert!(list.contains(&"timeout: 0".to_owned()));
-            assert!(list.contains(&"dbfilename: dump.rdb".to_owned()));
-            assert!(list.contains(&"logfile: lf.log".to_owned()));
-        }
-    }
-
-    #[test]
-    fn get_verbose_config() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-        if let SuccessQuery::List(list) = cp.get_config("verbose") {
-            let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-
-            assert!(list.contains(&"verbose: 1".to_owned()));
-        }
-    }
-
-    #[test]
-    fn logfile_save_correctly() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
-
-        assert_eq!(cp.get("logfile").unwrap(), "lf.log");
+    fn create_config_parser() -> ConfigParser {
+        ConfigParser::new(FILE).unwrap()
     }
 
     #[test]
@@ -146,9 +111,108 @@ mod tests {
     #[test]
     #[should_panic]
     fn getu32_dbfilename_panic() {
-        let cp = ConfigParser::new("redis.conf").unwrap();
+        let cp = ConfigParser::new(FILE).unwrap();
 
         // should panic here
-        cp.getu32("dbfilename").unwrap();
+        cp.getu32(DBFILENAME).unwrap();
+    }
+
+    mod get_tests {
+        use super::*;
+
+        #[test]
+        fn verbose_save_correctly() {
+            let cp = create_config_parser();
+    
+            assert_eq!(cp.get(VERBOSE).unwrap(), VERBOSE_VALUE);
+        }
+    
+        #[test]
+        fn port_save_correctly() {
+            let cp = create_config_parser();
+    
+            assert_eq!(cp.get(PORT).unwrap(), PORT_VALUE);
+        }
+    
+        #[test]
+        fn getu32_port_8888() {
+            let cp = create_config_parser();
+    
+            assert_eq!(cp.getu32(PORT).unwrap(), PORT_VALUE.parse().unwrap());
+        }
+        
+        #[test]
+        fn timeout_save_correctly() {
+            let cp = create_config_parser();
+    
+            assert_eq!(cp.get(TIMEOUT).unwrap(), TIMEOUT_VALUE);
+        }
+    
+        #[test]
+        fn dbfilename_save_correctly() {
+            let cp = create_config_parser();
+            
+            assert_eq!(cp.get(DBFILENAME).unwrap(), DBFILENAME_VALUE);
+        }
+
+        #[test]
+        fn logfile_save_correctly() {
+            let cp = create_config_parser();
+    
+            assert_eq!(cp.get(LOGFILE).unwrap(), LOGFILE_VALUE);
+        }
+    }
+    
+    mod get_config_tests{
+        use super::*;
+
+        #[test]
+        fn get_all_config() {
+            let cp = create_config_parser();
+            if let Ok(SuccessQuery::List(list)) = cp.get_config("*") {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    
+                assert!(list.contains(&format!("{}: {}", VERBOSE, VERBOSE_VALUE)));
+                assert!(list.contains(&format!("{}: {}", PORT, PORT_VALUE)));
+                assert!(list.contains(&format!("{}: {}", TIMEOUT, TIMEOUT_VALUE)));
+                assert!(list.contains(&format!("{}: {}", DBFILENAME, DBFILENAME_VALUE)));
+                assert!(list.contains(&format!("{}: {}", LOGFILE, LOGFILE_VALUE)));
+            }
+        }
+
+        #[test]
+        fn get_verbose_config() {
+            let cp = create_config_parser();
+            if let Ok(SuccessQuery::List(list)) = cp.get_config(VERBOSE) {
+                let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    
+                assert!(list.contains(&format!("{}: {}", VERBOSE, VERBOSE_VALUE)));
+            }
+        }
+    }
+
+    mod set_config_tests {
+        use super::*;
+
+        #[test]
+        fn set_verbose_correctly() {
+            let mut cp = create_config_parser();
+            assert_eq!(cp.get(VERBOSE).unwrap(), "0");
+
+            let r = cp.set_config(VERBOSE, "1").unwrap();
+            assert_eq!(r, SuccessQuery::Success);
+            
+            assert_eq!(cp.get(VERBOSE).unwrap(), "1");
+        }
+
+        #[test]
+        fn set_non_existent_option() {
+            let mut cp = create_config_parser();
+
+            let r = cp.set_config("non-option", "no-value").unwrap_err();
+            assert_eq!(r, DataBaseError::NonExistentConfigOption);
+            
+            assert_eq!(cp.get_config("non-option").unwrap_err(), DataBaseError::NonExistentConfigOption);
+        }
     }
 }
