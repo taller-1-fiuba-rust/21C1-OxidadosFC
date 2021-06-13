@@ -1,4 +1,4 @@
-mod config_parser;
+mod server_conf;
 mod database;
 mod databasehelper;
 mod logger;

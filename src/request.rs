@@ -1,4 +1,4 @@
-use crate::config_parser::ConfigParser;
+use crate::server_conf::ServerConf;
 use crate::database::Database;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
@@ -139,7 +139,7 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &Arc<Mutex<Database>>, conf: &Arc<Mutex<ConfigParser>>) -> Reponse {
+    pub fn execute(self, db: &Arc<Mutex<Database>>, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();

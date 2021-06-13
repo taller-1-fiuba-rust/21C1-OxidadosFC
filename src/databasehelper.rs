@@ -82,7 +82,7 @@ pub enum DataBaseError {
     NotASet,
     NotAList,
     IndexOutOfRange,
-    NonExistentConfigOption
+    NonExistentConfigOption,
 }
 
 impl fmt::Display for DataBaseError {

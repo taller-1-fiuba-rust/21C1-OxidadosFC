@@ -1,4 +1,4 @@
-use crate::config_parser::ConfigParser;
+use crate::server_conf::ServerConf;
 use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
@@ -12,14 +12,13 @@ use std::thread;
 pub struct Server {
     database: Arc<Mutex<Database>>,
     listener: TcpListener,
-    config: Arc<Mutex<ConfigParser>>
+    config: Arc<Mutex<ServerConf>>
 }
 
 impl Server {
     pub fn new(config_file: &str) -> Result<Server, String> {
-        let config = ConfigParser::new(config_file)?;
-        let port = config.getu32("port")?;
-        let addr = "0.0.0.0:".to_owned() + &port.to_string();
+        let config = ServerConf::new(config_file)?;
+        let addr = config.addr();
         let listener = TcpListener::bind(addr).expect("Could not bind");
         let database = Arc::new(Mutex::new(Database::new()));
         let config = Arc::new(Mutex::new(config));
