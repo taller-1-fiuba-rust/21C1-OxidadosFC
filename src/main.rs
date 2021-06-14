@@ -1,10 +1,10 @@
-mod server_conf;
 mod database;
 mod databasehelper;
 mod logger;
+mod matcher;
 mod request;
 mod server;
-mod matcher;
+mod server_conf;
 
 use server::Server;
 use std::env;

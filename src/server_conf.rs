@@ -17,9 +17,7 @@ const DEFAULT_PORT: &str = "8888";
 const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.rdb";
 const DEFAULT_LOGFILE: &str = "lf.log";
-const NUMERIC_KEYS: [&str; 3] = [
-    VERBOSE, PORT, TIMEOUT
-];
+const NUMERIC_KEYS: [&str; 3] = [VERBOSE, PORT, TIMEOUT];
 
 pub struct ServerConf {
     conf: HashMap<String, String>,
@@ -34,7 +32,7 @@ fn default_values() -> HashMap<String, String> {
     d.insert(DBFILENAME.to_string(), DEFAULT_DBFILENAME.to_string());
     d.insert(LOGFILE.to_string(), DEFAULT_LOGFILE.to_string());
 
-    return d;
+    return d
 }
 
 impl ServerConf {
@@ -62,15 +60,15 @@ impl ServerConf {
         Ok(ServerConf { conf })
     }
 
-    pub fn verbose(&self) -> u64 {
-        if let Some(value) = self.conf.get(VERBOSE) {
-            if let Ok(v) = value.parse::<u64>() {
-                return v;
-            }
-        }
+    // pub fn verbose(&self) -> u64 {
+    //     if let Some(value) = self.conf.get(VERBOSE) {
+    //         if let Ok(v) = value.parse::<u64>() {
+    //             return v;
+    //         }
+    //     }
 
-        DEFAULT_VERBOSE
-    }
+    //     DEFAULT_VERBOSE
+    // }
 
     pub fn addr(&self) -> String {
         if let Some(value) = self.conf.get(PORT) {
@@ -82,29 +80,29 @@ impl ServerConf {
         "0.0.0.0:".to_owned() + DEFAULT_PORT
     }
 
-    pub fn timeout(&self) -> u64 {
-        if let Some(value) = self.conf.get(TIMEOUT) {
-            if let Ok(v) = value.parse::<u64>() {
-                return v;
-            }
-        }
+    // pub fn timeout(&self) -> u64 {
+    //     if let Some(value) = self.conf.get(TIMEOUT) {
+    //         if let Ok(v) = value.parse::<u64>() {
+    //             return v;
+    //         }
+    //     }
 
-        DEFAULT_TIMEOUT
-    }
+    //     DEFAULT_TIMEOUT
+    // }
 
-    pub fn dbfilename(&self) -> String {
-        match self.conf.get(DBFILENAME) {
-            Some(value) => value.to_string(),
-            None => DEFAULT_DBFILENAME.to_string()
-        }
-    }
+    // pub fn dbfilename(&self) -> String {
+    //     match self.conf.get(DBFILENAME) {
+    //         Some(value) => value.to_string(),
+    //         None => DEFAULT_DBFILENAME.to_string(),
+    //     }
+    // }
 
-    pub fn logfile(&self) -> String {
-        match self.conf.get(LOGFILE) {
-            Some(value) => value.to_string(),
-            None => DEFAULT_LOGFILE.to_string()
-        }
-    }
+    // pub fn logfile(&self) -> String {
+    //     match self.conf.get(LOGFILE) {
+    //         Some(value) => value.to_string(),
+    //         None => DEFAULT_LOGFILE.to_string(),
+    //     }
+    // }
 
     pub fn get_config(&self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut list = Vec::new();
@@ -113,11 +111,7 @@ impl ServerConf {
                 continue;
             }
 
-            list.push(
-                SuccessQuery::String(
-                    format!("{}: {}", k, v)
-                )
-            );
+            list.push(SuccessQuery::String(format!("{}: {}", k, v)));
         }
 
         if list.is_empty() {
@@ -127,13 +121,15 @@ impl ServerConf {
         Ok(SuccessQuery::List(list))
     }
 
-    pub fn set_config(&mut self, option: &str, new_value: &str) -> Result<SuccessQuery, DataBaseError> {
-        if NUMERIC_KEYS.contains(&option) {
-            if new_value.parse::<i64>().is_err() {
-                return Err(DataBaseError::NotAnInteger)
-            }
+    pub fn set_config(
+        &mut self,
+        option: &str,
+        new_value: &str,
+    ) -> Result<SuccessQuery, DataBaseError> {
+        if NUMERIC_KEYS.contains(&option) && new_value.parse::<i64>().is_err() {
+            return Err(DataBaseError::NotAnInteger);
         }
-        
+
         if self.conf.contains_key(option) {
             self.conf.insert(option.to_string(), new_value.to_string());
             return Ok(SuccessQuery::Success);
@@ -159,23 +155,22 @@ mod config_parser_tests {
         ServerConf::new("reds.conf").unwrap();
     }
 
-    
     mod get_tests {
         use super::*;
 
         #[test]
         fn file_save_correctly() {
             let cp = create_config_parser();
-    
-            assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+
+            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
             assert_eq!(cp.addr(), ADDR_VALUE);
-            assert_eq!(cp.timeout(), DEFAULT_TIMEOUT);
-            assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
-            assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
+            // assert_eq!(cp.timeout(), DEFAULT_TIMEOUT);
+            // assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
+            // assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
         }
     }
-    
-    mod get_config_tests{
+
+    mod get_config_tests {
         use super::*;
 
         #[test]
@@ -183,7 +178,7 @@ mod config_parser_tests {
             let cp = create_config_parser();
             if let Ok(SuccessQuery::List(list)) = cp.get_config("*") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-    
+
                 assert!(list.contains(&format!("{}: {}", VERBOSE, DEFAULT_VERBOSE)));
                 assert!(list.contains(&format!("{}: {}", PORT, DEFAULT_PORT)));
                 assert!(list.contains(&format!("{}: {}", TIMEOUT, DEFAULT_TIMEOUT)));
@@ -197,7 +192,7 @@ mod config_parser_tests {
             let cp = create_config_parser();
             if let Ok(SuccessQuery::List(list)) = cp.get_config(VERBOSE) {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-    
+
                 assert!(list.contains(&format!("{}: {}", VERBOSE, DEFAULT_VERBOSE)));
             }
         }
@@ -207,7 +202,7 @@ mod config_parser_tests {
             let cp = create_config_parser();
             if let Ok(SuccessQuery::List(list)) = cp.get_config(DBFILENAME) {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-    
+
                 assert!(list.contains(&format!("{}: {}", DBFILENAME, DEFAULT_DBFILENAME)));
             }
         }
@@ -219,23 +214,23 @@ mod config_parser_tests {
         #[test]
         fn set_verbose_correctly() {
             let mut cp = create_config_parser();
-            assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
 
             let r = cp.set_config(VERBOSE, "1").unwrap();
             assert_eq!(r, SuccessQuery::Success);
-            
-            assert_eq!(cp.verbose(), 1);
+
+            // assert_eq!(cp.verbose(), 1);
         }
 
         #[test]
         fn set_verbose_with_a_non_integer() {
             let mut cp = create_config_parser();
-            assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
 
             let r = cp.set_config(VERBOSE, "non-number").unwrap_err();
             assert_eq!(r, DataBaseError::NotAnInteger);
-            
-            assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+
+            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
         }
 
         #[test]
@@ -245,7 +240,7 @@ mod config_parser_tests {
 
             let r = cp.set_config(PORT, "6379").unwrap();
             assert_eq!(r, SuccessQuery::Success);
-            
+
             assert_eq!(cp.addr(), "0.0.0.0:6379");
         }
 
@@ -255,8 +250,11 @@ mod config_parser_tests {
 
             let r = cp.set_config("non-option", "no-value").unwrap_err();
             assert_eq!(r, DataBaseError::NonExistentConfigOption);
-            
-            assert_eq!(cp.get_config("non-option").unwrap_err(), DataBaseError::NonExistentConfigOption);
+
+            assert_eq!(
+                cp.get_config("non-option").unwrap_err(),
+                DataBaseError::NonExistentConfigOption
+            );
         }
     }
 }

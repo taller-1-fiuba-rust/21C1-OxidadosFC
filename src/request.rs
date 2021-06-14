@@ -1,5 +1,5 @@
-use crate::server_conf::ServerConf;
 use crate::database::Database;
+use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -132,7 +132,9 @@ impl<'a> Request<'a> {
             ["flushdb"] => Request::Valid(Command::Flushdb()),
             ["dbsize"] => Request::Valid(Command::Dbsize()),
             ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
-            ["config", "set", option, new_value] => Request::Valid(Command::ConfigSet(option, new_value)),
+            ["config", "set", option, new_value] => {
+                Request::Valid(Command::ConfigSet(option, new_value))
+            }
             ["smembers", key] => Request::Valid(Command::Smembers(key)),
             ["srem", key, ..] => {
                 let tail = &request[1..];
@@ -337,8 +339,14 @@ impl<'a> Display for Command<'a> {
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
-            Command::ConfigGet(pattern) => write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern),
-            Command::ConfigSet(option, new_value) => write!(f, "CommandServer::ConfigSet - Option: {} - NewValue: {}", option, new_value),
+            Command::ConfigGet(pattern) => {
+                write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern)
+            }
+            Command::ConfigSet(option, new_value) => write!(
+                f,
+                "CommandServer::ConfigSet - Option: {} - NewValue: {}",
+                option, new_value
+            ),
             Command::Smembers(key) => write!(f, "CommandSet::Smembers - Key: {}", key),
             Command::Srem(key, vec_str) => {
                 let mut members_str = String::new();

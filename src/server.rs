@@ -1,7 +1,7 @@
-use crate::server_conf::ServerConf;
 use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
+use crate::server_conf::ServerConf;
 use std::path::Path;
 
 use std::net::TcpListener;
@@ -12,7 +12,7 @@ use std::thread;
 pub struct Server {
     database: Arc<Mutex<Database>>,
     listener: TcpListener,
-    config: Arc<Mutex<ServerConf>>
+    config: Arc<Mutex<ServerConf>>,
 }
 
 impl Server {
@@ -20,11 +20,17 @@ impl Server {
         let config = ServerConf::new(config_file)?;
         let addr = config.addr();
         let listener = TcpListener::bind(addr).expect("Could not bind");
-        listener.set_nonblocking(true).expect("Cannot set non-blocking");
+        listener
+            .set_nonblocking(true)
+            .expect("Cannot set non-blocking");
         let database = Arc::new(Mutex::new(Database::new()));
         let config = Arc::new(Mutex::new(config));
 
-        Ok(Server { database, listener, config })
+        Ok(Server {
+            database,
+            listener,
+            config,
+        })
     }
 
     pub fn run(mut self) {
@@ -35,7 +41,7 @@ impl Server {
         thread::spawn(move || {
             logger.run();
         });
-        
+
         loop {
             if let Ok((stream, _)) = self.listener.accept() {
                 let database = self.database.clone();
@@ -74,7 +80,9 @@ impl Server {
             let new_addr = config.addr();
             if addr != new_addr {
                 self.listener = TcpListener::bind(new_addr).expect("Could not bind");
-                self.listener.set_nonblocking(true).expect("Cannot set non-blocking");
+                self.listener
+                    .set_nonblocking(true)
+                    .expect("Cannot set non-blocking");
             }
         }
     }

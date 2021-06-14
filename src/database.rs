@@ -1676,7 +1676,7 @@ mod group_server {
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
             let r = db.get(KEY2).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
-    
+
             let r = db.flushdb().unwrap();
             assert_eq!(r, SuccessQuery::Success);
             assert!(db.dictionary.is_empty());
@@ -1689,22 +1689,22 @@ mod group_server {
         #[test]
         fn dbsize_empty_gets_0() {
             let db = Database::new();
-    
+
             let r = db.dbsize().unwrap();
             assert_eq!(r, SuccessQuery::Integer(0));
         }
-    
+
         #[test]
         fn dbsize_with_one_element_gets_1() {
             let mut db = Database::new();
             let _ = db.set(KEY1, VALUE1);
             let r = db.get(KEY1).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
-    
+
             let r = db.dbsize().unwrap();
             assert_eq!(r, SuccessQuery::Integer(1));
         }
-    
+
         #[test]
         fn dbsize_with_two_element_gets_2() {
             let mut db = Database::new();
@@ -1713,10 +1713,9 @@ mod group_server {
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
             let r = db.get(KEY2).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
-    
+
             let r = db.dbsize().unwrap();
             assert_eq!(r, SuccessQuery::Integer(2));
         }
     }
-
 }
