@@ -32,7 +32,7 @@ fn default_values() -> HashMap<String, String> {
     d.insert(DBFILENAME.to_string(), DEFAULT_DBFILENAME.to_string());
     d.insert(LOGFILE.to_string(), DEFAULT_LOGFILE.to_string());
 
-    return d
+    d
 }
 
 impl ServerConf {
