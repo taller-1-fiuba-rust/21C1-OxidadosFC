@@ -5,24 +5,26 @@ use std::path::Path;
 
 use std::net::TcpListener;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::thread;
 
 pub struct Server {
-    database: Arc<Mutex<Database>>,
+    database: Arc<Database>,
     listener: TcpListener,
 }
 
 impl Server {
     pub fn new(addr: &str) -> Server {
         let listener = TcpListener::bind(addr).expect("Could not bind");
-        let database = Arc::new(Mutex::new(Database::new()));
+        let database = Arc::new(Database::new());
 
         Server { database, listener }
     }
 
     pub fn run(self) {
+        let (ttl_sender, ttl_rec) = mpsc::channel();
         let (log_sender, log_rec) = mpsc::channel();
+
         let path = Path::new("log.txt");
         let mut logger = Logger::new(path, log_rec);
 
@@ -30,32 +32,39 @@ impl Server {
             logger.run();
         });
 
+        let database_ttl = self.database.clone();
+
+        database_ttl.ttl_supervisor_run(ttl_rec);
+        
         for stream in self.listener.incoming() {
             match stream {
                 Err(_) => {
                     log_sender.send("Io::Error".to_string()).unwrap();
                 }
                 Ok(stream) => {
-                    let database = self.database.clone();
+                    let mut database = self.database.clone();
                     let log_sender = log_sender.clone();
                     let mut stream = stream;
+                    let ttl_sender = ttl_sender.clone();
 
                     thread::spawn(move || {
                         let log_sender = &log_sender;
-                        let database = &database;
+                        let database = &mut database;
+                        let ttl_sender = &ttl_sender;
+
                         loop {
                             match request::parse_request(&mut stream) {
                                 Ok(request) => {
                                     let request = Request::new(&request);
                                     log_sender.send(request.to_string()).unwrap();
-                                    let reponse = request.execute(database);
+                                    let reponse = request.execute(database, ttl_sender);
                                     log_sender.send(reponse.to_string()).unwrap();
                                     reponse.respond(&mut stream, log_sender);
                                 }
                                 Err(err) => {
                                     let request = Request::invalid_request(err);
                                     log_sender.send(request.to_string()).unwrap();
-                                    let reponse = request.execute(database);
+                                    let reponse = request.execute(database, ttl_sender);
                                     log_sender.send(reponse.to_string()).unwrap();
                                     reponse.respond(&mut stream, log_sender);
                                 }

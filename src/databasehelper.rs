@@ -101,36 +101,36 @@ impl fmt::Display for DataBaseError {
 }
 
 #[derive(Eq, Clone, Debug)]
-pub struct TTlPair {
+pub struct KeyTTL {
     pub key: String,
-    pub death_time: SystemTime,
+    pub expire_time: SystemTime,
 }
 
-impl TTlPair {
-    pub fn new(key: String, death_time: SystemTime) -> TTlPair{
-        TTlPair {
+impl KeyTTL {
+    pub fn new(key: String, expire_time: SystemTime) -> KeyTTL{
+        KeyTTL {
             key,
-            death_time,
+            expire_time,
         }
     }
 }
 
-impl PartialOrd for TTlPair {
+impl PartialOrd for KeyTTL {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 
-impl Ord for TTlPair {
+impl Ord for KeyTTL {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.death_time.cmp(&other.death_time)
+        self.expire_time.cmp(&other.expire_time)
     }
 }
 
 
-impl PartialEq for TTlPair {
+impl PartialEq for KeyTTL {
     fn eq(&self, other: &Self) -> bool {
-        self.death_time == other.death_time && self.key == other.key
+        self.expire_time == other.expire_time && self.key == other.key
     }
 }

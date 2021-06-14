@@ -1,9 +1,10 @@
 use crate::database::Database;
+use crate::databasehelper::KeyTTL;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub enum Request<'a> {
     Valid(Command<'a>),
@@ -19,6 +20,7 @@ pub enum RequestError {
 }
 
 pub enum Command<'a> {
+    Expire(&'a str, u64),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -60,6 +62,10 @@ impl<'a> Request<'a> {
         let request: Vec<&str> = request.split_whitespace().collect();
 
         match request[..] {
+            ["expire", key, seconds] => match seconds.parse::<u64>() {
+                Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
+                Err(_) => Request::Invalid(RequestError::ParseError),
+            },
             ["append", key, value] => Request::Valid(Command::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
                 Ok(incr) => Request::Valid(Command::Incrby(key, incr)),
@@ -130,12 +136,11 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &Arc<Mutex<Database>>) -> Reponse {
+    pub fn execute(self, db: &mut Arc<Database>, ttl_sender: &Sender<KeyTTL>) -> Reponse {
         match self {
             Request::Valid(command) => {
-                let mut db = db.lock().unwrap();
-
                 let result = match command {
+                    Command::Expire(key, seconds) => db.expire(&key, seconds, ttl_sender),
                     Command::Append(key, value) => db.append(&key, value),
                     Command::Incrby(key, incr) => db.incrby(&key, incr),
                     Command::Decrby(key, decr) => db.decrby(&key, decr),
@@ -215,6 +220,11 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, RequestError> {
 impl<'a> Display for Command<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            Command::Expire(key, seconds) => write!(
+                f,
+                "CommandString::Expire - Key: {} - Seconds: {}",
+                key, seconds
+            ),
             Command::Append(key, value) => write!(
                 f,
                 "CommandString::Append - Key: {} - Value: {} ",
