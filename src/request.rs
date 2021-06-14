@@ -53,6 +53,8 @@ pub enum Command<'a> {
     Dbsize(),
     ConfigGet(&'a str),
     ConfigSet(&'a str, &'a str),
+    Smembers(&'a str),
+    Srem(&'a str, Vec<&'a str>),
 }
 
 pub enum Reponse {
@@ -131,6 +133,11 @@ impl<'a> Request<'a> {
             ["dbsize"] => Request::Valid(Command::Dbsize()),
             ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
             ["config", "set", option, new_value] => Request::Valid(Command::ConfigSet(option, new_value)),
+            ["smembers", key] => Request::Valid(Command::Smembers(key)),
+            ["srem", key, ..] => {
+                let tail = &request[1..];
+                Request::Valid(Command::Srem(key, tail.to_vec()))
+            }
             _ => Request::Invalid(RequestError::InvalidCommand),
         }
     }
@@ -179,6 +186,8 @@ impl<'a> Request<'a> {
                     Command::Dbsize() => db.dbsize(),
                     Command::ConfigGet(pattern) => config.get_config(pattern),
                     Command::ConfigSet(option, new_value) => config.set_config(option, new_value),
+                    Command::Smembers(key) => db.smembers(&key),
+                    Command::Srem(key, vec_str) => db.srem(&key, vec_str),
                 };
 
                 match result {
@@ -329,7 +338,21 @@ impl<'a> Display for Command<'a> {
             Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
             Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
             Command::ConfigGet(pattern) => write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern),
-            Command::ConfigSet(option, new_value) => write!(f, "CommandServer::ConfigSet - Option: {} - NewValue: {}", option, new_value)
+            Command::ConfigSet(option, new_value) => write!(f, "CommandServer::ConfigSet - Option: {} - NewValue: {}", option, new_value),
+            Command::Smembers(key) => write!(f, "CommandSet::Smembers - Key: {}", key),
+            Command::Srem(key, vec_str) => {
+                let mut members_str = String::new();
+
+                for member in vec_str {
+                    members_str.push_str(member);
+                    members_str.push(' ');
+                }
+                write!(
+                    f,
+                    "CommandSet::Srem - Key: {} - members: {}",
+                    key, members_str
+                )
+            }
         }
     }
 }
