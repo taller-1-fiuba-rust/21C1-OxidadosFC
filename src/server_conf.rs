@@ -97,12 +97,12 @@ impl ServerConf {
     //     }
     // }
 
-    // pub fn logfile(&self) -> String {
-    //     match self.conf.get(LOGFILE) {
-    //         Some(value) => value.to_string(),
-    //         None => DEFAULT_LOGFILE.to_string(),
-    //     }
-    // }
+    pub fn logfile(&self) -> String {
+        match self.conf.get(LOGFILE) {
+            Some(value) => value.to_string(),
+            None => DEFAULT_LOGFILE.to_string(),
+        }
+    }
 
     pub fn get_config(&self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut list = Vec::new();
@@ -166,7 +166,7 @@ mod config_parser_tests {
             assert_eq!(cp.addr(), ADDR_VALUE);
             // assert_eq!(cp.timeout(), DEFAULT_TIMEOUT);
             // assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
-            // assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
+            assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
         }
     }
 

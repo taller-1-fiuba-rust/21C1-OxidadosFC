@@ -1,0 +1,24 @@
+Request: CommandString::Set - Key: key - Value: 3
+
+Reponse: Ok
+
+Request: CommandKeys::Keys - Pattern: *
+
+Reponse: key 
+
+Request: Error: Invalid Command
+
+Reponse: Error: Invalid Command
+
+Request: CommandKeys::Keys - Pattern: *
+
+Reponse: key 
+
+Request: CommandServer::ConfigGet - Pattern: *
+
+Reponse: verbose: 0 timeout: 0 logfile: lf.log dbfilename: dump.rdb port: 8888 
+
+Request: Error: Invalid Command
+
+Reponse: Error: Invalid Command
+

@@ -2,20 +2,22 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
-pub struct Logger<'a> {
-    file_path: &'a Path,
+pub struct Logger {
+    file_path: PathBuf,
     reciver: Receiver<String>,
 }
 
-impl<'a> Logger<'a> {
-    pub fn new(file_path: &Path, reciver: Receiver<String>) -> Logger {
+impl Logger {
+    pub fn new(file_path: &str, reciver: Receiver<String>) -> Logger {
+        let file_path = PathBuf::from(file_path);
         Logger { file_path, reciver }
     }
 
     pub fn run(&mut self) {
-        let mut logger = open_logger(self.file_path).unwrap();
+        let mut logger = open_logger(&self.file_path).unwrap();
 
         for recived in self.reciver.iter() {
             if let Err(e) = writeln!(logger, "{}", &recived) {
@@ -49,7 +51,7 @@ mod logger_test {
     fn test_logger_recive_message() {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log_testA.txt");
-        let mut logger = Logger::new(path, rec);
+        let mut logger = Logger::new("log_testA.txt", rec);
 
         thread::spawn(move || {
             logger.run();
@@ -76,7 +78,7 @@ mod logger_test {
     fn test_logger_recive_two_message() {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log_testB.txt");
-        let mut logger = Logger::new(path, rec);
+        let mut logger = Logger::new("log_testB.txt", rec);
         thread::spawn(move || {
             logger.run();
         });
@@ -106,7 +108,7 @@ mod logger_test {
     fn test_logger_recive_message_from_two_senders() {
         let (sen, rec) = mpsc::channel();
         let path = Path::new("log_testC.txt");
-        let mut logger = Logger::new(path, rec);
+        let mut logger = Logger::new("log_testC.txt", rec);
 
         let sen1 = sen.clone();
         let sen2 = sen.clone();

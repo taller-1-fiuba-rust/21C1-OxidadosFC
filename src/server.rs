@@ -2,7 +2,6 @@ use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
 use crate::server_conf::ServerConf;
-use std::path::Path;
 
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -12,7 +11,7 @@ use std::thread;
 pub struct Server {
     database: Arc<Mutex<Database>>,
     listener: TcpListener,
-    config: Arc<Mutex<ServerConf>>,
+    config: ServerConf,
 }
 
 impl Server {
@@ -24,7 +23,6 @@ impl Server {
             .set_nonblocking(true)
             .expect("Cannot set non-blocking");
         let database = Arc::new(Mutex::new(Database::new()));
-        let config = Arc::new(Mutex::new(config));
 
         Ok(Server {
             database,
@@ -35,17 +33,19 @@ impl Server {
 
     pub fn run(mut self) {
         let (log_sender, log_rec) = mpsc::channel();
-        let path = Path::new("log.txt");
-        let mut logger = Logger::new(path, log_rec);
+        let lf = self.config.logfile();
+        let mut logger = Logger::new(&lf, log_rec);
 
         thread::spawn(move || {
             logger.run();
         });
 
+        let config_shr = Arc::new(Mutex::new(self.config));
+
         loop {
             if let Ok((stream, _)) = self.listener.accept() {
                 let database = self.database.clone();
-                let config = self.config.clone();
+                let config = config_shr.clone();
                 let log_sender = log_sender.clone();
                 let mut stream = stream;
 
@@ -75,7 +75,7 @@ impl Server {
             }
 
             let addr = self.listener.local_addr().unwrap().to_string();
-            let config = self.config.clone();
+            let config = config_shr.clone();
             let config = config.lock().unwrap();
             let new_addr = config.addr();
             if addr != new_addr {
