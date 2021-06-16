@@ -2,25 +2,23 @@ use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
 use std::path::Path;
-
 use std::net::TcpListener;
 use std::sync::mpsc;
-use std::sync::{Arc};
 use std::thread;
 
-pub struct Server<'a> {
-    database: Database<'a>,
+pub struct Server {
+    database: Database,
     listener: TcpListener,
 }
 
-impl<'a> Server<'a> {
+impl Server {
     pub fn new(addr: &str) -> Server {
         let listener = TcpListener::bind(addr).expect("Could not bind");
         let (ttl_sender, ttl_rec) = mpsc::channel();
 
         let database = Database::new(ttl_sender);
-
-        database.ttl_supervisor_run(ttl_rec);
+        let  database_ttl = database.clone();
+        database_ttl.ttl_supervisor_run(ttl_rec);
 
         Server { database, listener }
     }
@@ -35,10 +33,7 @@ impl<'a> Server<'a> {
             logger.run();
         });
 
-        let database_ttl = self.database.clone();
 
-
-        
         for stream in self.listener.incoming() {
             match stream {
                 Err(_) => {
@@ -48,12 +43,10 @@ impl<'a> Server<'a> {
                     let mut database = self.database.clone();
                     let log_sender = log_sender.clone();
                     let mut stream = stream;
-                    let ttl_sender = ttl_sender.clone();
 
                     thread::spawn(move || {
                         let log_sender = &log_sender;
                         let database = &mut database;
-                        let ttl_sender = &ttl_sender;
 
                         loop {
                             match request::parse_request(&mut stream) {

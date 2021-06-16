@@ -21,6 +21,7 @@ pub enum RequestError {
 
 pub enum Command<'a> {
     Expire(&'a str, u64),
+    Persist(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -66,6 +67,7 @@ impl<'a> Request<'a> {
                 Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
+            ["persist", key] => Request::Valid(Command::Persist(key)),
             ["append", key, value] => Request::Valid(Command::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
                 Ok(incr) => Request::Valid(Command::Incrby(key, incr)),
@@ -136,11 +138,12 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &mut Arc<Database>, ttl_sender: &Sender<KeyTTL>) -> Reponse {
+    pub fn execute(self, db: &mut Database) -> Reponse {
         match self {
             Request::Valid(command) => {
                 let result = match command {
-                    Command::Expire(key, seconds) => db.expire(&key, seconds, ttl_sender),
+                    Command::Expire(key, seconds) => db.expire(&key, seconds),
+                    Command::Persist(key) => db.persist(&key),
                     Command::Append(key, value) => db.append(&key, value),
                     Command::Incrby(key, incr) => db.incrby(&key, incr),
                     Command::Decrby(key, decr) => db.decrby(&key, decr),
@@ -222,12 +225,17 @@ impl<'a> Display for Command<'a> {
         match self {
             Command::Expire(key, seconds) => write!(
                 f,
-                "CommandString::Expire - Key: {} - Seconds: {}",
+                "CommandKeys::Expire - Key: {} - Seconds: {}",
                 key, seconds
+            ),
+            Command::Persist(key) => write!(
+                f,
+                "CommandKeys::Persist - Key: {}",
+                key
             ),
             Command::Append(key, value) => write!(
                 f,
-                "CommandString::Append - Key: {} - Value: {} ",
+                "CommandKeys::Append - Key: {} - Value: {} ",
                 key, value
             ),
             Command::Incrby(key, incr) => write!(
