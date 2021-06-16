@@ -100,14 +100,22 @@ impl fmt::Display for DataBaseError {
     }
 }
 
+
+
+pub enum MessageTTL<'a>{
+    Expire(KeyTTL<'a>),
+    Clear(&'a str),
+    Refresh(&'a str),
+}
+
 #[derive(Eq, Clone, Debug)]
-pub struct KeyTTL {
-    pub key: String,
+pub struct KeyTTL<'a> {
+    pub key: &'a str,
     pub expire_time: SystemTime,
 }
 
-impl KeyTTL {
-    pub fn new(key: String, expire_time: SystemTime) -> KeyTTL{
+impl<'a> KeyTTL<'a> {
+    pub fn new(key: &str, expire_time: SystemTime) -> KeyTTL{
         KeyTTL {
             key,
             expire_time,
@@ -115,22 +123,22 @@ impl KeyTTL {
     }
 }
 
-impl PartialOrd for KeyTTL {
+impl<'a> PartialOrd for KeyTTL<'a>{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 
-impl Ord for KeyTTL {
+impl<'a> Ord for KeyTTL<'a>{
     fn cmp(&self, other: &Self) -> Ordering {
         self.expire_time.cmp(&other.expire_time)
     }
 }
 
 
-impl PartialEq for KeyTTL {
+impl<'a> PartialEq for KeyTTL<'a> {
     fn eq(&self, other: &Self) -> bool {
-        self.expire_time == other.expire_time && self.key == other.key
+        self.key == other.key
     }
 }

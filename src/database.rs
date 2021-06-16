@@ -1,8 +1,8 @@
-use crate::databasehelper::{DataBaseError, KeyTTL, StorageValue, SuccessQuery};
+use crate::databasehelper::{DataBaseError, KeyTTL, MessageTTL, StorageValue, SuccessQuery};
 use regex::Regex;
-use std::cmp::Ordering;
-use std::collections::{HashMap,HashSet};
-use std::fmt::{Formatter, self};
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::fmt::{self, Formatter};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,85 +11,83 @@ use std::time::{Duration, SystemTime};
 type Dictionary = Arc<Mutex<HashMap<String, StorageValue>>>;
 type TtlVector = Arc<Mutex<Vec<KeyTTL>>>;
 
-
-pub struct Database {
+pub struct Database<'a>{
     dictionary: Dictionary,
+    ttl_msg_sender: Sender<MessageTTL<'a>>   
 }
 
-impl Database {
-    pub fn new() -> Database {
+impl<'a>  Clone for Database<'a>  {
+    fn clone(&self) -> Self {
+        Database::new_from_db(self.ttl_msg_sender.clone(), self.dictionary.clone() )
+    }    
+}
+
+impl<'a> Database<'a>{
+    pub fn new(ttl_msg_sender: Sender<MessageTTL>) -> Database {
         Database {
             dictionary: Arc::new(Mutex::new(HashMap::new())),
+            ttl_msg_sender,
         }
     }
 
-    pub fn ttl_supervisor_run(&self, reciver: Receiver<KeyTTL>) {
+    pub fn new_from_db(ttl_msg_sender: Sender<MessageTTL>, dictionary: Dictionary) -> Database {
+        Database {
+            dictionary,
+            ttl_msg_sender,
+        }
+    }
+
+    pub fn ttl_supervisor_run(&self, reciver: Receiver<MessageTTL>) {
         let dictionary = self.dictionary.clone();
 
         thread::spawn(move || {
             let ttl_keys: TtlVector = Arc::new(Mutex::new(Vec::new()));
 
-            for new_key_ttl in reciver.iter() {
-                let keys = ttl_keys.clone();
-                let mut keys_locked = keys.lock().unwrap();
-
-                match keys_locked.first() {
-                    Some(key_ttl) if new_key_ttl < *key_ttl => {
-                        let dictionary = dictionary.clone();
+            for message in reciver.iter() {
+                match message {
+                    MessageTTL::Expire(new_key_ttl) => {
                         let keys = ttl_keys.clone();
+                        let mut keys_locked = keys.lock().unwrap();
 
-                        thread::spawn(move || {
-                            Database::build_childthread(new_key_ttl, dictionary, keys)
-                        });
-                    }
-                    Some(_) => {
                         if let Err(pos) = keys_locked.binary_search(&new_key_ttl) {
                             keys_locked.insert(pos, new_key_ttl);
                         }
-                    }
-                    None => {
-                        keys_locked.push(new_key_ttl.clone());
-                        let dictionary = dictionary.clone();
-                        let keys = ttl_keys.clone();
 
-                        thread::spawn(move || {
-                            Database::build_childthread(new_key_ttl, dictionary, keys)
-                        });
+                        if keys_locked.len() == 1 {
+                            let dic = dictionary.clone();
+                            let keys = ttl_keys.clone();
+
+                            thread::spawn(move || loop {
+                                thread::sleep(Duration::new(1, 0));
+                                let keys_ttl = keys.clone();
+                                let mut keys_locked = keys_ttl.lock().unwrap();
+
+                                while let Some(ttl) = keys_locked.get(0) {
+                                    if ttl.expire_time < SystemTime::now() {
+                                        if let ttl_key = keys_locked.remove(0) {
+                                            let mut dic_locked = dic.lock().unwrap();
+                                            dic_locked.remove(&ttl_key.key);
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                if keys_locked.is_empty() {
+                                    break;
+                                }
+                            });
+                        }
+                    }
+                    MessageTTL::Clear(key) => {
+                        let keys = ttl_keys.clone();
+                        let mut keys_locked = keys.lock().unwrap();
+
+                        if keys_locked.iter().position(| &x| x.key == key);
                     }
                 }
             }
         });
-    }
-
-    pub fn build_childthread(key_ttl: KeyTTL, dictonary: Dictionary, ttl_keys: TtlVector) {
-        if let Ok(ttl) = key_ttl.expire_time.duration_since(SystemTime::now()) {
-            thread::sleep(ttl);
-
-            let mut dictonary_locked = dictonary.lock().unwrap();
-
-            if dictonary_locked.contains_key(&key_ttl.key) {
-                dictonary_locked.remove(&key_ttl.key);
-
-                let keys = ttl_keys.clone();
-                let mut ttl_keys_locked = keys.lock().unwrap();
-
-                if let Ok(pos) = ttl_keys_locked.binary_search(&key_ttl) {
-                    ttl_keys_locked.remove(pos);
-                }
-
-                drop(dictonary_locked);
-
-                if let Some(value) = ttl_keys_locked.first() {
-                    let dictonary = dictonary.clone();
-                    let keys = ttl_keys.clone();
-                    let value = value.clone();
-
-                    drop(ttl_keys_locked);
-
-                    Database::build_childthread(value, dictonary, keys);
-                }
-            }
-        }
     }
 
     // KEYS
@@ -125,14 +123,25 @@ impl Database {
         Ok(SuccessQuery::Boolean(bool))
     }
 
-    pub fn expire(&self, key: &str, seconds: u64, ttl_sender: &Sender<KeyTTL>) -> Result<SuccessQuery,DataBaseError> {
-        let duration = Duration::new(seconds, 0);
-        let expire_time = SystemTime::now().checked_add(duration).unwrap();
-        let key_ttl = KeyTTL::new(key.to_owned(), expire_time);
-        ttl_sender.send(key_ttl).unwrap();
-        Ok(SuccessQuery::Boolean(true))
+    pub fn expire(
+        &self,
+        key: &str,
+        seconds: u64,
+        ttl_sender: &Sender<KeyTTL>,
+    ) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        if dictionary.contains_key(key) {
+            let duration = Duration::new(seconds, 0);
+            let expire_time = SystemTime::now().checked_add(duration).unwrap();
+            let key_ttl = KeyTTL::new(key.to_owned(), expire_time);
+            ttl_sender.send(key_ttl).unwrap();
+            Ok(SuccessQuery::Boolean(true))
+        } else {
+            Ok(SuccessQuery::Boolean(false))
+        }
     }
-   
+
     //expireat
 
     pub fn keys(&self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
@@ -664,7 +673,7 @@ mod ttl_commands {
         }
     }
 
-    const MILI_SEC: u64 = 100;
+    const SEC: u64 = 1;
 
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys() {
@@ -678,16 +687,10 @@ mod ttl_commands {
         db.append(KEY_D, VALUE_D).unwrap();
 
         let now = SystemTime::now();
-        let expire_time_a = now.checked_add(Duration::from_millis(MILI_SEC)).unwrap();
-        let expire_time_b = now
-            .checked_add(Duration::from_millis(MILI_SEC * 2))
-            .unwrap();
-        let expire_time_c = now
-            .checked_add(Duration::from_millis(MILI_SEC * 3))
-            .unwrap();
-        let expire_time_d = now
-            .checked_add(Duration::from_millis(MILI_SEC * 4))
-            .unwrap();
+        let expire_time_a = now.checked_add(Duration::from_secs(SEC)).unwrap();
+        let expire_time_b = now.checked_add(Duration::from_secs(SEC * 2)).unwrap();
+        let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
+        let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
 
         let ttl_pair_a = KeyTTL::new(KEY_A.to_owned(), expire_time_a);
         let ttl_pair_b = KeyTTL::new(KEY_B.to_owned(), expire_time_b);
@@ -715,7 +718,7 @@ mod ttl_commands {
         send.send(ttl_pair_c).unwrap();
         send.send(ttl_pair_d).unwrap();
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_secs(SEC * 2));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, false);
@@ -729,7 +732,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_secs(SEC));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
             assert_eq!(value, false);
@@ -738,7 +741,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_secs(SEC));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
             assert_eq!(value, false);
@@ -748,7 +751,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_secs(SEC));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
             assert_eq!(value, false);
@@ -776,16 +779,10 @@ mod ttl_commands {
         db.append(KEY_D, VALUE_D).unwrap();
 
         let now = SystemTime::now();
-        let expire_time_a = now.checked_add(Duration::from_millis(MILI_SEC)).unwrap();
-        let expire_time_b = now
-            .checked_add(Duration::from_millis(MILI_SEC * 2))
-            .unwrap();
-        let expire_time_c = now
-            .checked_add(Duration::from_millis(MILI_SEC * 3))
-            .unwrap();
-        let expire_time_d = now
-            .checked_add(Duration::from_millis(MILI_SEC * 4))
-            .unwrap();
+        let expire_time_a = now.checked_add(Duration::from_secs(SEC)).unwrap();
+        let expire_time_b = now.checked_add(Duration::from_secs(SEC * 2)).unwrap();
+        let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
+        let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
 
         let ttl_pair_a = KeyTTL::new(KEY_A.to_owned(), expire_time_a);
         let ttl_pair_b = KeyTTL::new(KEY_B.to_owned(), expire_time_b);
@@ -813,7 +810,7 @@ mod ttl_commands {
         send.send(ttl_pair_a).unwrap();
         send.send(ttl_pair_d).unwrap();
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_millis(SEC + 1));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, false);
@@ -831,7 +828,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_millis(SEC + 1));
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, false);
         }
@@ -848,7 +845,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_millis(SEC + 1));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, false);
@@ -865,7 +862,7 @@ mod ttl_commands {
         if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
             assert_eq!(value, true);
         }
-        thread::sleep(Duration::from_millis(MILI_SEC + 5));
+        thread::sleep(Duration::from_millis(SEC + 5));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, false);
@@ -1292,7 +1289,7 @@ mod group_keys {
             database.set(KEY_B, VAL_B).unwrap();
             database.set(KEY_C, VAL_C).unwrap();
             database.set(NO_MATCH, VAL_D).unwrap();
-            
+
             database
         }
 
@@ -1449,7 +1446,7 @@ mod group_list {
         let database = Database::new();
 
         database.append(KEY, VALUE).unwrap();
-        
+
         database
     }
 
@@ -1510,7 +1507,7 @@ mod group_list {
         #[test]
         fn test_lindex_with_a_list_with_one_value_on_idex_zero() {
             let database = Database::new();
-            
+
             database.lpush(KEY, VALUE).unwrap();
 
             if let SuccessQuery::String(value) = database.lindex(KEY, 0).unwrap() {
@@ -1560,17 +1557,17 @@ mod group_list {
 
         #[test]
         fn test_lpop_on_a_non_existent_key() {
-            let  database = Database::new();
+            let database = Database::new();
 
             let result = database.lpop(KEY).unwrap();
-            
+
             assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
         fn test_lpop_with_a_list_with_one_value_on_idex_zero() {
             let database = Database::new();
-            
+
             database.lpush(KEY, VALUE).unwrap();
 
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
@@ -1598,7 +1595,7 @@ mod group_list {
         #[test]
         fn test_lpop_on_an_empty_list() {
             let database = Database::new();
-            
+
             database.lpush(KEY, VALUE).unwrap();
 
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
@@ -1638,9 +1635,9 @@ mod group_list {
         #[test]
         fn test_lpush_on_an_existent_key_is_valid() {
             let database = Database::new();
-            
+
             database.lpush(KEY, VALUEA).unwrap();
-            
+
             let result = database.lpush(KEY, VALUEB).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(2));
@@ -1657,7 +1654,7 @@ mod group_list {
         #[test]
         fn test_lpush_on_an_existent_key_that_isnt_a_list() {
             let database = Database::new();
-            
+
             database.append(KEY, VALUE).unwrap();
 
             let result = database.lpush(KEY, VALUE).unwrap_err();

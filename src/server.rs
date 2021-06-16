@@ -8,21 +8,24 @@ use std::sync::mpsc;
 use std::sync::{Arc};
 use std::thread;
 
-pub struct Server {
-    database: Arc<Database>,
+pub struct Server<'a> {
+    database: Database<'a>,
     listener: TcpListener,
 }
 
-impl Server {
+impl<'a> Server<'a> {
     pub fn new(addr: &str) -> Server {
         let listener = TcpListener::bind(addr).expect("Could not bind");
-        let database = Arc::new(Database::new());
+        let (ttl_sender, ttl_rec) = mpsc::channel();
+
+        let database = Database::new(ttl_sender);
+
+        database.ttl_supervisor_run(ttl_rec);
 
         Server { database, listener }
     }
 
     pub fn run(self) {
-        let (ttl_sender, ttl_rec) = mpsc::channel();
         let (log_sender, log_rec) = mpsc::channel();
 
         let path = Path::new("log.txt");
@@ -34,7 +37,7 @@ impl Server {
 
         let database_ttl = self.database.clone();
 
-        database_ttl.ttl_supervisor_run(ttl_rec);
+
         
         for stream in self.listener.incoming() {
             match stream {
@@ -57,14 +60,14 @@ impl Server {
                                 Ok(request) => {
                                     let request = Request::new(&request);
                                     log_sender.send(request.to_string()).unwrap();
-                                    let reponse = request.execute(database, ttl_sender);
+                                    let reponse = request.execute(database);
                                     log_sender.send(reponse.to_string()).unwrap();
                                     reponse.respond(&mut stream, log_sender);
                                 }
                                 Err(err) => {
                                     let request = Request::invalid_request(err);
                                     log_sender.send(request.to_string()).unwrap();
-                                    let reponse = request.execute(database, ttl_sender);
+                                    let reponse = request.execute(database);
                                     log_sender.send(reponse.to_string()).unwrap();
                                     reponse.respond(&mut stream, log_sender);
                                 }
