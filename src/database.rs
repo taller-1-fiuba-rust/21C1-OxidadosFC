@@ -528,11 +528,8 @@ impl Database {
                     for elem in list[ini..(end + 1)].iter() {
                         sub_list.push(SuccessQuery::String(elem.clone()));
                     }
-
-                    Ok(SuccessQuery::List(sub_list))
-                } else {
-                    Ok(SuccessQuery::List(sub_list))
                 }
+                Ok(SuccessQuery::List(sub_list))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::List(sub_list)),
