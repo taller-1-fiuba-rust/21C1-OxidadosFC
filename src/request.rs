@@ -1,10 +1,8 @@
 use crate::database::Database;
-use crate::databasehelper::KeyTTL;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 
 pub enum Request<'a> {
     Valid(Command<'a>),
@@ -22,6 +20,8 @@ pub enum RequestError {
 pub enum Command<'a> {
     Expire(&'a str, u64),
     Persist(&'a str),
+    TTL(&'a str),
+    TYPE(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -67,6 +67,8 @@ impl<'a> Request<'a> {
                 Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
+            ["ttl", key] => Request::Valid(Command::TTL(key)),
+            ["type", key] => Request::Valid(Command::TYPE(key)),
             ["persist", key] => Request::Valid(Command::Persist(key)),
             ["append", key, value] => Request::Valid(Command::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
@@ -144,6 +146,8 @@ impl<'a> Request<'a> {
                 let result = match command {
                     Command::Expire(key, seconds) => db.expire(&key, seconds),
                     Command::Persist(key) => db.persist(&key),
+                    Command::TTL(key) => db.ttl(&key),
+                    Command::TYPE(key) => db.get_type(&key),
                     Command::Append(key, value) => db.append(&key, value),
                     Command::Incrby(key, incr) => db.incrby(&key, incr),
                     Command::Decrby(key, decr) => db.decrby(&key, decr),
@@ -228,16 +232,12 @@ impl<'a> Display for Command<'a> {
                 "CommandKeys::Expire - Key: {} - Seconds: {}",
                 key, seconds
             ),
-            Command::Persist(key) => write!(
-                f,
-                "CommandKeys::Persist - Key: {}",
-                key
-            ),
-            Command::Append(key, value) => write!(
-                f,
-                "CommandKeys::Append - Key: {} - Value: {} ",
-                key, value
-            ),
+            Command::Persist(key) => write!(f, "CommandKeys::Persist - Key: {}", key),
+            Command::TYPE(key) => write!(f, "CommandKeys::Type - Key: {}", key),
+            Command::TTL(key) => write!(f, "CommandKeys::TTL - Key: {}", key),
+            Command::Append(key, value) => {
+                write!(f, "CommandKeys::Append - Key: {} - Value: {} ", key, value)
+            }
             Command::Incrby(key, incr) => write!(
                 f,
                 "CommandString::Incrby - Key: {} - Increment: {}",

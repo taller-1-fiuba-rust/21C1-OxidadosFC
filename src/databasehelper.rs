@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use core::fmt::{Display, Formatter, Result};
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::mpsc::Sender;
 use std::time::SystemTime;
 
 #[derive(Clone)]
@@ -9,6 +10,18 @@ pub enum StorageValue {
     String(String),
     List(Vec<String>),
     Set(HashSet<String>),
+}
+
+
+impl StorageValue {
+    pub fn get_type(&self) -> String {
+        match self {
+            StorageValue::String(_) => "String".to_owned(),
+            StorageValue::List(_) => "List".to_owned(),
+            StorageValue::Set(_) => "Set".to_owned()
+        }
+
+    }
 }
 
 impl Display for StorageValue {
@@ -106,11 +119,12 @@ pub enum MessageTTL{
     Expire(KeyTTL),
     Clear(String),
     Transfer(String, String),
-    TTL(String),
+    TTL(String, Sender<RespondTTL>),
 }
 
 pub enum RespondTTL{
-    TTL(SystemTime)
+    TTL(SystemTime),
+    Persistent,
 }
 
 #[derive(Eq, Clone, Debug)]

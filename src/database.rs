@@ -1,9 +1,11 @@
-use crate::databasehelper::{DataBaseError, KeyTTL, MessageTTL, StorageValue, SuccessQuery, RespondTTL};
+use crate::databasehelper::{
+    DataBaseError, KeyTTL, MessageTTL, RespondTTL, StorageValue, SuccessQuery,
+};
 use regex::Regex;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::{self, Formatter};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{self, channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -108,13 +110,17 @@ impl Database {
                             ttl.key = to_key;
                         }
                     }
-                    MessageTTL::TTL(key) => {
+                    MessageTTL::TTL(key, sender_respond) => {
                         let keys = ttl_keys.clone();
-                        let mut keys_locked = keys.lock().unwrap();
+                        let keys_locked = keys.lock().unwrap();
 
                         if let Some(pos) = keys_locked.iter().position(|x| x.key == key) {
                             let ttl = keys_locked.get(pos).unwrap();
-                            ttl_respond.send(RespondTTL::TTL(ttl.expire_time));
+                            sender_respond
+                                .send(RespondTTL::TTL(ttl.expire_time))
+                                .unwrap();
+                        } else {
+                            sender_respond.send(RespondTTL::Persistent).unwrap();
                         }
                     }
                 };
@@ -155,18 +161,17 @@ impl Database {
         Ok(SuccessQuery::Boolean(bool))
     }
 
-    pub fn expire(
-        &self,
-        key: &str,
-        seconds: u64,
-    ) -> Result<SuccessQuery, DataBaseError> {
+    pub fn expire(&self, key: &str, seconds: u64) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
 
         if dictionary.contains_key(key) {
             let duration = Duration::new(seconds, 0);
             let expire_time = SystemTime::now().checked_add(duration).unwrap();
             let key_ttl = KeyTTL::new(key, expire_time);
-            self.ttl_msg_sender.send(MessageTTL::Expire(key_ttl)).unwrap();
+            self.ttl_msg_sender
+                .send(MessageTTL::Expire(key_ttl))
+                .unwrap();
+
             Ok(SuccessQuery::Boolean(true))
         } else {
             Ok(SuccessQuery::Boolean(false))
@@ -194,17 +199,17 @@ impl Database {
     }
 
     //persist
-    pub fn persist(
-        &self,
-        key: &str,
-    ) -> Result<SuccessQuery, DataBaseError> {
+    pub fn persist(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
 
         if dictionary.contains_key(key) {
-            self.ttl_msg_sender.send(MessageTTL::Clear(key.to_owned())).unwrap();
+            self.ttl_msg_sender
+                .send(MessageTTL::Clear(key.to_owned()))
+                .unwrap();
+
             Ok(SuccessQuery::Boolean(true))
         } else {
-            Ok(SuccessQuery::Boolean(false))
+            Err(DataBaseError::NonExistentKey)
         }
     }
 
@@ -214,6 +219,11 @@ impl Database {
         match dictionary.remove(old_key) {
             Some(value) => {
                 dictionary.insert(new_key.to_owned(), value);
+
+                self.ttl_msg_sender
+                    .send(MessageTTL::Transfer(old_key.to_owned(), new_key.to_owned()))
+                    .unwrap();
+
                 Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
@@ -225,8 +235,37 @@ impl Database {
     //touch
 
     //ttl
+    pub fn ttl(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+        let (respond_sender, respond_reciver) = channel();
+
+        if dictionary.contains_key(key) {
+            self.ttl_msg_sender
+                .send(MessageTTL::TTL(key.to_owned(), respond_sender))
+                .unwrap();
+
+            match respond_reciver.recv().unwrap() {
+                RespondTTL::TTL(time) => {
+                    let duration = time.duration_since(SystemTime::now()).unwrap();
+                    Ok(SuccessQuery::Integer(duration.as_secs() as i32))
+                }
+                RespondTTL::Persistent => Ok(SuccessQuery::Integer(-1)),
+            }
+        } else {
+            Ok(SuccessQuery::Integer(-2))
+        }
+    }
 
     //type
+
+    pub fn get_type(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+
+        match dictionary.get(key) {
+            Some(val) => Ok(SuccessQuery::String(val.get_type())),
+            None => Ok(SuccessQuery::String("none".to_owned())),
+        }
+    }
 
     //STRINGS
 
@@ -277,6 +316,10 @@ impl Database {
     pub fn getdel(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
+        self.ttl_msg_sender
+            .send(MessageTTL::Clear(key.to_owned()))
+            .unwrap();
+
         match dictionary.remove(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val)),
             Some(_) => Err(DataBaseError::NotAString),
@@ -286,6 +329,10 @@ impl Database {
 
     pub fn getset(&self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
+
+        self.ttl_msg_sender
+            .send(MessageTTL::Clear(key.to_owned()))
+            .unwrap();
 
         let old_value = match dictionary.remove(key) {
             Some(StorageValue::String(old_value)) => old_value,
@@ -323,6 +370,10 @@ impl Database {
             let key = params.get(i).unwrap();
             let value = params.get(i + 1).unwrap();
 
+            self.ttl_msg_sender
+                .send(MessageTTL::Clear(key.to_string()))
+                .unwrap();
+
             dictionary.insert(key.to_string(), StorageValue::String(value.to_string()));
         }
         Ok(SuccessQuery::Success)
@@ -330,6 +381,10 @@ impl Database {
 
     pub fn set(&self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
+
+        self.ttl_msg_sender
+            .send(MessageTTL::Clear(key.to_owned()))
+            .unwrap();
 
         dictionary.insert(key.to_owned(), StorageValue::String(val.to_owned()));
         Ok(SuccessQuery::Success)
@@ -650,13 +705,12 @@ mod ttl_commands {
     const KEY_D: &str = "KEY_D";
     const VALUE_D: &str = "VALUE_D";
 
-
     // duration_since
 
     #[test]
     fn ttl_supervisor_run_supervaise_a_key() {
         let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
-        
+
         let db = Database::new(send.clone());
 
         db.ttl_supervisor_run(recv);
@@ -721,14 +775,13 @@ mod ttl_commands {
         }
     }
 
-
-
     const SEC: u64 = 1;
 
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys() {
-        let (send, recv): (Sender<KeyTTL>, Receiver<KeyTTL>) = mpsc::channel();
-        let db = Database::new();
+        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
+        let db = Database::new(send.clone());
+
         db.ttl_supervisor_run(recv);
 
         db.append(KEY_A, VALUE_A).unwrap();
@@ -742,10 +795,10 @@ mod ttl_commands {
         let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
         let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
 
-        let ttl_pair_a = KeyTTL::new(KEY_A.to_owned(), expire_time_a);
-        let ttl_pair_b = KeyTTL::new(KEY_B.to_owned(), expire_time_b);
-        let ttl_pair_c = KeyTTL::new(KEY_C.to_owned(), expire_time_c);
-        let ttl_pair_d = KeyTTL::new(KEY_D.to_owned(), expire_time_d);
+        let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
+        let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
+        let ttl_pair_c = KeyTTL::new(KEY_C, expire_time_c);
+        let ttl_pair_d = KeyTTL::new(KEY_D, expire_time_d);
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, true);
@@ -763,10 +816,10 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        send.send(ttl_pair_a).unwrap();
-        send.send(ttl_pair_b).unwrap();
-        send.send(ttl_pair_c).unwrap();
-        send.send(ttl_pair_d).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_a)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_b)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_c)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_d)).unwrap();
 
         thread::sleep(Duration::from_secs(SEC * 2));
 
@@ -816,124 +869,123 @@ mod ttl_commands {
         }
     }
 
-} 
+    #[test]
+    fn ttl_supervisor_run_supervaise_four_keys_one_of_the_key_is_inserted_with_a_lower_expire_time_the_actual_key(
+    ) {
+        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
+        let db = Database::new(send.clone());
 
-//     #[test]
-//     fn ttl_supervisor_run_supervaise_four_keys_one_of_the_key_is_inserted_with_a_lower_expire_time_the_actual_key(
-//     ) {
-//         let (send, recv): (Sender<KeyTTL>, Receiver<KeyTTL>) = mpsc::channel();
-//         let db = Database::new();
-//         db.ttl_supervisor_run(recv);
+        db.ttl_supervisor_run(recv);
 
-//         db.append(KEY_A, VALUE_A).unwrap();
-//         db.append(KEY_B, VALUE_B).unwrap();
-//         db.append(KEY_C, VALUE_C).unwrap();
-//         db.append(KEY_D, VALUE_D).unwrap();
+        db.append(KEY_A, VALUE_A).unwrap();
+        db.append(KEY_B, VALUE_B).unwrap();
+        db.append(KEY_C, VALUE_C).unwrap();
+        db.append(KEY_D, VALUE_D).unwrap();
 
-//         let now = SystemTime::now();
-//         let expire_time_a = now.checked_add(Duration::from_secs(SEC)).unwrap();
-//         let expire_time_b = now.checked_add(Duration::from_secs(SEC * 2)).unwrap();
-//         let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
-//         let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
+        let now = SystemTime::now();
+        let expire_time_a = now.checked_add(Duration::from_secs(SEC)).unwrap();
+        let expire_time_b = now.checked_add(Duration::from_secs(SEC * 2)).unwrap();
+        let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
+        let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
 
-//         let ttl_pair_a = KeyTTL::new(KEY_A.to_owned(), expire_time_a);
-//         let ttl_pair_b = KeyTTL::new(KEY_B.to_owned(), expire_time_b);
-//         let ttl_pair_c = KeyTTL::new(KEY_C.to_owned(), expire_time_c);
-//         let ttl_pair_d = KeyTTL::new(KEY_D.to_owned(), expire_time_d);
+        let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
+        let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
+        let ttl_pair_c = KeyTTL::new(KEY_C, expire_time_c);
+        let ttl_pair_d = KeyTTL::new(KEY_D, expire_time_d);
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         send.send(ttl_pair_b).unwrap();
-//         send.send(ttl_pair_c).unwrap();
-//         send.send(ttl_pair_a).unwrap();
-//         send.send(ttl_pair_d).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_b)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_c)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_a)).unwrap();
+        send.send(MessageTTL::Expire(ttl_pair_d)).unwrap();
 
-//         thread::sleep(Duration::from_millis(SEC + 1));
+        thread::sleep(Duration::from_secs(SEC*2));
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         thread::sleep(Duration::from_millis(SEC + 1));
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        thread::sleep(Duration::from_secs(SEC*2));
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
-//             assert_eq!(value, true);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, true);
+        }
 
-//         thread::sleep(Duration::from_millis(SEC + 1));
+        thread::sleep(Duration::from_secs(SEC));
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
-//             assert_eq!(value, true);
-//         }
-//         thread::sleep(Duration::from_millis(SEC + 5));
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, true);
+        }
+        
+        thread::sleep(Duration::from_secs(SEC));
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
-//             assert_eq!(value, false);
-//         }
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_C).unwrap() {
+            assert_eq!(value, false);
+        }
 
-//         if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
-//             assert_eq!(value, false);
-//         }
-//     }
-// }
-
+        if let SuccessQuery::Boolean(value) = db.exists(KEY_D).unwrap() {
+            assert_eq!(value, false);
+        }
+    }
+}
 // #[cfg(test)]
 // mod group_string {
 
