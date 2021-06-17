@@ -697,6 +697,42 @@ impl Database {
             }
         }
     }
+
+    pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        let mut result: Vec<SuccessQuery> = Vec::new();
+        match dictionary.get_mut(key) {
+            Some(StorageValue::Set(hash_set)) => {
+                for elem in hash_set.iter() {
+                    result.push(SuccessQuery::String(elem.clone()));
+                }
+                Ok(SuccessQuery::List(result))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(SuccessQuery::List(result)),
+        }
+    }
+
+    pub fn srem(
+        &mut self,
+        key: &str,
+        members_to_rmv: Vec<&str>,
+    ) -> Result<SuccessQuery, DataBaseError> {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        match dictionary.get_mut(key) {
+            Some(StorageValue::Set(hash_set)) => {
+                let mut count: i32 = 0;
+                for member in members_to_rmv {
+                    if let Some(_mem) = hash_set.take(member) {
+                        count += 1;
+                    }
+                }
+                Ok(SuccessQuery::Integer(count))
+            }
+            Some(_) => Err(DataBaseError::NotASet),
+            None => Ok(SuccessQuery::Boolean(false)),
+        }
+    }
 }
 
 impl fmt::Display for Database {
@@ -814,9 +850,9 @@ mod ttl_commands {
 
         let now = SystemTime::now();
         let expire_time_a = now.checked_add(Duration::from_secs(SEC)).unwrap();
-        let expire_time_b = now.checked_add(Duration::from_secs(SEC * 2)).unwrap();
-        let expire_time_c = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
-        let expire_time_d = now.checked_add(Duration::from_secs(SEC * 4)).unwrap();
+        let expire_time_b = now.checked_add(Duration::from_secs(SEC * 3)).unwrap();
+        let expire_time_c = now.checked_add(Duration::from_secs(SEC * 5)).unwrap();
+        let expire_time_d = now.checked_add(Duration::from_secs(SEC * 10)).unwrap();
 
         let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
         let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
@@ -858,7 +894,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_secs(SEC));
+        thread::sleep(Duration::from_secs(SEC + 2));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
             assert_eq!(value, false);
@@ -877,7 +913,7 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        thread::sleep(Duration::from_secs(SEC));
+        thread::sleep(Duration::from_secs(SEC + 4));
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_B).unwrap() {
             assert_eq!(value, false);
@@ -1999,7 +2035,13 @@ mod group_set {
     use super::*;
 
     const KEY: &str = "KEY";
+    const KEY_WITH_STR: &str = "KEY_WITH_STRING";
+    const VALUE_A: &str = "VALUE_A";
+    const NON_EXIST_KEY: &str = "NON_EXIST_KEY";
+    const NON_EXIST_ELEMENT: &str = "NON_EXIST_ELEMENT";
     const ELEMENT: &str = "ELEMENT";
+    const ELEMENT_2: &str = "ELEMENT2";
+    const ELEMENT_3: &str = "ELEMENT3";
     const OTHER_ELEMENT: &str = "OTHER_ELEMENT";
 
     fn create_database() -> Database {
@@ -2011,86 +2053,136 @@ mod group_set {
         database
     }
 
-    #[test]
-    fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
-        let database = create_database();
+    mod saad_test {
+        use super::*;
 
-        let result = database.sadd(KEY, ELEMENT).unwrap();
-        assert_eq!(result, SuccessQuery::Boolean(true));
-        let is_member = database.sismember(KEY, ELEMENT).unwrap();
-        assert_eq!(is_member, SuccessQuery::Boolean(true));
+        #[test]
+        fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
+            let database = create_database();
+
+            let result = database.sadd(KEY, ELEMENT).unwrap();
+            assert_eq!(result, SuccessQuery::Boolean(true));
+            let is_member = database.sismember(KEY, ELEMENT).unwrap();
+            assert_eq!(is_member, SuccessQuery::Boolean(true));
+        }
+
+        #[test]
+        fn test_sadd_create_set_with_repeating_elements_returns_0() {
+            let database = create_database();
+
+            database.sadd(KEY, ELEMENT).unwrap();
+
+            let result = database.sadd(KEY, ELEMENT).unwrap();
+            assert_eq!(result, SuccessQuery::Boolean(false));
+            let len_set = database.scard(KEY).unwrap();
+            assert_eq!(len_set, SuccessQuery::Integer(1));
+        }
+
+        #[test]
+        fn test_sadd_key_with_another_type_of_set_returns_err() {
+            let database = create_database();
+            database.set(KEY, ELEMENT).unwrap();
+
+            let result = database.sadd(KEY, ELEMENT).unwrap_err();
+            assert_eq!(result, DataBaseError::NotASet);
+        }
+
+        #[test]
+        fn test_sadd_add_element_with_set_created_returns_1() {
+            let database = create_database();
+            database.sadd(KEY, ELEMENT).unwrap();
+
+            let result = database.sadd(KEY, OTHER_ELEMENT).unwrap();
+            assert_eq!(result, SuccessQuery::Boolean(true));
+            let len_set = database.scard(KEY).unwrap();
+            assert_eq!(len_set, SuccessQuery::Integer(2));
+        }
     }
 
-    #[test]
-    fn test_sadd_create_set_with_repeating_elements_returns_0() {
-        let database = create_database();
+    mod sismember_test {
+        use super::*;
 
-        database.sadd(KEY, ELEMENT).unwrap();
+        #[test]
+        fn test_sismember_set_with_element_returns_1() {
+            let database = create_database();
+            database.sadd(KEY, ELEMENT).unwrap();
 
-        let result = database.sadd(KEY, ELEMENT).unwrap();
-        assert_eq!(result, SuccessQuery::Boolean(false));
-        let len_set = database.scard(KEY).unwrap();
-        assert_eq!(len_set, SuccessQuery::Integer(1));
+            let is_member = database.sismember(KEY, ELEMENT).unwrap();
+
+            assert_eq!(is_member, SuccessQuery::Boolean(true));
+        }
+
+        #[test]
+        fn test_sismember_set_without_element_returns_0() {
+            let database = create_database();
+            database.sadd(KEY, ELEMENT).unwrap();
+
+            let result = database.sismember(KEY, OTHER_ELEMENT).unwrap();
+
+            assert_eq!(result, SuccessQuery::Boolean(false));
+        }
+
+        #[test]
+        fn test_sismember_key_with_another_type_of_set_returns_err() {
+            let database = create_database();
+            database.set(KEY, ELEMENT).unwrap();
+            let result = database.sismember(KEY, ELEMENT).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotASet);
+        }
+
+        #[test]
+        fn test_sismember_with_non_exist_key_set_returns_0() {
+            let database = create_database();
+
+            let result = database.sismember(KEY, ELEMENT).unwrap();
+
+            assert_eq!(result, SuccessQuery::Boolean(false));
+        }
     }
 
-    #[test]
-    fn test_sadd_key_with_another_type_of_set_returns_err() {
-        let database = create_database();
-
-        database.set(KEY, ELEMENT).unwrap();
-
-        let result = database.sadd(KEY, ELEMENT).unwrap_err();
-
-        assert_eq!(result, DataBaseError::NotASet);
-    }
-
-    #[test]
-    fn test_sadd_add_element_with_set_created_returns_1() {
-        let database = create_database();
-        database.sadd(KEY, ELEMENT).unwrap();
-
-        let result = database.sadd(KEY, OTHER_ELEMENT).unwrap();
-        assert_eq!(result, SuccessQuery::Boolean(true));
-        let len_set = database.scard(KEY).unwrap();
-        assert_eq!(len_set, SuccessQuery::Integer(2));
-    }
-
-    #[test]
-    fn test_sismember_set_with_element_returns_1() {
-        let database = create_database();
-        database.sadd(KEY, ELEMENT).unwrap();
-
-        let is_member = database.sismember(KEY, ELEMENT).unwrap();
-
-        assert_eq!(is_member, SuccessQuery::Boolean(true));
-    }
-
-    #[test]
-    fn test_sismember_set_without_element_returns_0() {
-        let database = create_database();
-        database.sadd(KEY, ELEMENT).unwrap();
-
-        let result = database.sismember(KEY, OTHER_ELEMENT).unwrap();
-
-        assert_eq!(result, SuccessQuery::Boolean(false));
-    }
-
-    #[test]
-    fn test_sismember_key_with_another_type_of_set_returns_err() {
-        let database = create_database();
-        database.set(KEY, ELEMENT).unwrap();
-        let result = database.sismember(KEY, ELEMENT).unwrap_err();
-
-        assert_eq!(result, DataBaseError::NotASet);
-    }
-
-    #[test]
-    fn test_sismember_with_non_exist_key_set_returns_0() {
-        let database = create_database();
-
-        let result = database.sismember(KEY, ELEMENT).unwrap();
-
-        assert_eq!(result, SuccessQuery::Boolean(false));
+    mod srem_test {
+        use super::*;
+        #[test]
+        fn test_srem_one_member_in_set_returns_1_if_set_contains_member() {
+            let members = vec![ELEMENT];
+            let mut database = create_database();
+            database.sadd(KEY, ELEMENT).unwrap();
+            let result = database.srem(KEY, members).unwrap();
+            let is_member = database.sismember(KEY, &ELEMENT.to_string()).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(1));
+            assert_eq!(is_member, SuccessQuery::Boolean(false));
+        }
+        #[test]
+        fn test_srem_key_no_exits_in_database_returns_0() {
+            let mut database = create_database();
+            let members_to_rmv = vec![ELEMENT];
+            let result = database.srem(KEY, members_to_rmv).unwrap();
+            assert_eq!(result, SuccessQuery::Boolean(false));
+        }
+        #[test]
+        fn test_srem_multiple_members_in_set_returns_lenght_of_removed_elements_in_the_set() {
+            let mut database = create_database();
+            let members = vec![ELEMENT, ELEMENT_2, ELEMENT_3];
+            let members_to_rmv = vec![ELEMENT, ELEMENT_2, ELEMENT_3, NON_EXIST_ELEMENT];
+            for member in &members {
+                let _ = database.sadd(KEY, member.clone());
+            }
+            let result = database.srem(KEY, members_to_rmv).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(3));
+            for member in members {
+                let is_member = database.sismember(KEY, &member.to_string()).unwrap();
+                assert_eq!(is_member, SuccessQuery::Boolean(false));
+            }
+        }
+        #[test]
+        fn test_srem_key_with_another_type_another_besides_set_return_err() {
+            let mut database = create_database();
+            let members_to_rmv = vec![ELEMENT];
+            let _ = database.set(KEY_WITH_STR, VALUE_A).unwrap();
+            let result = database.srem(KEY_WITH_STR, members_to_rmv).unwrap_err();
+            assert_eq!(result, DataBaseError::NotASet);
+        }
     }
 
     #[test]
@@ -2112,14 +2204,12 @@ mod group_set {
         }
 
         let len_set = database.scard(KEY).unwrap();
-
         assert_eq!(len_set, SuccessQuery::Integer(10));
     }
 
     #[test]
     fn test_scard_key_with_another_type_of_set_returns_err() {
         let database = create_database();
-
         database.set(KEY, ELEMENT).unwrap();
 
         let result = database.scard(KEY).unwrap_err();
@@ -2134,5 +2224,43 @@ mod group_set {
         let result = database.scard(KEY).unwrap();
 
         assert_eq!(result, SuccessQuery::Boolean(false));
+    }
+
+    mod smembers_test {
+        use super::*;
+
+        #[test]
+        fn test_smembers_with_elements_return_list_of_elements() {
+            let mut database = create_database();
+            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, OTHER_ELEMENT).unwrap();
+
+            if let SuccessQuery::List(list) = database.smembers(KEY).unwrap() {
+                for elem in list {
+                    let is_member = database.sismember(KEY, &elem.to_string()).unwrap();
+                    assert_eq!(is_member, SuccessQuery::Boolean(true));
+                }
+            }
+        }
+
+        #[test]
+        fn test_smembers_with_non_exist_key_return_empty_list() {
+            let mut database = create_database();
+
+            let result = database.smembers(NON_EXIST_KEY).unwrap();
+
+            assert_eq!(result, SuccessQuery::List(Vec::new()));
+        }
+
+        #[test]
+        fn test_smembers_key_with_another_type_another_besides_set_return_err() {
+            let mut database = create_database();
+
+            let _ = database.set(KEY_WITH_STR, VALUE_A);
+
+            let result = database.smembers(KEY_WITH_STR).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotASet);
+        }
     }
 }

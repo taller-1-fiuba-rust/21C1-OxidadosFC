@@ -81,6 +81,7 @@ impl<'a> fmt::Display for SuccessQuery {
                     write!(f, "{}", hash_set_string)
                 }
             }
+
             SuccessQuery::Nil => write!(f, "(Nil)"),
         }
     }
