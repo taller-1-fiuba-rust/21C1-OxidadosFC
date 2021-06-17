@@ -18,7 +18,8 @@ pub enum RequestError {
 }
 
 pub enum Command<'a> {
-    Expire(&'a str, u64),
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
     Persist(&'a str),
     TTL(&'a str),
     TYPE(&'a str),
@@ -63,8 +64,12 @@ impl<'a> Request<'a> {
         let request: Vec<&str> = request.split_whitespace().collect();
 
         match request[..] {
-            ["expire", key, seconds] => match seconds.parse::<u64>() {
+            ["expire", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
+                Err(_) => Request::Invalid(RequestError::ParseError),
+            },
+            ["expireat", key, seconds] => match seconds.parse::<i64>() {
+                Ok(seconds) => Request::Valid(Command::ExpireAt(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["ttl", key] => Request::Valid(Command::TTL(key)),
@@ -144,6 +149,7 @@ impl<'a> Request<'a> {
         match self {
             Request::Valid(command) => {
                 let result = match command {
+                    Command::ExpireAt(key, seconds) => db.expireat(&key, seconds),
                     Command::Expire(key, seconds) => db.expire(&key, seconds),
                     Command::Persist(key) => db.persist(&key),
                     Command::TTL(key) => db.ttl(&key),
@@ -230,6 +236,11 @@ impl<'a> Display for Command<'a> {
             Command::Expire(key, seconds) => write!(
                 f,
                 "CommandKeys::Expire - Key: {} - Seconds: {}",
+                key, seconds
+            ),
+            Command::ExpireAt(key, seconds) => write!(
+                f,
+                "CommandKeys::ExpireAt - Key: {} - Seconds: {}",
                 key, seconds
             ),
             Command::Persist(key) => write!(f, "CommandKeys::Persist - Key: {}", key),

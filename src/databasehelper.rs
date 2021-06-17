@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use core::fmt::{Display, Formatter, Result};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::mpsc::Sender;
@@ -12,15 +12,13 @@ pub enum StorageValue {
     Set(HashSet<String>),
 }
 
-
 impl StorageValue {
     pub fn get_type(&self) -> String {
         match self {
             StorageValue::String(_) => "String".to_owned(),
             StorageValue::List(_) => "List".to_owned(),
-            StorageValue::Set(_) => "Set".to_owned()
+            StorageValue::Set(_) => "Set".to_owned(),
         }
-
     }
 }
 
@@ -113,16 +111,14 @@ impl fmt::Display for DataBaseError {
     }
 }
 
-
-
-pub enum MessageTTL{
+pub enum MessageTTL {
     Expire(KeyTTL),
     Clear(String),
     Transfer(String, String),
     TTL(String, Sender<RespondTTL>),
 }
 
-pub enum RespondTTL{
+pub enum RespondTTL {
     TTL(SystemTime),
     Persistent,
 }
@@ -134,7 +130,7 @@ pub struct KeyTTL {
 }
 
 impl KeyTTL {
-    pub fn new(key: &str, expire_time: SystemTime) -> KeyTTL{
+    pub fn new(key: &str, expire_time: SystemTime) -> KeyTTL {
         KeyTTL {
             key: key.to_string(),
             expire_time,
@@ -142,19 +138,17 @@ impl KeyTTL {
     }
 }
 
-impl PartialOrd for KeyTTL{
+impl PartialOrd for KeyTTL {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-
-impl Ord for KeyTTL{
+impl Ord for KeyTTL {
     fn cmp(&self, other: &Self) -> Ordering {
         self.expire_time.cmp(&other.expire_time)
     }
 }
-
 
 impl PartialEq for KeyTTL {
     fn eq(&self, other: &Self) -> bool {

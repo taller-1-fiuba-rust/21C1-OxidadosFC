@@ -1,8 +1,8 @@
 use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
-use std::path::Path;
 use std::net::TcpListener;
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
@@ -17,7 +17,7 @@ impl Server {
         let (ttl_sender, ttl_rec) = mpsc::channel();
 
         let database = Database::new(ttl_sender);
-        let  database_ttl = database.clone();
+        let database_ttl = database.clone();
         database_ttl.ttl_supervisor_run(ttl_rec);
 
         Server { database, listener }
@@ -32,7 +32,6 @@ impl Server {
         thread::spawn(move || {
             logger.run();
         });
-
 
         for stream in self.listener.incoming() {
             match stream {
