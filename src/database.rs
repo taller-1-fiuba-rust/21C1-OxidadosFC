@@ -1,7 +1,7 @@
 use crate::databasehelper::{
     DataBaseError, KeyTTL, MessageTTL, RespondTTL, StorageValue, SuccessQuery,
 };
-use regex::Regex;
+use crate::matcher::matcher;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Formatter};
@@ -128,6 +128,17 @@ impl Database {
         });
     }
 
+    pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
+        let mut dictionary = self.dictionary.lock().unwrap();
+        dictionary.clear();
+        Ok(SuccessQuery::Success)
+    }
+
+    pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+        Ok(SuccessQuery::Integer(dictionary.len() as i32))
+    }
+
     // KEYS
 
     pub fn copy(&self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
@@ -203,18 +214,11 @@ impl Database {
         }
     }
 
-    pub fn keys(&self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
-
-        let patt: String = r"^".to_owned() + pattern + r"$";
-        let patt: String = patt.replace("*", ".*");
-        let patt: String = patt.replace("?", ".");
         let list: Vec<SuccessQuery> = dictionary
             .keys()
-            .filter(|x| match Regex::new(&patt) {
-                Ok(re) => re.is_match(x),
-                Err(_) => false,
-            })
+            .filter(|x| matcher(x, pattern))
             .map(|item| SuccessQuery::String(item.to_owned()))
             .collect::<Vec<SuccessQuery>>();
 
@@ -1440,7 +1444,8 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_keys_with_name() {
-            let database = create_database_with_keys();
+            let mut database = create_database_with_keys();
+
             if let Ok(SuccessQuery::List(list)) = database.keys("*name") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
 
@@ -1451,7 +1456,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_keys_with_four_question_name() {
-            let database = create_database_with_keys();
+            let mut database = create_database_with_keys();
             if let Ok(SuccessQuery::List(list)) = database.keys("????name") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
 
@@ -1482,7 +1487,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_all_keys_with_an_asterisk_in_the_middle() {
-            let database = create_database_with_keys_two();
+            let mut database = create_database_with_keys_two();
 
             if let Ok(SuccessQuery::List(list)) = database.keys("k*y") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
@@ -1495,7 +1500,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_all_keys_with_question_in_the_middle() {
-            let database = create_database_with_keys_two();
+            let mut database = create_database_with_keys_two();
 
             if let Ok(SuccessQuery::List(list)) = database.keys("k?y") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
@@ -1531,7 +1536,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_keys_with_h_question_llo_matches_correctly() {
-            let database = create_database_with_keys_three();
+            let mut database = create_database_with_keys_three();
 
             if let Ok(SuccessQuery::List(list)) = database.keys("h?llo") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
@@ -1546,7 +1551,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_keys_with_h_asterisk_llo_matches_correctly() {
-            let database = create_database_with_keys_three();
+            let mut database = create_database_with_keys_three();
 
             if let Ok(SuccessQuery::List(list)) = database.keys("h*llo") {
                 let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
@@ -1560,7 +1565,7 @@ mod group_keys {
 
         #[test]
         fn test_keys_obtain_keys_with_nomatch_returns_empty_list() {
-            let database = create_database_with_keys();
+            let mut database = create_database_with_keys();
 
             if let SuccessQuery::List(list) = database.keys("nomatch").unwrap() {
                 assert_eq!(list.len(), 0);
@@ -2258,6 +2263,83 @@ mod group_set {
             let result = database.smembers(KEY_WITH_STR).unwrap_err();
 
             assert_eq!(result, DataBaseError::NotASet);
+        }
+    }
+}
+
+#[cfg(test)]
+mod group_server {
+    use super::*;
+    const KEY1: &str = "key1";
+    const VALUE1: &str = "value1";
+    const KEY2: &str = "key2";
+    const VALUE2: &str = "value2";
+
+    fn create_database() -> Database {
+        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
+        let db = Database::new(send.clone());
+        let database = db.clone();
+        db.ttl_supervisor_run(recv);
+
+        database
+    }
+
+    mod flushdb_test {
+        use super::*;
+
+        #[test]
+        fn flushdb_clear_dictionary() {
+            let mut db = create_database();
+           
+            db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]).unwrap();
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
+
+            let r = db.flushdb().unwrap();
+            assert_eq!(r, SuccessQuery::Success);
+
+            let guard = db.dictionary.lock().unwrap();
+            assert!(guard.is_empty());
+        }
+    }
+
+    mod dbsize_test {
+        use super::*;
+
+
+
+        #[test]
+        fn dbsize_empty_gets_0() {
+            let db = create_database();
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(0));
+        }
+
+        #[test]
+        fn dbsize_with_one_element_gets_1() {
+            let db = create_database();
+            let _ = db.set(KEY1, VALUE1);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(1));
+        }
+
+        #[test]
+        fn dbsize_with_two_element_gets_2() {
+            let db = create_database();
+            let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(2));
         }
     }
 }
