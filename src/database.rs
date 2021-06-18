@@ -2290,7 +2290,7 @@ mod group_server {
         #[test]
         fn flushdb_clear_dictionary() {
             let mut db = create_database();
-           
+
             db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]).unwrap();
             let r = db.get(KEY1).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
@@ -2307,8 +2307,6 @@ mod group_server {
 
     mod dbsize_test {
         use super::*;
-
-
 
         #[test]
         fn dbsize_empty_gets_0() {

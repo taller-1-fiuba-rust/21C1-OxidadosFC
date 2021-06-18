@@ -4,8 +4,8 @@ use crate::request::{self, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpListener;
 use std::sync::mpsc;
-use std::thread;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct Server {
     database: Database,
@@ -21,15 +21,14 @@ impl Server {
         let (ttl_sender, ttl_rec) = mpsc::channel();
 
         let database = Database::new(ttl_sender);
-        
+
         let database_ttl = database.clone();
-       
+
         database_ttl.ttl_supervisor_run(ttl_rec);
 
         listener
             .set_nonblocking(true)
             .expect("Cannot set non-blocking");
-
 
         Ok(Server {
             database,
@@ -60,7 +59,7 @@ impl Server {
                     let log_sender = &log_sender;
                     let database = &mut database;
                     let config = &config;
-                    
+
                     loop {
                         match request::parse_request(&mut stream) {
                             Ok(request) => {
