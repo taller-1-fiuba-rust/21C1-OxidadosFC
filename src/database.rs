@@ -1,5 +1,5 @@
 use crate::databasehelper::{DataBaseError, StorageValue, SuccessQuery};
-use regex::Regex;
+use crate::matcher::matcher;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -15,6 +15,16 @@ impl Database {
         Database {
             dictionary: HashMap::new(),
         }
+    }
+
+    // SERVER
+    pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
+        self.dictionary.clear();
+        Ok(SuccessQuery::Success)
+    }
+
+    pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
+        Ok(SuccessQuery::Integer(self.dictionary.len() as i32))
     }
 
     // KEYS
@@ -51,16 +61,10 @@ impl Database {
     //expireat
 
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
-        let patt: String = r"^".to_owned() + pattern + r"$";
-        let patt: String = patt.replace("*", ".*");
-        let patt: String = patt.replace("?", ".");
         let list: Vec<SuccessQuery> = self
             .dictionary
             .keys()
-            .filter(|x| match Regex::new(&patt) {
-                Ok(re) => re.is_match(x),
-                Err(_) => false,
-            })
+            .filter(|x| matcher(x, pattern))
             .map(|item| SuccessQuery::String(item.to_owned()))
             .collect::<Vec<SuccessQuery>>();
 
@@ -1649,6 +1653,69 @@ mod group_set {
             let result = database.srem(KEY_WITH_STR, members_to_rmv).unwrap_err();
 
             assert_eq!(result, DataBaseError::NotASet);
+        }
+    }
+}
+
+#[cfg(test)]
+mod group_server {
+    use super::*;
+    const KEY1: &str = "key1";
+    const VALUE1: &str = "value1";
+    const KEY2: &str = "key2";
+    const VALUE2: &str = "value2";
+
+    mod flushdb_test {
+        use super::*;
+
+        #[test]
+        fn flushdb_clear_dictionary() {
+            let mut db = Database::new();
+            let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
+
+            let r = db.flushdb().unwrap();
+            assert_eq!(r, SuccessQuery::Success);
+            assert!(db.dictionary.is_empty());
+        }
+    }
+
+    mod dbsize_test {
+        use super::*;
+
+        #[test]
+        fn dbsize_empty_gets_0() {
+            let db = Database::new();
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(0));
+        }
+
+        #[test]
+        fn dbsize_with_one_element_gets_1() {
+            let mut db = Database::new();
+            let _ = db.set(KEY1, VALUE1);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(1));
+        }
+
+        #[test]
+        fn dbsize_with_two_element_gets_2() {
+            let mut db = Database::new();
+            let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
+            let r = db.get(KEY1).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+            let r = db.get(KEY2).unwrap();
+            assert_eq!(r, SuccessQuery::String(VALUE2.to_owned()));
+
+            let r = db.dbsize().unwrap();
+            assert_eq!(r, SuccessQuery::Integer(2));
         }
     }
 }

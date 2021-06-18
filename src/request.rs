@@ -1,4 +1,5 @@
 use crate::database::Database;
+use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -48,6 +49,10 @@ pub enum Command<'a> {
     Sadd(&'a str, &'a str),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
+    Flushdb(),
+    Dbsize(),
+    ConfigGet(&'a str),
+    ConfigSet(&'a str, &'a str),
     Smembers(&'a str),
     Srem(&'a str, Vec<&'a str>),
 }
@@ -124,6 +129,12 @@ impl<'a> Request<'a> {
             ["sadd", key, element] => Request::Valid(Command::Sadd(key, element)),
             ["sismember", key, element] => Request::Valid(Command::Sismember(key, element)),
             ["scard", key] => Request::Valid(Command::Scard(key)),
+            ["flushdb"] => Request::Valid(Command::Flushdb()),
+            ["dbsize"] => Request::Valid(Command::Dbsize()),
+            ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
+            ["config", "set", option, new_value] => {
+                Request::Valid(Command::ConfigSet(option, new_value))
+            }
             ["smembers", key] => Request::Valid(Command::Smembers(key)),
             ["srem", key, ..] => {
                 let tail = &request[1..];
@@ -137,10 +148,11 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &Arc<Mutex<Database>>) -> Reponse {
+    pub fn execute(self, db: &Arc<Mutex<Database>>, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
         match self {
             Request::Valid(command) => {
                 let mut db = db.lock().unwrap();
+                let mut config = conf.lock().unwrap();
 
                 let result = match command {
                     Command::Append(key, value) => db.append(&key, value),
@@ -172,6 +184,10 @@ impl<'a> Request<'a> {
                     Command::Sadd(set_key, value) => db.sadd(&set_key, value),
                     Command::Sismember(set_key, value) => db.sismember(&set_key, value),
                     Command::Scard(set_key) => db.scard(&set_key),
+                    Command::Flushdb() => db.flushdb(),
+                    Command::Dbsize() => db.dbsize(),
+                    Command::ConfigGet(pattern) => config.get_config(pattern),
+                    Command::ConfigSet(option, new_value) => config.set_config(option, new_value),
                     Command::Smembers(key) => db.smembers(&key),
                     Command::Srem(key, vec_str) => db.srem(&key, vec_str),
                 };
@@ -321,6 +337,16 @@ impl<'a> Display for Command<'a> {
                 key, element
             ),
             Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
+            Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
+            Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
+            Command::ConfigGet(pattern) => {
+                write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern)
+            }
+            Command::ConfigSet(option, new_value) => write!(
+                f,
+                "CommandServer::ConfigSet - Option: {} - NewValue: {}",
+                option, new_value
+            ),
             Command::Smembers(key) => write!(f, "CommandSet::Smembers - Key: {}", key),
             Command::Srem(key, vec_str) => {
                 let mut members_str = String::new();
