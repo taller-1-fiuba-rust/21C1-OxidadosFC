@@ -2,14 +2,13 @@ use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Request};
 use crate::server_conf::ServerConf;
-
 use std::net::TcpListener;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub struct Server {
-    database: Arc<Mutex<Database>>,
+    database: Database,
     listener: TcpListener,
     config: ServerConf,
 }
@@ -19,10 +18,17 @@ impl Server {
         let config = ServerConf::new(config_file)?;
         let addr = config.addr();
         let listener = TcpListener::bind(addr).expect("Could not bind");
+        let (ttl_sender, ttl_rec) = mpsc::channel();
+
+        let database = Database::new(ttl_sender);
+
+        let database_ttl = database.clone();
+
+        database_ttl.ttl_supervisor_run(ttl_rec);
+
         listener
             .set_nonblocking(true)
             .expect("Cannot set non-blocking");
-        let database = Arc::new(Mutex::new(Database::new()));
 
         Ok(Server {
             database,
@@ -44,15 +50,16 @@ impl Server {
 
         loop {
             if let Ok((stream, _)) = self.listener.accept() {
-                let database = self.database.clone();
+                let mut database = self.database.clone();
                 let config = config_shr.clone();
                 let log_sender = log_sender.clone();
                 let mut stream = stream;
 
                 thread::spawn(move || {
                     let log_sender = &log_sender;
-                    let database = &database;
+                    let database = &mut database;
                     let config = &config;
+
                     loop {
                         match request::parse_request(&mut stream) {
                             Ok(request) => {

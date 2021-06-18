@@ -1,12 +1,25 @@
 use core::fmt::{Display, Formatter, Result};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::mpsc::Sender;
+use std::time::SystemTime;
 
 #[derive(Clone)]
 pub enum StorageValue {
     String(String),
     List(Vec<String>),
     Set(HashSet<String>),
+}
+
+impl StorageValue {
+    pub fn get_type(&self) -> String {
+        match self {
+            StorageValue::String(_) => "String".to_owned(),
+            StorageValue::List(_) => "List".to_owned(),
+            StorageValue::Set(_) => "Set".to_owned(),
+        }
+    }
 }
 
 impl Display for StorageValue {
@@ -98,5 +111,50 @@ impl fmt::Display for DataBaseError {
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
             DataBaseError::NonExistentConfigOption => write!(f, "Non-existent config option"),
         }
+    }
+}
+
+pub enum MessageTTL {
+    Expire(KeyTTL),
+    Clear(String),
+    Transfer(String, String),
+    TTL(String, Sender<RespondTTL>),
+}
+
+pub enum RespondTTL {
+    TTL(SystemTime),
+    Persistent,
+}
+
+#[derive(Eq, Clone, Debug)]
+pub struct KeyTTL {
+    pub key: String,
+    pub expire_time: SystemTime,
+}
+
+impl KeyTTL {
+    pub fn new(key: &str, expire_time: SystemTime) -> KeyTTL {
+        KeyTTL {
+            key: key.to_string(),
+            expire_time,
+        }
+    }
+}
+
+impl PartialOrd for KeyTTL {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyTTL {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.expire_time.cmp(&other.expire_time)
+    }
+}
+
+impl PartialEq for KeyTTL {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
     }
 }

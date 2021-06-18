@@ -20,6 +20,11 @@ pub enum RequestError {
 }
 
 pub enum Command<'a> {
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
+    Persist(&'a str),
+    TTL(&'a str),
+    TYPE(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -67,6 +72,17 @@ impl<'a> Request<'a> {
         let request: Vec<&str> = request.split_whitespace().collect();
 
         match request[..] {
+            ["expire", key, seconds] => match seconds.parse::<i64>() {
+                Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
+                Err(_) => Request::Invalid(RequestError::ParseError),
+            },
+            ["expireat", key, seconds] => match seconds.parse::<i64>() {
+                Ok(seconds) => Request::Valid(Command::ExpireAt(key, seconds)),
+                Err(_) => Request::Invalid(RequestError::ParseError),
+            },
+            ["ttl", key] => Request::Valid(Command::TTL(key)),
+            ["type", key] => Request::Valid(Command::TYPE(key)),
+            ["persist", key] => Request::Valid(Command::Persist(key)),
             ["append", key, value] => Request::Valid(Command::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
                 Ok(incr) => Request::Valid(Command::Incrby(key, incr)),
@@ -148,13 +164,17 @@ impl<'a> Request<'a> {
         Request::Invalid(request_error)
     }
 
-    pub fn execute(self, db: &Arc<Mutex<Database>>, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
+    pub fn execute(self, db: &mut Database, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
         match self {
             Request::Valid(command) => {
-                let mut db = db.lock().unwrap();
                 let mut config = conf.lock().unwrap();
 
                 let result = match command {
+                    Command::ExpireAt(key, seconds) => db.expireat(&key, seconds),
+                    Command::Expire(key, seconds) => db.expire(&key, seconds),
+                    Command::Persist(key) => db.persist(&key),
+                    Command::TTL(key) => db.ttl(&key),
+                    Command::TYPE(key) => db.get_type(&key),
                     Command::Append(key, value) => db.append(&key, value),
                     Command::Incrby(key, incr) => db.incrby(&key, incr),
                     Command::Decrby(key, decr) => db.decrby(&key, decr),
@@ -240,11 +260,22 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, RequestError> {
 impl<'a> Display for Command<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Command::Append(key, value) => write!(
+            Command::Expire(key, seconds) => write!(
                 f,
-                "CommandString::Append - Key: {} - Value: {} ",
-                key, value
+                "CommandKeys::Expire - Key: {} - Seconds: {}",
+                key, seconds
             ),
+            Command::ExpireAt(key, seconds) => write!(
+                f,
+                "CommandKeys::ExpireAt - Key: {} - Seconds: {}",
+                key, seconds
+            ),
+            Command::Persist(key) => write!(f, "CommandKeys::Persist - Key: {}", key),
+            Command::TYPE(key) => write!(f, "CommandKeys::Type - Key: {}", key),
+            Command::TTL(key) => write!(f, "CommandKeys::TTL - Key: {}", key),
+            Command::Append(key, value) => {
+                write!(f, "CommandKeys::Append - Key: {} - Value: {} ", key, value)
+            }
             Command::Incrby(key, incr) => write!(
                 f,
                 "CommandString::Incrby - Key: {} - Increment: {}",
