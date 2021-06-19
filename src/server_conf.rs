@@ -131,7 +131,7 @@ impl ServerConf {
         if conf.contains_key(option) {
             if option == PORT {
                 let value = new_value.parse::<i64>().unwrap();
-                if  (MIN_PORT..=MAX_PORT).contains(&value) {
+                if (MIN_PORT..=MAX_PORT).contains(&value) {
                     conf.insert(option.to_string(), new_value.to_string());
                     Ok(SuccessServerRequest::Success)
                 } else {
