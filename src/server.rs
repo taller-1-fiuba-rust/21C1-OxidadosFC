@@ -3,7 +3,6 @@ use crate::logger::Logger;
 use crate::request::{self, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpListener;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -16,15 +15,8 @@ pub struct Server {
 impl Server {
     pub fn new(config_file: &str) -> Result<Server, String> {
         let config = ServerConf::new(config_file)?;
-        let addr = config.addr();
-        let listener = TcpListener::bind(addr).expect("Could not bind");
-        let (ttl_sender, ttl_rec) = mpsc::channel();
-
-        let database = Database::new(ttl_sender);
-
-        let database_ttl = database.clone();
-
-        database_ttl.ttl_supervisor_run(ttl_rec);
+        let listener = TcpListener::bind(config.addr()).expect("Could not bind");
+        let database = Database::new();
 
         listener
             .set_nonblocking(true)
@@ -38,13 +30,8 @@ impl Server {
     }
 
     pub fn run(mut self) {
-        let (log_sender, log_rec) = mpsc::channel();
-        let lf = self.config.logfile();
-        let mut logger = Logger::new(&lf, log_rec);
-
-        thread::spawn(move || {
-            logger.run();
-        });
+        let mut logger = Logger::new(&self.config.logfile());
+        let log_sender = logger.run();
 
         let config_shr = Arc::new(Mutex::new(self.config));
 
@@ -94,3 +81,5 @@ impl Server {
         }
     }
 }
+
+

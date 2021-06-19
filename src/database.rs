@@ -5,7 +5,7 @@ use crate::matcher::matcher;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Formatter};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{self, channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -47,11 +47,17 @@ fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
 }
 
 impl Database {
-    pub fn new(ttl_msg_sender: Sender<MessageTTL>) -> Database {
-        Database {
+    pub fn new() -> Database {
+        let (ttl_msg_sender, ttl_rec) = mpsc::channel();
+
+        let database = Database {
             dictionary: Arc::new(Mutex::new(HashMap::new())),
             ttl_msg_sender,
-        }
+        };
+
+        database.ttl_supervisor_run(ttl_rec);
+
+        database.clone()
     }
 
     pub fn new_from_db(ttl_msg_sender: Sender<MessageTTL>, dictionary: Dictionary) -> Database {
@@ -750,7 +756,6 @@ impl fmt::Display for Database {
 #[cfg(test)]
 mod ttl_commands {
     use super::*;
-    use std::sync::mpsc::{self, Receiver, Sender};
     use std::time::Duration;
 
     const KEY_A: &str = "KEY_A";
@@ -769,11 +774,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_a_key() {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
-
-        let db = Database::new(send.clone());
-
-        db.ttl_supervisor_run(recv);
+        let db = Database::new();
 
         db.append(KEY_A, VALUE_A).unwrap();
 
@@ -785,7 +786,9 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        send.send(MessageTTL::Expire(ttl_pair)).unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair))
+            .unwrap();
 
         thread::sleep(Duration::new(2, 0));
 
@@ -796,10 +799,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_two_key() {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
-        let db = Database::new(send.clone());
-
-        db.ttl_supervisor_run(recv);
+        let db = Database::new();
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -819,8 +819,12 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        send.send(MessageTTL::Expire(ttl_pair_a)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_b)).unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_a))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_b))
+            .unwrap();
 
         thread::sleep(Duration::new(2, 0));
 
@@ -839,10 +843,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys() {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
-        let db = Database::new(send.clone());
-
-        db.ttl_supervisor_run(recv);
+        let db = Database::new();
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -876,10 +877,18 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        send.send(MessageTTL::Expire(ttl_pair_a)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_b)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_c)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_d)).unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_a))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_b))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_c))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_d))
+            .unwrap();
 
         thread::sleep(Duration::from_secs(SEC * 2));
 
@@ -932,10 +941,7 @@ mod ttl_commands {
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys_one_of_the_key_is_inserted_with_a_lower_expire_time_the_actual_key(
     ) {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = mpsc::channel();
-        let db = Database::new(send.clone());
-
-        db.ttl_supervisor_run(recv);
+        let db = Database::new();
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -969,10 +975,18 @@ mod ttl_commands {
             assert_eq!(value, true);
         }
 
-        send.send(MessageTTL::Expire(ttl_pair_b)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_c)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_a)).unwrap();
-        send.send(MessageTTL::Expire(ttl_pair_d)).unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_b))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_c))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_a))
+            .unwrap();
+        db.ttl_msg_sender
+            .send(MessageTTL::Expire(ttl_pair_d))
+            .unwrap();
 
         thread::sleep(Duration::from_secs(SEC * 2));
 
@@ -1055,23 +1069,14 @@ mod group_string {
     const VALUE: &str = "VALUE";
 
     fn create_database_with_string() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-
-        database.set(KEY, VALUE).unwrap();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db.set(KEY, VALUE).unwrap();
+        db
     }
 
     fn create_database() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db
     }
 
     mod append_test {
@@ -1320,12 +1325,8 @@ mod group_keys {
     use super::*;
 
     fn create_database() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db
     }
 
     const KEY: &str = "KEY";
@@ -1613,12 +1614,8 @@ mod group_list {
     use super::*;
 
     fn create_database() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db
     }
 
     fn database_with_a_list() -> Database {
@@ -2047,12 +2044,8 @@ mod group_set {
     const OTHER_ELEMENT: &str = "OTHER_ELEMENT";
 
     fn create_database() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db
     }
 
     mod saad_test {
@@ -2276,12 +2269,8 @@ mod group_server {
     const VALUE2: &str = "value2";
 
     fn create_database() -> Database {
-        let (send, recv): (Sender<MessageTTL>, Receiver<MessageTTL>) = channel();
-        let db = Database::new(send.clone());
-        let database = db.clone();
-        db.ttl_supervisor_run(recv);
-
-        database
+        let db = Database::new();
+        db
     }
 
     mod flushdb_test {
