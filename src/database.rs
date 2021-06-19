@@ -57,7 +57,7 @@ impl Database {
 
         database.ttl_supervisor_run(ttl_rec);
 
-        database.clone()
+        database
     }
 
     pub fn new_from_db(ttl_msg_sender: Sender<MessageTtl>, dictionary: Dictionary) -> Database {
