@@ -18,8 +18,8 @@ const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.rdb";
 const DEFAULT_LOGFILE: &str = "lf.log";
 const NUMERIC_KEYS: [&str; 3] = [VERBOSE, PORT, TIMEOUT];
-const MIN_PORT: i64 =  1024;
-const MAX_PORT: i64 =  49151;
+const MIN_PORT: i64 = 1024;
+const MAX_PORT: i64 = 49151;
 
 pub struct ServerConf {
     conf: Arc<Mutex<HashMap<String, String>>>,
@@ -36,7 +36,7 @@ pub enum SuccessServerRequest {
 pub enum ServerError {
     NonExistentConfigOption,
     NotAnInteger,
-    InvalidPortValue
+    InvalidPortValue,
 }
 
 impl<'a> Clone for ServerConf {
@@ -202,7 +202,11 @@ impl fmt::Display for ServerError {
         match *self {
             ServerError::NonExistentConfigOption => write!(f, "Non-existent config option"),
             ServerError::NotAnInteger => write!(f, "Value isn't an Integer"),
-            ServerError::InvalidPortValue => write!(f, "Port mus be a value betwen {} and {}", MIN_PORT, MAX_PORT),
+            ServerError::InvalidPortValue => write!(
+                f,
+                "Port mus be a value betwen {} and {}",
+                MIN_PORT, MAX_PORT
+            ),
         }
     }
 }

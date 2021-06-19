@@ -7,7 +7,6 @@ use std::thread;
 
 pub struct Logger {
     file_path: String,
-    
 }
 
 impl Logger {
@@ -15,11 +14,11 @@ impl Logger {
         let file_path = file_path.to_string();
         Logger { file_path }
     }
-    
+
     pub fn run(&mut self) -> Sender<String> {
         let (log_sender, log_rec) = mpsc::channel();
         let path = self.file_path.clone();
-        
+
         thread::spawn(move || {
             let mut logger = open_logger(&path).unwrap();
 
@@ -28,7 +27,6 @@ impl Logger {
                     eprintln!("Couldn't write: {}", e);
                 }
             }
-
         });
 
         log_sender
@@ -83,10 +81,9 @@ mod logger_test {
     #[test]
     fn test_logger_recive_two_message() {
         let mut logger = Logger::new("log_testB.log");
-        
+
         let sen = logger.run();
-        
-    
+
         sen.send(MSGA.to_owned()).unwrap();
         sen.send(MSGB.to_owned()).unwrap();
 

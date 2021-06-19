@@ -1,5 +1,5 @@
 use crate::databasehelper::{
-    DataBaseError, KeyTTL, MessageTTL, RespondTTL, StorageValue, SuccessQuery,
+    DataBaseError, KeyTtl, MessageTtl, RespondTtl, StorageValue, SuccessQuery,
 };
 use crate::matcher::matcher;
 use std::cmp::Ordering;
@@ -11,11 +11,11 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 type Dictionary = Arc<Mutex<HashMap<String, StorageValue>>>;
-type TtlVector = Arc<Mutex<Vec<KeyTTL>>>;
+type TtlVector = Arc<Mutex<Vec<KeyTtl>>>;
 
 pub struct Database {
     dictionary: Dictionary,
-    ttl_msg_sender: Sender<MessageTTL>,
+    ttl_msg_sender: Sender<MessageTtl>,
 }
 
 impl<'a> Clone for Database {
@@ -60,14 +60,14 @@ impl Database {
         database.clone()
     }
 
-    pub fn new_from_db(ttl_msg_sender: Sender<MessageTTL>, dictionary: Dictionary) -> Database {
+    pub fn new_from_db(ttl_msg_sender: Sender<MessageTtl>, dictionary: Dictionary) -> Database {
         Database {
             dictionary,
             ttl_msg_sender,
         }
     }
 
-    pub fn ttl_supervisor_run(&self, reciver: Receiver<MessageTTL>) {
+    pub fn ttl_supervisor_run(&self, reciver: Receiver<MessageTtl>) {
         let dictionary = self.dictionary.clone();
 
         thread::spawn(move || {
@@ -75,7 +75,7 @@ impl Database {
 
             for message in reciver.iter() {
                 match message {
-                    MessageTTL::Expire(new_key_ttl) => {
+                    MessageTtl::Expire(new_key_ttl) => {
                         let keys = ttl_keys.clone();
                         let mut keys_locked = keys.lock().unwrap();
 
@@ -98,7 +98,7 @@ impl Database {
                             });
                         }
                     }
-                    MessageTTL::Clear(key) => {
+                    MessageTtl::Clear(key) => {
                         let keys = ttl_keys.clone();
                         let mut keys_locked = keys.lock().unwrap();
 
@@ -107,7 +107,7 @@ impl Database {
                         }
                     }
 
-                    MessageTTL::Transfer(from_key, to_key) => {
+                    MessageTtl::Transfer(from_key, to_key) => {
                         let keys = ttl_keys.clone();
                         let mut keys_locked = keys.lock().unwrap();
 
@@ -116,17 +116,17 @@ impl Database {
                             ttl.key = to_key;
                         }
                     }
-                    MessageTTL::TTL(key, sender_respond) => {
+                    MessageTtl::TTL(key, sender_respond) => {
                         let keys = ttl_keys.clone();
                         let keys_locked = keys.lock().unwrap();
 
                         if let Some(pos) = keys_locked.iter().position(|x| x.key == key) {
                             let ttl = keys_locked.get(pos).unwrap();
                             sender_respond
-                                .send(RespondTTL::TTL(ttl.expire_time))
+                                .send(RespondTtl::TTL(ttl.expire_time))
                                 .unwrap();
                         } else {
-                            sender_respond.send(RespondTTL::Persistent).unwrap();
+                            sender_respond.send(RespondTtl::Persistent).unwrap();
                         }
                     }
                 };
@@ -187,9 +187,9 @@ impl Database {
             } else {
                 let duration = Duration::new(seconds as u64, 0);
                 let expire_time = SystemTime::now().checked_add(duration).unwrap();
-                let key_ttl = KeyTTL::new(key, expire_time);
+                let key_ttl = KeyTtl::new(key, expire_time);
                 self.ttl_msg_sender
-                    .send(MessageTTL::Expire(key_ttl))
+                    .send(MessageTtl::Expire(key_ttl))
                     .unwrap();
             }
 
@@ -209,9 +209,9 @@ impl Database {
             if expire_time < SystemTime::now() {
                 dictionary.remove(key);
             } else {
-                let key_ttl = KeyTTL::new(key, expire_time);
+                let key_ttl = KeyTtl::new(key, expire_time);
                 self.ttl_msg_sender
-                    .send(MessageTTL::Expire(key_ttl))
+                    .send(MessageTtl::Expire(key_ttl))
                     .unwrap();
             }
             Ok(SuccessQuery::Boolean(true))
@@ -237,7 +237,7 @@ impl Database {
 
         if dictionary.contains_key(key) {
             self.ttl_msg_sender
-                .send(MessageTTL::Clear(key.to_owned()))
+                .send(MessageTtl::Clear(key.to_owned()))
                 .unwrap();
 
             Ok(SuccessQuery::Boolean(true))
@@ -254,7 +254,7 @@ impl Database {
                 dictionary.insert(new_key.to_owned(), value);
 
                 self.ttl_msg_sender
-                    .send(MessageTTL::Transfer(old_key.to_owned(), new_key.to_owned()))
+                    .send(MessageTtl::Transfer(old_key.to_owned(), new_key.to_owned()))
                     .unwrap();
 
                 Ok(SuccessQuery::Success)
@@ -274,15 +274,15 @@ impl Database {
 
         if dictionary.contains_key(key) {
             self.ttl_msg_sender
-                .send(MessageTTL::TTL(key.to_owned(), respond_sender))
+                .send(MessageTtl::TTL(key.to_owned(), respond_sender))
                 .unwrap();
 
             match respond_reciver.recv().unwrap() {
-                RespondTTL::TTL(time) => {
+                RespondTtl::TTL(time) => {
                     let duration = time.duration_since(SystemTime::now()).unwrap();
                     Ok(SuccessQuery::Integer(duration.as_secs() as i32))
                 }
-                RespondTTL::Persistent => Ok(SuccessQuery::Integer(-1)),
+                RespondTtl::Persistent => Ok(SuccessQuery::Integer(-1)),
             }
         } else {
             Ok(SuccessQuery::Integer(-2))
@@ -350,7 +350,7 @@ impl Database {
         let mut dictionary = self.dictionary.lock().unwrap();
 
         self.ttl_msg_sender
-            .send(MessageTTL::Clear(key.to_owned()))
+            .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
         match dictionary.remove(key) {
@@ -364,7 +364,7 @@ impl Database {
         let mut dictionary = self.dictionary.lock().unwrap();
 
         self.ttl_msg_sender
-            .send(MessageTTL::Clear(key.to_owned()))
+            .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
         let old_value = match dictionary.remove(key) {
@@ -404,7 +404,7 @@ impl Database {
             let value = params.get(i + 1).unwrap();
 
             self.ttl_msg_sender
-                .send(MessageTTL::Clear(key.to_string()))
+                .send(MessageTtl::Clear(key.to_string()))
                 .unwrap();
 
             dictionary.insert(key.to_string(), StorageValue::String(value.to_string()));
@@ -416,7 +416,7 @@ impl Database {
         let mut dictionary = self.dictionary.lock().unwrap();
 
         self.ttl_msg_sender
-            .send(MessageTTL::Clear(key.to_owned()))
+            .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
         dictionary.insert(key.to_owned(), StorageValue::String(val.to_owned()));
@@ -780,14 +780,14 @@ mod ttl_commands {
 
         let now = SystemTime::now();
         let expire_time_a = now.checked_add(Duration::new(1, 0)).unwrap();
-        let ttl_pair = KeyTTL::new(KEY_A, expire_time_a);
+        let ttl_pair = KeyTtl::new(KEY_A, expire_time_a);
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, true);
         }
 
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair))
+            .send(MessageTtl::Expire(ttl_pair))
             .unwrap();
 
         thread::sleep(Duration::new(2, 0));
@@ -808,8 +808,8 @@ mod ttl_commands {
         let expire_time_a = now.checked_add(Duration::new(1, 0)).unwrap();
         let expire_time_b = now.checked_add(Duration::new(5, 0)).unwrap();
 
-        let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
-        let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
+        let ttl_pair_a = KeyTtl::new(KEY_A, expire_time_a);
+        let ttl_pair_b = KeyTtl::new(KEY_B, expire_time_b);
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, true);
@@ -820,10 +820,10 @@ mod ttl_commands {
         }
 
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_a))
+            .send(MessageTtl::Expire(ttl_pair_a))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_b))
+            .send(MessageTtl::Expire(ttl_pair_b))
             .unwrap();
 
         thread::sleep(Duration::new(2, 0));
@@ -856,10 +856,10 @@ mod ttl_commands {
         let expire_time_c = now.checked_add(Duration::from_secs(SEC * 5)).unwrap();
         let expire_time_d = now.checked_add(Duration::from_secs(SEC * 10)).unwrap();
 
-        let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
-        let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
-        let ttl_pair_c = KeyTTL::new(KEY_C, expire_time_c);
-        let ttl_pair_d = KeyTTL::new(KEY_D, expire_time_d);
+        let ttl_pair_a = KeyTtl::new(KEY_A, expire_time_a);
+        let ttl_pair_b = KeyTtl::new(KEY_B, expire_time_b);
+        let ttl_pair_c = KeyTtl::new(KEY_C, expire_time_c);
+        let ttl_pair_d = KeyTtl::new(KEY_D, expire_time_d);
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, true);
@@ -878,16 +878,16 @@ mod ttl_commands {
         }
 
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_a))
+            .send(MessageTtl::Expire(ttl_pair_a))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_b))
+            .send(MessageTtl::Expire(ttl_pair_b))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_c))
+            .send(MessageTtl::Expire(ttl_pair_c))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_d))
+            .send(MessageTtl::Expire(ttl_pair_d))
             .unwrap();
 
         thread::sleep(Duration::from_secs(SEC * 2));
@@ -954,10 +954,10 @@ mod ttl_commands {
         let expire_time_c = now.checked_add(Duration::from_secs(SEC * 5)).unwrap();
         let expire_time_d = now.checked_add(Duration::from_secs(SEC * 10)).unwrap();
 
-        let ttl_pair_a = KeyTTL::new(KEY_A, expire_time_a);
-        let ttl_pair_b = KeyTTL::new(KEY_B, expire_time_b);
-        let ttl_pair_c = KeyTTL::new(KEY_C, expire_time_c);
-        let ttl_pair_d = KeyTTL::new(KEY_D, expire_time_d);
+        let ttl_pair_a = KeyTtl::new(KEY_A, expire_time_a);
+        let ttl_pair_b = KeyTtl::new(KEY_B, expire_time_b);
+        let ttl_pair_c = KeyTtl::new(KEY_C, expire_time_c);
+        let ttl_pair_d = KeyTtl::new(KEY_D, expire_time_d);
 
         if let SuccessQuery::Boolean(value) = db.exists(KEY_A).unwrap() {
             assert_eq!(value, true);
@@ -976,16 +976,16 @@ mod ttl_commands {
         }
 
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_b))
+            .send(MessageTtl::Expire(ttl_pair_b))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_c))
+            .send(MessageTtl::Expire(ttl_pair_c))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_a))
+            .send(MessageTtl::Expire(ttl_pair_a))
             .unwrap();
         db.ttl_msg_sender
-            .send(MessageTTL::Expire(ttl_pair_d))
+            .send(MessageTtl::Expire(ttl_pair_d))
             .unwrap();
 
         thread::sleep(Duration::from_secs(SEC * 2));

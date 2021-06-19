@@ -34,7 +34,6 @@ impl Server {
 
         loop {
             if let Ok((stream, _)) = self.listener.accept() {
-                
                 let mut database = self.database.clone();
                 let mut config = self.config.clone();
                 let log_sender = log_sender.clone();
@@ -63,19 +62,17 @@ impl Server {
             }
 
             if changed_port(&self.listener, &self.config) {
-                self.listener = on_changed_port( &self.config);
+                self.listener = on_changed_port(&self.config);
             }
         }
     }
 }
 
-
 fn changed_port(listener: &TcpListener, config: &ServerConf) -> bool {
     let addr = listener.local_addr().unwrap().to_string();
     let new_addr = config.addr();
-    addr != new_addr 
+    addr != new_addr
 }
-
 
 fn on_changed_port(config: &ServerConf) -> TcpListener {
     let new_addr = config.addr();
