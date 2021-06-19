@@ -96,7 +96,6 @@ pub enum DataBaseError {
     NotASet,
     NotAList,
     IndexOutOfRange,
-    NonExistentConfigOption,
 }
 
 impl fmt::Display for DataBaseError {
@@ -109,51 +108,50 @@ impl fmt::Display for DataBaseError {
             DataBaseError::NotASet => write!(f, "element of key isn't a Set"),
             DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
-            DataBaseError::NonExistentConfigOption => write!(f, "Non-existent config option"),
         }
     }
 }
 
-pub enum MessageTTL {
-    Expire(KeyTTL),
+pub enum MessageTtl {
+    Expire(KeyTtl),
     Clear(String),
     Transfer(String, String),
-    TTL(String, Sender<RespondTTL>),
+    TTL(String, Sender<RespondTtl>),
 }
 
-pub enum RespondTTL {
+pub enum RespondTtl {
     TTL(SystemTime),
     Persistent,
 }
 
 #[derive(Eq, Clone, Debug)]
-pub struct KeyTTL {
+pub struct KeyTtl {
     pub key: String,
     pub expire_time: SystemTime,
 }
 
-impl KeyTTL {
-    pub fn new(key: &str, expire_time: SystemTime) -> KeyTTL {
-        KeyTTL {
+impl KeyTtl {
+    pub fn new(key: &str, expire_time: SystemTime) -> KeyTtl {
+        KeyTtl {
             key: key.to_string(),
             expire_time,
         }
     }
 }
 
-impl PartialOrd for KeyTTL {
+impl PartialOrd for KeyTtl {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for KeyTTL {
+impl Ord for KeyTtl {
     fn cmp(&self, other: &Self) -> Ordering {
         self.expire_time.cmp(&other.expire_time)
     }
 }
 
-impl PartialEq for KeyTTL {
+impl PartialEq for KeyTtl {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
     }

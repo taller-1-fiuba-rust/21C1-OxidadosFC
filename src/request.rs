@@ -4,36 +4,41 @@ use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
 
 pub enum Request<'a> {
-    Valid(Command<'a>),
+    DataBase(Query<'a>),
+    Server(ServerRequest<'a>),
     Invalid(RequestError),
 }
 
 pub enum RequestError {
-    NoInputError,
-    NotUtf8CharError,
     ParseError,
-    InvalidCommand,
+    UnknownRequest,
     InvalidNumberOfArguments,
 }
 
-pub enum Command<'a> {
+pub enum ServerRequest<'a> {
+    ConfigGet(&'a str),
+    ConfigSet(&'a str, &'a str),
+}
+
+pub enum Query<'a> {
+    Flushdb(),
+    Dbsize(),
     Expire(&'a str, i64),
     ExpireAt(&'a str, i64),
     Persist(&'a str),
     TTL(&'a str),
     TYPE(&'a str),
-    Append(&'a str, &'a str),
-    Incrby(&'a str, i32),
-    Decrby(&'a str, i32),
     Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
     Exists(&'a str),
     Keys(&'a str),
     Rename(&'a str, &'a str),
+    Append(&'a str, &'a str),
+    Incrby(&'a str, i32),
+    Decrby(&'a str, i32),
     Getdel(&'a str),
     Getset(&'a str, &'a str),
     Set(&'a str, &'a str),
@@ -54,17 +59,8 @@ pub enum Command<'a> {
     Sadd(&'a str, &'a str),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
-    Flushdb(),
-    Dbsize(),
-    ConfigGet(&'a str),
-    ConfigSet(&'a str, &'a str),
     Smembers(&'a str),
     Srem(&'a str, Vec<&'a str>),
-}
-
-pub enum Reponse {
-    Valid(String),
-    Error(String),
 }
 
 impl<'a> Request<'a> {
@@ -73,152 +69,315 @@ impl<'a> Request<'a> {
 
         match request[..] {
             ["expire", key, seconds] => match seconds.parse::<i64>() {
-                Ok(seconds) => Request::Valid(Command::Expire(key, seconds)),
+                Ok(seconds) => Request::DataBase(Query::Expire(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["expireat", key, seconds] => match seconds.parse::<i64>() {
-                Ok(seconds) => Request::Valid(Command::ExpireAt(key, seconds)),
+                Ok(seconds) => Request::DataBase(Query::ExpireAt(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
-            ["ttl", key] => Request::Valid(Command::TTL(key)),
-            ["type", key] => Request::Valid(Command::TYPE(key)),
-            ["persist", key] => Request::Valid(Command::Persist(key)),
-            ["append", key, value] => Request::Valid(Command::Append(key, value)),
+            ["ttl", key] => Request::DataBase(Query::TTL(key)),
+            ["type", key] => Request::DataBase(Query::TYPE(key)),
+            ["persist", key] => Request::DataBase(Query::Persist(key)),
+            ["append", key, value] => Request::DataBase(Query::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
-                Ok(incr) => Request::Valid(Command::Incrby(key, incr)),
+                Ok(incr) => Request::DataBase(Query::Incrby(key, incr)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["decrby", key, decr] => match decr.parse::<i32>() {
-                Ok(decr) => Request::Valid(Command::Decrby(key, decr)),
+                Ok(decr) => Request::DataBase(Query::Decrby(key, decr)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
-            ["get", key] => Request::Valid(Command::Get(key)),
-            ["getdel", key] => Request::Valid(Command::Getdel(key)),
-            ["getset", key, value] => Request::Valid(Command::Getset(key, value)),
-            ["set", key, value] => Request::Valid(Command::Set(key, value)),
-            ["copy", key, to_key] => Request::Valid(Command::Copy(key, to_key)),
-            ["del", key] => Request::Valid(Command::Del(key)),
-            ["exists", key] => Request::Valid(Command::Exists(key)),
-            ["keys", pattern] => Request::Valid(Command::Keys(pattern)),
-            ["rename", old_key, new_key] => Request::Valid(Command::Rename(old_key, new_key)),
-            ["strlen", key] => Request::Valid(Command::Strlen(key)),
+            ["get", key] => Request::DataBase(Query::Get(key)),
+            ["getdel", key] => Request::DataBase(Query::Getdel(key)),
+            ["getset", key, value] => Request::DataBase(Query::Getset(key, value)),
+            ["set", key, value] => Request::DataBase(Query::Set(key, value)),
+            ["copy", key, to_key] => Request::DataBase(Query::Copy(key, to_key)),
+            ["del", key] => Request::DataBase(Query::Del(key)),
+            ["exists", key] => Request::DataBase(Query::Exists(key)),
+            ["keys", pattern] => Request::DataBase(Query::Keys(pattern)),
+            ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
+            ["strlen", key] => Request::DataBase(Query::Strlen(key)),
             ["mset", ..] => {
                 let tail = &request[1..];
                 let len = tail.len() as i32;
 
                 if len > 0 && (len % 2 == 0) {
-                    Request::Valid(Command::Mset(tail.to_vec()))
+                    Request::DataBase(Query::Mset(tail.to_vec()))
                 } else {
                     Request::Invalid(RequestError::InvalidNumberOfArguments)
                 }
             }
             ["mget", ..] => {
                 let tail = &request[1..];
-                Request::Valid(Command::Mget(tail.to_vec()))
+                Request::DataBase(Query::Mget(tail.to_vec()))
             }
             ["lindex", key, index] => match index.parse::<i32>() {
-                Ok(index) => Request::Valid(Command::Lindex(key, index)),
+                Ok(index) => Request::DataBase(Query::Lindex(key, index)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
-            ["llen", key] => Request::Valid(Command::Llen(key)),
-            ["lpop", key] => Request::Valid(Command::Lpop(key)),
-            ["lpush", key, value] => Request::Valid(Command::Lpush(key, value)),
-            ["lpushx", key, value] => Request::Valid(Command::Lpushx(key, value)),
+            ["llen", key] => Request::DataBase(Query::Llen(key)),
+            ["lpop", key] => Request::DataBase(Query::Lpop(key)),
+            ["lpush", key, value] => Request::DataBase(Query::Lpush(key, value)),
+            ["lpushx", key, value] => Request::DataBase(Query::Lpushx(key, value)),
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
-                    Ok(end) => Request::Valid(Command::Lrange(key, ini, end)),
+                    Ok(end) => Request::DataBase(Query::Lrange(key, ini, end)),
                     Err(_) => Request::Invalid(RequestError::ParseError),
                 },
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["lrem", key, count, value] => match count.parse::<i32>() {
-                Ok(count) => Request::Valid(Command::Lrem(key, count, value)),
+                Ok(count) => Request::DataBase(Query::Lrem(key, count, value)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["lset", key, index, value] => match index.parse::<usize>() {
-                Ok(index) => Request::Valid(Command::Lset(key, index, value)),
+                Ok(index) => Request::DataBase(Query::Lset(key, index, value)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
-            ["rpop", key] => Request::Valid(Command::Rpop(key)),
-            ["rpush", key, value] => Request::Valid(Command::Rpush(key, value)),
-            ["rpushx", key, value] => Request::Valid(Command::Rpushx(key, value)),
-            ["sadd", key, element] => Request::Valid(Command::Sadd(key, element)),
-            ["sismember", key, element] => Request::Valid(Command::Sismember(key, element)),
-            ["scard", key] => Request::Valid(Command::Scard(key)),
-            ["flushdb"] => Request::Valid(Command::Flushdb()),
-            ["dbsize"] => Request::Valid(Command::Dbsize()),
-            ["config", "get", pattern] => Request::Valid(Command::ConfigGet(pattern)),
+            ["rpop", key] => Request::DataBase(Query::Rpop(key)),
+            ["rpush", key, value] => Request::DataBase(Query::Rpush(key, value)),
+            ["rpushx", key, value] => Request::DataBase(Query::Rpushx(key, value)),
+            ["sadd", key, element] => Request::DataBase(Query::Sadd(key, element)),
+            ["sismember", key, element] => Request::DataBase(Query::Sismember(key, element)),
+            ["scard", key] => Request::DataBase(Query::Scard(key)),
+            ["flushdb"] => Request::DataBase(Query::Flushdb()),
+            ["dbsize"] => Request::DataBase(Query::Dbsize()),
+            ["config", "get", pattern] => Request::Server(ServerRequest::ConfigGet(pattern)),
             ["config", "set", option, new_value] => {
-                Request::Valid(Command::ConfigSet(option, new_value))
+                Request::Server(ServerRequest::ConfigSet(option, new_value))
             }
-            ["smembers", key] => Request::Valid(Command::Smembers(key)),
+            ["smembers", key] => Request::DataBase(Query::Smembers(key)),
             ["srem", key, ..] => {
                 let tail = &request[1..];
-                Request::Valid(Command::Srem(key, tail.to_vec()))
+                Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
-            _ => Request::Invalid(RequestError::InvalidCommand),
+            _ => Request::Invalid(RequestError::UnknownRequest),
         }
     }
+}
 
-    pub fn invalid_request(request_error: RequestError) -> Request<'a> {
-        Request::Invalid(request_error)
+pub fn parse_request(stream: &mut TcpStream) -> String {
+    let mut buf = [0; 512];
+
+    match stream.read(&mut buf) {
+        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
+            Ok(value) => value.trim().to_owned(),
+            Err(_) => "".to_string(),
+        },
+        Err(_) => "".to_string(),
     }
+}
 
-    pub fn execute(self, db: &mut Database, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
+impl<'a> Display for Query<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Request::Valid(command) => {
-                let mut config = conf.lock().unwrap();
-
-                let result = match command {
-                    Command::ExpireAt(key, seconds) => db.expireat(&key, seconds),
-                    Command::Expire(key, seconds) => db.expire(&key, seconds),
-                    Command::Persist(key) => db.persist(&key),
-                    Command::TTL(key) => db.ttl(&key),
-                    Command::TYPE(key) => db.get_type(&key),
-                    Command::Append(key, value) => db.append(&key, value),
-                    Command::Incrby(key, incr) => db.incrby(&key, incr),
-                    Command::Decrby(key, decr) => db.decrby(&key, decr),
-                    Command::Get(key) => db.get(&key),
-                    Command::Getdel(key) => db.getdel(&key),
-                    Command::Getset(key, value) => db.getset(&key, value),
-                    Command::Set(key, value) => db.set(&key, value),
-                    Command::Copy(key, to_key) => db.copy(&key, &to_key),
-                    Command::Del(key) => db.del(&key),
-                    Command::Exists(key) => db.exists(&key),
-                    Command::Keys(pattern) => db.keys(pattern),
-                    Command::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
-                    Command::Strlen(key) => db.strlen(&key),
-                    Command::Mset(vec_str) => db.mset(vec_str),
-                    Command::Mget(vec_str) => db.mget(vec_str),
-                    Command::Lindex(key, indx) => db.lindex(&key, indx),
-                    Command::Llen(key) => db.llen(&key),
-                    Command::Lpop(key) => db.lpop(&key),
-                    Command::Lpush(key, value) => db.lpush(&key, value),
-                    Command::Lpushx(key, value) => db.lpushx(&key, value),
-                    Command::Lrange(key, ini, end) => db.lrange(&key, ini, end),
-                    Command::Lrem(key, count, value) => db.lrem(&key, count, value),
-                    Command::Lset(key, index, value) => db.lset(&key, index, &value),
-                    Command::Rpop(key) => db.rpop(&key),
-                    Command::Rpush(key, value) => db.rpush(&key, value),
-                    Command::Rpushx(key, value) => db.rpushx(&key, value),
-                    Command::Sadd(set_key, value) => db.sadd(&set_key, value),
-                    Command::Sismember(set_key, value) => db.sismember(&set_key, value),
-                    Command::Scard(set_key) => db.scard(&set_key),
-                    Command::Flushdb() => db.flushdb(),
-                    Command::Dbsize() => db.dbsize(),
-                    Command::ConfigGet(pattern) => config.get_config(pattern),
-                    Command::ConfigSet(option, new_value) => config.set_config(option, new_value),
-                    Command::Smembers(key) => db.smembers(&key),
-                    Command::Srem(key, vec_str) => db.srem(&key, vec_str),
-                };
-
-                match result {
-                    Ok(value) => Reponse::Valid(value.to_string()),
-                    Err(db_error) => Reponse::Error(db_error.to_string()),
-                }
+            Query::Expire(key, seconds) => {
+                write!(f, "QueryKeys::Expire - Key: {} - Seconds: {}", key, seconds)
+            }
+            Query::ExpireAt(key, seconds) => write!(
+                f,
+                "QueryKeys::ExpireAt - Key: {} - Seconds: {}",
+                key, seconds
+            ),
+            Query::Persist(key) => write!(f, "QueryKeys::Persist - Key: {}", key),
+            Query::TYPE(key) => write!(f, "QueryKeys::Type - Key: {}", key),
+            Query::TTL(key) => write!(f, "QueryKeys::TTL - Key: {}", key),
+            Query::Append(key, value) => {
+                write!(f, "QueryKeys::Append - Key: {} - Value: {} ", key, value)
+            }
+            Query::Incrby(key, incr) => write!(
+                f,
+                "QueryString::Incrby - Key: {} - Increment: {}",
+                key, incr
+            ),
+            Query::Decrby(key, incr) => write!(
+                f,
+                "QueryString::Decrby - Key: {} - Increment: {}",
+                key, incr
+            ),
+            Query::Get(key) => write!(f, "QueryString::Get - Key: {}", key),
+            Query::Getdel(key) => write!(f, "QueryString::Getdel - Key: {}", key),
+            Query::Getset(key, value) => {
+                write!(f, "QueryString::Getset - Key: {} - Value: {}", key, value)
             }
 
-            Request::Invalid(error) => Reponse::Error(error.to_string()),
+            Query::Mget(params) => {
+                let mut parms_string = String::new();
+
+                for elem in params {
+                    parms_string.push_str(elem);
+                    parms_string.push(' ');
+                }
+
+                write!(f, "QueryString::Mget Keys: {}", parms_string)
+            }
+            Query::Mset(params) => {
+                let mut parms_string = String::new();
+
+                for elem in params {
+                    parms_string.push_str(elem);
+                    parms_string.push(' ');
+                }
+                write!(f, "QueryString::Mset pair: {}", parms_string)
+            }
+            Query::Strlen(key) => write!(f, "QueryString::Strlen - Key: {}", key),
+            Query::Set(key, value) => {
+                write!(f, "QueryString::Set - Key: {} - Value: {}", key, value)
+            }
+            Query::Copy(key, to_key) => {
+                write!(f, "QueryKeys::Copy - Key: {} - To_Key: {}", key, to_key)
+            }
+            Query::Del(key) => write!(f, "QueryKeys::Del - Key: {}", key),
+            Query::Exists(key) => write!(f, "QueryKeys::Exists - Key: {}", key),
+            Query::Keys(pattern) => write!(f, "QueryKeys::Keys - Pattern: {}", pattern),
+            Query::Rename(old_key, new_key) => write!(
+                f,
+                "QueryKeys::Rename - Old_Key {} - New_Key {}",
+                old_key, new_key
+            ),
+            Query::Lindex(key, indx) => {
+                write!(f, "QueryList::Lindex - Key: {} - Index: {}", key, indx)
+            }
+            Query::Llen(key) => write!(f, "QueryList::Llen - Key {}", key),
+            Query::Lpop(key) => write!(f, "QueryList::Lpop - Key {}", key),
+            Query::Lpush(key, value) => {
+                write!(f, "QueryList::Lpush - Key: {} - Value: {}", key, value)
+            }
+            Query::Lpushx(key, value) => {
+                write!(f, "QueryList::Lpushx - Key: {} - Value: {}", key, value)
+            }
+            Query::Lrange(key, beg, end) => write!(
+                f,
+                "QueryList::Lrange - Key: {} - Begining: {} - End {}",
+                key, beg, end
+            ),
+            Query::Lrem(key, rem, value) => write!(
+                f,
+                "QueryList::Lrem - Key: {} - Rem: {} - Value: {}",
+                key, rem, value
+            ),
+            Query::Lset(key, index, value) => write!(
+                f,
+                "QueryList::Lset - Key: {} - Index: {} - Value: {}",
+                key, index, value
+            ),
+            Query::Rpop(key) => write!(f, "QueryList::Rpop - Key: {}", key),
+            Query::Rpush(key, value) => {
+                write!(f, "QueryList::Rpush - Key: {} - Value: {} ", key, value)
+            }
+            Query::Rpushx(key, value) => {
+                write!(f, "QueryList::Rpushx - Key: {} - Value: {} ", key, value)
+            }
+            Query::Sadd(key, element) => {
+                write!(f, "QuerySet::Sadd - Key: {} - Element: {}", key, element)
+            }
+            Query::Sismember(key, element) => write!(
+                f,
+                "QuerySet::Sismember - Key: {} - Element: {}",
+                key, element
+            ),
+            Query::Scard(key) => write!(f, "QuerySet::Sismember - Key: {}", key),
+            Query::Flushdb() => write!(f, "QueryServer::Flushdb"),
+            Query::Dbsize() => write!(f, "QueryServer::Dbsize"),
+            Query::Smembers(key) => write!(f, "QuerySet::Smembers - Key: {}", key),
+            Query::Srem(key, vec_str) => {
+                let mut members_str = String::new();
+
+                for member in vec_str {
+                    members_str.push_str(member);
+                    members_str.push(' ');
+                }
+                write!(
+                    f,
+                    "QuerySet::Srem - Key: {} - members: {}",
+                    key, members_str
+                )
+            }
+        }
+    }
+}
+
+impl<'a> ServerRequest<'a> {
+    pub fn exec_request(self, conf: &mut ServerConf) -> Reponse {
+        let result = match self {
+            ServerRequest::ConfigGet(option) => conf.get_config(option),
+            ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
+        };
+
+        match result {
+            Ok(succes) => Reponse::Valid(succes.to_string()),
+            Err(err) => Reponse::Error(err.to_string()),
+        }
+    }
+}
+
+impl<'a> Query<'a> {
+    pub fn exec_query(self, db: &mut Database) -> Reponse {
+        let result = match self {
+            Query::ExpireAt(key, seconds) => db.expireat(&key, seconds),
+            Query::Expire(key, seconds) => db.expire(&key, seconds),
+            Query::Persist(key) => db.persist(&key),
+            Query::TTL(key) => db.ttl(&key),
+            Query::TYPE(key) => db.get_type(&key),
+            Query::Append(key, value) => db.append(&key, value),
+            Query::Incrby(key, incr) => db.incrby(&key, incr),
+            Query::Decrby(key, decr) => db.decrby(&key, decr),
+            Query::Get(key) => db.get(&key),
+            Query::Getdel(key) => db.getdel(&key),
+            Query::Getset(key, value) => db.getset(&key, value),
+            Query::Set(key, value) => db.set(&key, value),
+            Query::Copy(key, to_key) => db.copy(&key, &to_key),
+            Query::Del(key) => db.del(&key),
+            Query::Exists(key) => db.exists(&key),
+            Query::Keys(pattern) => db.keys(pattern),
+            Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
+            Query::Strlen(key) => db.strlen(&key),
+            Query::Mset(vec_str) => db.mset(vec_str),
+            Query::Mget(vec_str) => db.mget(vec_str),
+            Query::Lindex(key, indx) => db.lindex(&key, indx),
+            Query::Llen(key) => db.llen(&key),
+            Query::Lpop(key) => db.lpop(&key),
+            Query::Lpush(key, value) => db.lpush(&key, value),
+            Query::Lpushx(key, value) => db.lpushx(&key, value),
+            Query::Lrange(key, ini, end) => db.lrange(&key, ini, end),
+            Query::Lrem(key, count, value) => db.lrem(&key, count, value),
+            Query::Lset(key, index, value) => db.lset(&key, index, &value),
+            Query::Rpop(key) => db.rpop(&key),
+            Query::Rpush(key, value) => db.rpush(&key, value),
+            Query::Rpushx(key, value) => db.rpushx(&key, value),
+            Query::Sadd(set_key, value) => db.sadd(&set_key, value),
+            Query::Sismember(set_key, value) => db.sismember(&set_key, value),
+            Query::Scard(set_key) => db.scard(&set_key),
+            Query::Flushdb() => db.flushdb(),
+            Query::Dbsize() => db.dbsize(),
+            Query::Smembers(key) => db.smembers(&key),
+            Query::Srem(key, vec_str) => db.srem(&key, vec_str),
+        };
+
+        match result {
+            Ok(succes) => Reponse::Valid(succes.to_string()),
+            Err(err) => Reponse::Error(err.to_string()),
+        }
+    }
+}
+
+pub enum Reponse {
+    Valid(String),
+    Error(String),
+}
+
+impl<'a> Display for ServerRequest<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ServerRequest::ConfigGet(pattern) => {
+                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+            }
+            ServerRequest::ConfigSet(option, new_value) => write!(
+                f,
+                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                option, new_value
+            ),
         }
     }
 }
@@ -244,162 +403,11 @@ impl Reponse {
     }
 }
 
-pub fn parse_request(stream: &mut TcpStream) -> Result<String, RequestError> {
-    let mut buf = [0; 512];
-
-    match stream.read(&mut buf) {
-        Ok(bytes_read) if bytes_read == 0 => Err(RequestError::NoInputError),
-        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) => Ok(value.trim().to_owned()),
-            Err(_) => Err(RequestError::NotUtf8CharError),
-        },
-        Err(_) => Err(RequestError::InvalidCommand),
-    }
-}
-
-impl<'a> Display for Command<'a> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Command::Expire(key, seconds) => write!(
-                f,
-                "CommandKeys::Expire - Key: {} - Seconds: {}",
-                key, seconds
-            ),
-            Command::ExpireAt(key, seconds) => write!(
-                f,
-                "CommandKeys::ExpireAt - Key: {} - Seconds: {}",
-                key, seconds
-            ),
-            Command::Persist(key) => write!(f, "CommandKeys::Persist - Key: {}", key),
-            Command::TYPE(key) => write!(f, "CommandKeys::Type - Key: {}", key),
-            Command::TTL(key) => write!(f, "CommandKeys::TTL - Key: {}", key),
-            Command::Append(key, value) => {
-                write!(f, "CommandKeys::Append - Key: {} - Value: {} ", key, value)
-            }
-            Command::Incrby(key, incr) => write!(
-                f,
-                "CommandString::Incrby - Key: {} - Increment: {}",
-                key, incr
-            ),
-            Command::Decrby(key, incr) => write!(
-                f,
-                "CommandString::Decrby - Key: {} - Increment: {}",
-                key, incr
-            ),
-            Command::Get(key) => write!(f, "CommandString::Get - Key: {}", key),
-            Command::Getdel(key) => write!(f, "CommandString::Getdel - Key: {}", key),
-            Command::Getset(key, value) => {
-                write!(f, "CommandString::Getset - Key: {} - Value: {}", key, value)
-            }
-
-            Command::Mget(params) => {
-                let mut parms_string = String::new();
-
-                for elem in params {
-                    parms_string.push_str(elem);
-                    parms_string.push(' ');
-                }
-
-                write!(f, "CommandString::Mget Keys: {}", parms_string)
-            }
-            Command::Mset(params) => {
-                let mut parms_string = String::new();
-
-                for elem in params {
-                    parms_string.push_str(elem);
-                    parms_string.push(' ');
-                }
-                write!(f, "CommandString::Mset pair: {}", parms_string)
-            }
-            Command::Strlen(key) => write!(f, "CommandString::Strlen - Key: {}", key),
-            Command::Set(key, value) => {
-                write!(f, "CommandString::Set - Key: {} - Value: {}", key, value)
-            }
-            Command::Copy(key, to_key) => {
-                write!(f, "CommandKeys::Copy - Key: {} - To_Key: {}", key, to_key)
-            }
-            Command::Del(key) => write!(f, "CommandKeys::Del - Key: {}", key),
-            Command::Exists(key) => write!(f, "CommandKeys::Exists - Key: {}", key),
-            Command::Keys(pattern) => write!(f, "CommandKeys::Keys - Pattern: {}", pattern),
-            Command::Rename(old_key, new_key) => write!(
-                f,
-                "CommandKeys::Rename - Old_Key {} - New_Key {}",
-                old_key, new_key
-            ),
-            Command::Lindex(key, indx) => {
-                write!(f, "CommandList::Lindex - Key: {} - Index: {}", key, indx)
-            }
-            Command::Llen(key) => write!(f, "CommandList::Llen - Key {}", key),
-            Command::Lpop(key) => write!(f, "CommandList::Lpop - Key {}", key),
-            Command::Lpush(key, value) => {
-                write!(f, "CommandList::Lpush - Key: {} - Value: {}", key, value)
-            }
-            Command::Lpushx(key, value) => {
-                write!(f, "CommandList::Lpushx - Key: {} - Value: {}", key, value)
-            }
-            Command::Lrange(key, beg, end) => write!(
-                f,
-                "CommandList::Lrange - Key: {} - Begining: {} - End {}",
-                key, beg, end
-            ),
-            Command::Lrem(key, rem, value) => write!(
-                f,
-                "CommandList::Lrem - Key: {} - Rem: {} - Value: {}",
-                key, rem, value
-            ),
-            Command::Lset(key, index, value) => write!(
-                f,
-                "CommandList::Lset - Key: {} - Index: {} - Value: {}",
-                key, index, value
-            ),
-            Command::Rpop(key) => write!(f, "CommandList::Rpop - Key: {}", key),
-            Command::Rpush(key, value) => {
-                write!(f, "CommandList::Rpush - Key: {} - Value: {} ", key, value)
-            }
-            Command::Rpushx(key, value) => {
-                write!(f, "CommandList::Rpushx - Key: {} - Value: {} ", key, value)
-            }
-            Command::Sadd(key, element) => {
-                write!(f, "CommandSet::Sadd - Key: {} - Element: {}", key, element)
-            }
-            Command::Sismember(key, element) => write!(
-                f,
-                "CommandSet::Sismember - Key: {} - Element: {}",
-                key, element
-            ),
-            Command::Scard(key) => write!(f, "CommandSet::Sismember - Key: {}", key),
-            Command::Flushdb() => write!(f, "CommandServer::Flushdb"),
-            Command::Dbsize() => write!(f, "CommandServer::Dbsize"),
-            Command::ConfigGet(pattern) => {
-                write!(f, "CommandServer::ConfigGet - Pattern: {}", pattern)
-            }
-            Command::ConfigSet(option, new_value) => write!(
-                f,
-                "CommandServer::ConfigSet - Option: {} - NewValue: {}",
-                option, new_value
-            ),
-            Command::Smembers(key) => write!(f, "CommandSet::Smembers - Key: {}", key),
-            Command::Srem(key, vec_str) => {
-                let mut members_str = String::new();
-
-                for member in vec_str {
-                    members_str.push_str(member);
-                    members_str.push(' ');
-                }
-                write!(
-                    f,
-                    "CommandSet::Srem - Key: {} - members: {}",
-                    key, members_str
-                )
-            }
-        }
-    }
-}
-
 impl<'a> Display for Request<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Request::Valid(command) => writeln!(f, "Request: {}", command),
+            Request::DataBase(query) => writeln!(f, "Request: {}", query),
+            Request::Server(server_request) => writeln!(f, "Request: {}", server_request),
             Request::Invalid(error) => writeln!(f, "Request: Error: {}", error),
         }
     }
@@ -417,11 +425,9 @@ impl<'a> Display for Reponse {
 impl<'a> Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            RequestError::NoInputError => write!(f, "Empty request"),
-            RequestError::NotUtf8CharError => write!(f, "Not utf8 string"),
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
-            RequestError::InvalidCommand => write!(f, "Invalid Command"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
+            RequestError::UnknownRequest => write!(f, "Unknown Request"),
         }
     }
 }

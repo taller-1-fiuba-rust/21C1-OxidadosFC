@@ -1,27 +1,35 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::thread;
 
 pub struct Logger {
     file_path: String,
-    reciver: Receiver<String>,
 }
 
 impl Logger {
-    pub fn new(file_path: &str, reciver: Receiver<String>) -> Logger {
+    pub fn new(file_path: &str) -> Logger {
         let file_path = file_path.to_string();
-        Logger { file_path, reciver }
+        Logger { file_path }
     }
 
-    pub fn run(&mut self) {
-        let mut logger = open_logger(&self.file_path).unwrap();
+    pub fn run(&mut self) -> Sender<String> {
+        let (log_sender, log_rec) = mpsc::channel();
+        let path = self.file_path.clone();
 
-        for recived in self.reciver.iter() {
-            if let Err(e) = writeln!(logger, "{}", &recived) {
-                eprintln!("Couldn't write: {}", e);
+        thread::spawn(move || {
+            let mut logger = open_logger(&path).unwrap();
+
+            for recived in log_rec.iter() {
+                if let Err(e) = writeln!(logger, "{}", &recived) {
+                    eprintln!("Couldn't write: {}", e);
+                }
             }
-        }
+        });
+
+        log_sender
     }
 }
 
@@ -41,8 +49,8 @@ fn open_logger(path: &str) -> Result<File, String> {
 mod logger_test {
     use super::*;
     use std::fs;
+
     use std::io::Read;
-    use std::sync::mpsc;
     use std::{thread, time};
 
     const MSGA: &str = "MessageA";
@@ -50,12 +58,8 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message() {
-        let (sen, rec) = mpsc::channel();
-        let mut logger = Logger::new("log_testA.log", rec);
-
-        thread::spawn(move || {
-            logger.run();
-        });
+        let mut logger = Logger::new("log_testA.log");
+        let sen = logger.run();
 
         sen.send("Message".to_owned()).unwrap();
 
@@ -76,11 +80,9 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_two_message() {
-        let (sen, rec) = mpsc::channel();
-        let mut logger = Logger::new("log_testB.log", rec);
-        thread::spawn(move || {
-            logger.run();
-        });
+        let mut logger = Logger::new("log_testB.log");
+
+        let sen = logger.run();
 
         sen.send(MSGA.to_owned()).unwrap();
         sen.send(MSGB.to_owned()).unwrap();
@@ -105,8 +107,8 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message_from_two_senders() {
-        let (sen, rec) = mpsc::channel();
-        let mut logger = Logger::new("log_testC.log", rec);
+        let mut logger = Logger::new("log_testC.log");
+        let sen = logger.run();
 
         let sen1 = sen.clone();
         let sen2 = sen.clone();

@@ -1,10 +1,8 @@
 use crate::database::Database;
 use crate::logger::Logger;
-use crate::request::{self, Request};
+use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpListener;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub struct Server {
@@ -16,15 +14,8 @@ pub struct Server {
 impl Server {
     pub fn new(config_file: &str) -> Result<Server, String> {
         let config = ServerConf::new(config_file)?;
-        let addr = config.addr();
-        let listener = TcpListener::bind(addr).expect("Could not bind");
-        let (ttl_sender, ttl_rec) = mpsc::channel();
-
-        let database = Database::new(ttl_sender);
-
-        let database_ttl = database.clone();
-
-        database_ttl.ttl_supervisor_run(ttl_rec);
+        let listener = TcpListener::bind(config.addr()).expect("Could not bind");
+        let database = Database::new();
 
         listener
             .set_nonblocking(true)
@@ -38,59 +29,57 @@ impl Server {
     }
 
     pub fn run(mut self) {
-        let (log_sender, log_rec) = mpsc::channel();
-        let lf = self.config.logfile();
-        let mut logger = Logger::new(&lf, log_rec);
-
-        thread::spawn(move || {
-            logger.run();
-        });
-
-        let config_shr = Arc::new(Mutex::new(self.config));
+        let mut logger = Logger::new(&self.config.logfile());
+        let log_sender = logger.run();
 
         loop {
             if let Ok((stream, _)) = self.listener.accept() {
                 let mut database = self.database.clone();
-                let config = config_shr.clone();
+                let mut config = self.config.clone();
                 let log_sender = log_sender.clone();
                 let mut stream = stream;
 
                 thread::spawn(move || {
                     let log_sender = &log_sender;
                     let database = &mut database;
-                    let config = &config;
+                    let config = &mut config;
 
                     loop {
-                        match request::parse_request(&mut stream) {
-                            Ok(request) => {
-                                let request = Request::new(&request);
-                                log_sender.send(request.to_string()).unwrap();
-                                let reponse = request.execute(database, config);
-                                log_sender.send(reponse.to_string()).unwrap();
-                                reponse.respond(&mut stream, log_sender);
-                            }
-                            Err(err) => {
-                                let request = Request::invalid_request(err);
-                                log_sender.send(request.to_string()).unwrap();
-                                let reponse = request.execute(database, config);
-                                log_sender.send(reponse.to_string()).unwrap();
-                                reponse.respond(&mut stream, log_sender);
-                            }
-                        }
+                        let request = request::parse_request(&mut stream);
+                        let request = Request::new(&request);
+
+                        log_sender.send(request.to_string()).unwrap();
+
+                        let respond = match request {
+                            Request::DataBase(query) => query.exec_query(database),
+                            Request::Server(request) => request.exec_request(config),
+                            Request::Invalid(err) => Reponse::Error(err.to_string()),
+                        };
+
+                        respond.respond(&mut stream, &log_sender);
                     }
                 });
             }
 
-            let addr = self.listener.local_addr().unwrap().to_string();
-            let config = config_shr.clone();
-            let config = config.lock().unwrap();
-            let new_addr = config.addr();
-            if addr != new_addr {
-                self.listener = TcpListener::bind(new_addr).expect("Could not bind");
-                self.listener
-                    .set_nonblocking(true)
-                    .expect("Cannot set non-blocking");
+            if changed_port(&self.listener, &self.config) {
+                self.listener = on_changed_port(&self.config);
             }
         }
     }
+}
+
+fn changed_port(listener: &TcpListener, config: &ServerConf) -> bool {
+    let addr = listener.local_addr().unwrap().to_string();
+    let new_addr = config.addr();
+    addr != new_addr
+}
+
+fn on_changed_port(config: &ServerConf) -> TcpListener {
+    let new_addr = config.addr();
+    let listener = TcpListener::bind(new_addr).expect("Could not bind");
+    listener
+        .set_nonblocking(true)
+        .expect("Cannot set non-blocking");
+
+    listener
 }
