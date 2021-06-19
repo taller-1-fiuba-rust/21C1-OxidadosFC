@@ -51,6 +51,7 @@ fn open_logger(path: &str) -> Result<File, String> {
 mod logger_test {
     use super::*;
     use std::fs;
+
     use std::io::Read;
     use std::{thread, time};
 

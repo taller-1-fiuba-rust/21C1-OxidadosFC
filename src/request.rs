@@ -4,11 +4,10 @@ use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
-    Server(Ser),
+    Server(ServerRequest<'a>),
     Invalid(RequestError),
 }
 
@@ -18,21 +17,28 @@ pub enum RequestError {
     InvalidNumberOfArguments,
 }
 
+pub enum ServerRequest<'a> {
+    ConfigGet(&'a str),
+    ConfigSet(&'a str, &'a str),
+}
+
 pub enum Query<'a> {
+    Flushdb(),
+    Dbsize(),
     Expire(&'a str, i64),
     ExpireAt(&'a str, i64),
     Persist(&'a str),
     TTL(&'a str),
     TYPE(&'a str),
-    Append(&'a str, &'a str),
-    Incrby(&'a str, i32),
-    Decrby(&'a str, i32),
     Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
     Exists(&'a str),
     Keys(&'a str),
     Rename(&'a str, &'a str),
+    Append(&'a str, &'a str),
+    Incrby(&'a str, i32),
+    Decrby(&'a str, i32),
     Getdel(&'a str),
     Getset(&'a str, &'a str),
     Set(&'a str, &'a str),
@@ -53,17 +59,8 @@ pub enum Query<'a> {
     Sadd(&'a str, &'a str),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
-    Flushdb(),
-    Dbsize(),
-    ConfigGet(&'a str),
-    ConfigSet(&'a str, &'a str),
     Smembers(&'a str),
     Srem(&'a str, Vec<&'a str>),
-}
-
-pub enum Reponse {
-    Valid(String),
-    Error(String),
 }
 
 impl<'a> Request<'a> {
@@ -146,9 +143,9 @@ impl<'a> Request<'a> {
             ["scard", key] => Request::DataBase(Query::Scard(key)),
             ["flushdb"] => Request::DataBase(Query::Flushdb()),
             ["dbsize"] => Request::DataBase(Query::Dbsize()),
-            ["config", "get", pattern] => Request::Server(Query::ConfigGet(pattern)),
+            ["config", "get", pattern] => Request::Server(ServerRequest::ConfigGet(pattern)),
             ["config", "set", option, new_value] => {
-                Request::Server(Query::ConfigSet(option, new_value))
+                Request::Server(ServerRequest::ConfigSet(option, new_value))
             }
             ["smembers", key] => Request::DataBase(Query::Smembers(key)),
             ["srem", key, ..] => {
@@ -157,27 +154,6 @@ impl<'a> Request<'a> {
             }
             _ => Request::Invalid(RequestError::UnknownRequest),
         }
-    }
-}
-
-impl Reponse {
-    pub fn respond(self, stream: &mut TcpStream, log_sender: &Sender<String>) {
-        match self {
-            Reponse::Valid(message) => {
-                if writeln!(stream, "{}\n", message).is_err() {
-                    log_sender
-                        .send("response could not be sent".to_string())
-                        .unwrap();
-                }
-            }
-            Reponse::Error(message) => {
-                if writeln!(stream, "Error: {}\n", message).is_err() {
-                    log_sender
-                        .send("response could not be sent".to_string())
-                        .unwrap();
-                }
-            }
-        };
     }
 }
 
@@ -304,14 +280,6 @@ impl<'a> Display for Query<'a> {
             Query::Scard(key) => write!(f, "QuerySet::Sismember - Key: {}", key),
             Query::Flushdb() => write!(f, "QueryServer::Flushdb"),
             Query::Dbsize() => write!(f, "QueryServer::Dbsize"),
-            Query::ConfigGet(pattern) => {
-                write!(f, "QueryServer::ConfigGet - Pattern: {}", pattern)
-            }
-            Query::ConfigSet(option, new_value) => write!(
-                f,
-                "QueryServer::ConfigSet - Option: {} - NewValue: {}",
-                option, new_value
-            ),
             Query::Smembers(key) => write!(f, "QuerySet::Smembers - Key: {}", key),
             Query::Srem(key, vec_str) => {
                 let mut members_str = String::new();
@@ -330,8 +298,22 @@ impl<'a> Display for Query<'a> {
     }
 }
 
+impl<'a> ServerRequest<'a> {
+    pub fn exec_request(self, conf: &mut ServerConf) -> Reponse {
+        let result = match self {
+            ServerRequest::ConfigGet(option) => conf.get_config(option),
+            ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
+        };
+
+        match result {
+            Ok(succes) => Reponse::Valid(succes.to_string()),
+            Err(err) => Reponse::Error(err.to_string()),
+        }
+    }
+}
+
 impl<'a> Query<'a> {
-    pub fn exec_query(self, db: &mut Database, conf: &Arc<Mutex<ServerConf>>) -> Reponse {
+    pub fn exec_query(self, db: &mut Database) -> Reponse {
         let result = match self {
             Query::ExpireAt(key, seconds) => db.expireat(&key, seconds),
             Query::Expire(key, seconds) => db.expire(&key, seconds),
@@ -372,13 +354,60 @@ impl<'a> Query<'a> {
             Query::Smembers(key) => db.smembers(&key),
             Query::Srem(key, vec_str) => db.srem(&key, vec_str),
         };
+
+        match result {
+            Ok(succes) => Reponse::Valid(succes.to_string()),
+            Err(err) => Reponse::Error(err.to_string()),
+        }
+    }
+}
+
+pub enum Reponse {
+    Valid(String),
+    Error(String),
+}
+
+impl<'a> Display for ServerRequest<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ServerRequest::ConfigGet(pattern) => {
+                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+            }
+            ServerRequest::ConfigSet(option, new_value) => write!(
+                f,
+                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                option, new_value
+            ),
+        }
+    }
+}
+
+impl Reponse {
+    pub fn respond(self, stream: &mut TcpStream, log_sender: &Sender<String>) {
+        match self {
+            Reponse::Valid(message) => {
+                if writeln!(stream, "{}\n", message).is_err() {
+                    log_sender
+                        .send("response could not be sent".to_string())
+                        .unwrap();
+                }
+            }
+            Reponse::Error(message) => {
+                if writeln!(stream, "Error: {}\n", message).is_err() {
+                    log_sender
+                        .send("response could not be sent".to_string())
+                        .unwrap();
+                }
+            }
+        };
     }
 }
 
 impl<'a> Display for Request<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Request::Valid(Query) => writeln!(f, "Request: {}", Query),
+            Request::DataBase(query) => writeln!(f, "Request: {}", query),
+            Request::Server(server_request) => writeln!(f, "Request: {}", server_request),
             Request::Invalid(error) => writeln!(f, "Request: Error: {}", error),
         }
     }
@@ -396,11 +425,9 @@ impl<'a> Display for Reponse {
 impl<'a> Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            RequestError::NoInputError => write!(f, "Empty request"),
-            RequestError::NotUtf8CharError => write!(f, "Not utf8 string"),
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
-            RequestError::InvalidQuery => write!(f, "Invalid Query"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
+            RequestError::UnknownRequest => write!(f, "Unknown Request"),
         }
     }
 }
