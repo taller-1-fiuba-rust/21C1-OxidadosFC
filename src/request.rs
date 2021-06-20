@@ -1,13 +1,16 @@
 use crate::database::Database;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
+    Suscriber(SuscriberRequest),
     Invalid(RequestError),
 }
 
@@ -20,6 +23,39 @@ pub enum RequestError {
 pub enum ServerRequest<'a> {
     ConfigGet(&'a str),
     ConfigSet(&'a str, &'a str),
+}
+
+pub enum SuscriberRequest {
+    Monitor,
+}
+
+impl SuscriberRequest {
+    pub fn execute(
+        self,
+        stream: &mut TcpStream,
+        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
+    ) -> Reponse {
+        match self {
+            Self::Monitor => {
+                let (s, r) = channel();
+
+                let mut guard = chanels.lock().unwrap();
+
+                let list = guard.get_mut("Monitor").unwrap();
+
+                list.push(s);
+
+                drop(guard);
+
+                for msg in r.iter() {
+                    let respons = Reponse::Valid(msg);
+                    respons.respond(stream);
+                }
+
+                Reponse::Valid("Ok".to_string())
+            }
+        }
+    }
 }
 
 pub enum Query<'a> {
@@ -152,6 +188,7 @@ impl<'a> Request<'a> {
                 let tail = &request[1..];
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
+            ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
             _ => Request::Invalid(RequestError::UnknownRequest),
         }
     }
@@ -383,20 +420,16 @@ impl<'a> Display for ServerRequest<'a> {
 }
 
 impl Reponse {
-    pub fn respond(self, stream: &mut TcpStream, log_sender: &Sender<String>) {
+    pub fn respond(self, stream: &mut TcpStream) {
         match self {
             Reponse::Valid(message) => {
                 if writeln!(stream, "{}\n", message).is_err() {
-                    log_sender
-                        .send("response could not be sent".to_string())
-                        .unwrap();
+                    println!("Error");
                 }
             }
             Reponse::Error(message) => {
                 if writeln!(stream, "Error: {}\n", message).is_err() {
-                    log_sender
-                        .send("response could not be sent".to_string())
-                        .unwrap();
+                    println!("Error");
                 }
             }
         };
@@ -409,6 +442,7 @@ impl<'a> Display for Request<'a> {
             Request::DataBase(query) => writeln!(f, "Request: {}", query),
             Request::Server(server_request) => writeln!(f, "Request: {}", server_request),
             Request::Invalid(error) => writeln!(f, "Request: Error: {}", error),
+            Request::Suscriber(sus_request) => writeln!(f, "Request: {}", sus_request),
         }
     }
 }
@@ -418,6 +452,14 @@ impl<'a> Display for Reponse {
         match self {
             Reponse::Valid(message) => writeln!(f, "Reponse: {}", message),
             Reponse::Error(error) => writeln!(f, "Reponse: Error: {}", error),
+        }
+    }
+}
+
+impl Display for SuscriberRequest {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            SuscriberRequest::Monitor => writeln!(f, "Reponse: Monitor"),
         }
     }
 }
