@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
-    Suscriber(SuscriberRequest),
+    Suscriber(SuscriberRequest<'a>),
     Invalid(RequestError),
 }
 
@@ -25,11 +25,13 @@ pub enum ServerRequest<'a> {
     ConfigSet(&'a str, &'a str),
 }
 
-pub enum SuscriberRequest {
+pub enum SuscriberRequest<'a> {
     Monitor,
+    Subscribe(Vec<&'a str>),
+    Publish(&'a str, &'a str)
 }
 
-impl SuscriberRequest {
+impl<'a> SuscriberRequest<'a> {
     pub fn execute(
         self,
         stream: &mut TcpStream,
@@ -42,17 +44,52 @@ impl SuscriberRequest {
                 let mut guard = chanels.lock().unwrap();
 
                 let list = guard.get_mut("Monitor").unwrap();
-
                 list.push(s);
 
                 drop(guard);
 
                 for msg in r.iter() {
-                    let respons = Reponse::Valid(msg);
-                    respons.respond(stream);
+                    writeln!(stream, "{}", msg).unwrap();
                 }
 
                 Reponse::Valid("Ok".to_string())
+            },
+            Self::Subscribe(channels) => {
+                let (s, r) = channel();
+
+                let mut guard = chanels.lock().unwrap();
+                
+                for chanel in channels {
+                    let list = match guard.get_mut(chanel) {
+                        Some(l) => l,
+                        None => {
+                            guard.insert(chanel.to_string(), Vec::new());
+                            guard.get_mut(chanel).unwrap()
+                        },
+                    };
+
+                    list.push(s.clone());
+                }
+
+                drop(guard);
+
+                for msg in r.iter() {
+                    writeln!(stream, "{}", msg).unwrap();
+                }
+
+                Reponse::Valid("Ok".to_string())
+            },
+            Self::Publish(chanel, msg) => {
+                let mut guard = chanels.lock().unwrap();
+                if !guard.contains_key(chanel) {
+                    return Reponse::Valid("0".to_string());
+                }
+                let list = guard.get_mut(chanel).unwrap();
+                for s in list {
+                    s.send(msg.to_string()).unwrap();
+                }
+
+                Reponse::Valid("1".to_string())
             }
         }
     }
@@ -189,6 +226,11 @@ impl<'a> Request<'a> {
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
             ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
+            ["subscribe", ..] => {
+                let tail = &request[1..];
+                Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
+            }
+            ["publish", chanel, msg] => Request::Suscriber(SuscriberRequest::Publish(chanel, msg)),
             _ => Request::Invalid(RequestError::UnknownRequest),
         }
     }
@@ -456,10 +498,21 @@ impl<'a> Display for Reponse {
     }
 }
 
-impl Display for SuscriberRequest {
+impl<'a> Display for SuscriberRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            SuscriberRequest::Monitor => writeln!(f, "Reponse: Monitor"),
+            SuscriberRequest::Monitor => writeln!(f, "monitor"),
+            SuscriberRequest::Subscribe(channels) => {
+                let mut channels_string = String::new();
+
+                for elem in channels {
+                    channels_string.push_str(elem);
+                    channels_string.push(' ');
+                }
+
+                write!(f, "Subscribe channels: {}", channels_string)
+            },
+            SuscriberRequest::Publish(chanel, msg) => writeln!(f, "publish - channel: {} - message: {}", chanel, msg),
         }
     }
 }

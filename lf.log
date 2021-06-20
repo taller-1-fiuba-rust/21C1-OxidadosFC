@@ -1,24 +1,34 @@
-Request: CommandString::Set - Key: key - Value: 3
+Request: Subscribe channels: canal1 canal2 canal3 
 
-Reponse: Ok
+Request: publish - channel: canal1 - message: hola
 
-Request: CommandKeys::Keys - Pattern: *
 
-Reponse: key 
+Reponse: 1
 
-Request: Error: Invalid Command
+Request: publish - channel: canal2 - message: hola_de_nuevo
 
-Reponse: Error: Invalid Command
 
-Request: CommandKeys::Keys - Pattern: *
+Reponse: 1
 
-Reponse: key 
+Request: publish - channel: canal3 - message: 4
 
-Request: CommandServer::ConfigGet - Pattern: *
 
-Reponse: verbose: 0 timeout: 0 logfile: lf.log dbfilename: dump.rdb port: 8888 
+Reponse: 1
 
-Request: Error: Invalid Command
+Request: Subscribe channels: canal1 canal2 
 
-Reponse: Error: Invalid Command
+Request: publish - channel: canal1 - message: adios
+
+
+Reponse: 1
+
+Request: publish - channel: canal2 - message: para_ambos
+
+
+Reponse: 1
+
+Request: publish - channel: canal3 - message: solo_ultimo
+
+
+Reponse: 1
 
