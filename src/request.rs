@@ -59,6 +59,8 @@ impl<'a> SuscriberRequest<'a> {
 
                 let mut guard = chanels.lock().unwrap();
                 
+                let mut cont = 0;
+                let mut channels_added = Vec::new();
                 for chanel in channels {
                     let list = match guard.get_mut(chanel) {
                         Some(l) => l,
@@ -68,28 +70,45 @@ impl<'a> SuscriberRequest<'a> {
                         },
                     };
 
-                    list.push(s.clone());
+                    if !channels_added.contains(&chanel) {
+                        list.push(s.clone());
+                        cont = cont + 1;
+                    }
+                    
+                    writeln!(
+                        stream, 
+                        "1) \"subscribe\"\n2) \"{}\"\n3) (integer) {}", 
+                        chanel, cont
+                    ).unwrap();
+
+                    channels_added.push(chanel);
                 }
 
                 drop(guard);
 
                 for msg in r.iter() {
-                    writeln!(stream, "{}", msg).unwrap();
+                    writeln!(
+                        stream, 
+                        "1) \"message\"\n{}", 
+                        msg
+                    ).unwrap();
                 }
 
                 Reponse::Valid("Ok".to_string())
             },
             Self::Publish(chanel, msg) => {
-                let mut guard = chanels.lock().unwrap();
+                let guard = chanels.lock().unwrap();
                 if !guard.contains_key(chanel) {
                     return Reponse::Valid("0".to_string());
                 }
-                let list = guard.get_mut(chanel).unwrap();
+
+                let list = guard.get(chanel).unwrap();
+                let subscribers = list.len();
                 for s in list {
-                    s.send(msg.to_string()).unwrap();
+                    s.send(format!("2) \"{}\"\n3) \"{}\"", chanel, msg)).unwrap();
                 }
 
-                Reponse::Valid("1".to_string())
+                Reponse::Valid(subscribers.to_string())
             }
         }
     }
