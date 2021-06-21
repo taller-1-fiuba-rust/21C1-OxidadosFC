@@ -1,4 +1,5 @@
 use crate::database::Database;
+use crate::databasehelper::SuccessQuery;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
 use std::collections::HashMap;
@@ -35,13 +36,13 @@ impl<'a> SuscriberRequest<'a> {
     pub fn execute(
         self,
         stream: &mut TcpStream,
-        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
+        channels: &mut Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
     ) -> Reponse {
         match self {
             Self::Monitor => {
                 let (s, r) = channel();
 
-                let mut guard = chanels.lock().unwrap();
+                let mut guard = channels.lock().unwrap();
 
                 let list = guard.get_mut("Monitor").unwrap();
                 list.push(s);
@@ -54,58 +55,71 @@ impl<'a> SuscriberRequest<'a> {
 
                 Reponse::Valid("Ok".to_string())
             },
-            Self::Subscribe(channels) => {
+            Self::Subscribe(suscriptions) => {
                 let (s, r) = channel();
 
-                let mut guard = chanels.lock().unwrap();
+                let mut guard = channels.lock().unwrap();
                 
                 let mut cont = 0;
-                let mut channels_added = Vec::new();
-                for chanel in channels {
-                    let list = match guard.get_mut(chanel) {
+                let mut suscriptions_added = Vec::new();
+                for sus in suscriptions {
+                    let list = match guard.get_mut(sus) {
                         Some(l) => l,
                         None => {
-                            guard.insert(chanel.to_string(), Vec::new());
-                            guard.get_mut(chanel).unwrap()
+                            guard.insert(sus.to_string(), Vec::new());
+                            guard.get_mut(sus).unwrap()
                         },
                     };
 
-                    if !channels_added.contains(&chanel) {
+                    if !suscriptions_added.contains(&sus) {
                         list.push(s.clone());
                         cont = cont + 1;
+                        suscriptions_added.push(sus);
                     }
                     
-                    writeln!(
-                        stream, 
-                        "1) \"subscribe\"\n2) \"{}\"\n3) (integer) {}", 
-                        chanel, cont
-                    ).unwrap();
+                    let msg = SuccessQuery::List(
+                        vec![
+                            SuccessQuery::String("subscribe".to_string()),
+                            SuccessQuery::String(sus.to_string()),
+                            SuccessQuery::Integer(cont),
+                        ]
+                    );
 
-                    channels_added.push(chanel);
+                    writeln!(stream, "{}", msg.to_string()).unwrap();
                 }
 
                 drop(guard);
 
                 for msg in r.iter() {
-                    writeln!(
-                        stream, 
-                        "1) \"message\"\n{}", 
-                        msg
-                    ).unwrap();
+                    let msg = SuccessQuery::List(
+                        vec![
+                            SuccessQuery::String("message".to_string()),
+                            SuccessQuery::String(msg.to_string()),
+                        ]
+                    );
+                    writeln!(stream, "{}", msg.to_string()).unwrap();
                 }
 
                 Reponse::Valid("Ok".to_string())
             },
             Self::Publish(chanel, msg) => {
-                let guard = chanels.lock().unwrap();
+                let guard = channels.lock().unwrap();
                 if !guard.contains_key(chanel) {
-                    return Reponse::Valid("0".to_string());
+                    let r = SuccessQuery::Integer(0);
+                    return Reponse::Valid(r.to_string());
                 }
 
                 let list = guard.get(chanel).unwrap();
-                let subscribers = list.len();
+                let subscribers = SuccessQuery::Integer(list.len() as i32);
+
                 for s in list {
-                    s.send(format!("2) \"{}\"\n3) \"{}\"", chanel, msg)).unwrap();
+                    let message = SuccessQuery::List(
+                        vec![
+                            SuccessQuery::String(chanel.to_string()),
+                            SuccessQuery::String(msg.to_string()),
+                        ]
+                    );
+                    s.send(message.to_string()).unwrap();
                 }
 
                 Reponse::Valid(subscribers.to_string())
@@ -521,15 +535,15 @@ impl<'a> Display for SuscriberRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             SuscriberRequest::Monitor => writeln!(f, "monitor"),
-            SuscriberRequest::Subscribe(channels) => {
-                let mut channels_string = String::new();
+            SuscriberRequest::Subscribe(suscriptions) => {
+                let mut suscriptions_string = String::new();
 
-                for elem in channels {
-                    channels_string.push_str(elem);
-                    channels_string.push(' ');
+                for elem in suscriptions {
+                    suscriptions_string.push_str(elem);
+                    suscriptions_string.push(' ');
                 }
 
-                write!(f, "Subscribe channels: {}", channels_string)
+                write!(f, "Subscribe channels: {}", suscriptions_string)
             },
             SuscriberRequest::Publish(chanel, msg) => writeln!(f, "publish - channel: {} - message: {}", chanel, msg),
         }

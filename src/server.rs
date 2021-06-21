@@ -57,8 +57,6 @@ impl Server {
                     listeners.iter().for_each(|x| {
                         x.send(msg.to_string()).unwrap();
                     });
-
-                    drop(guard);
                 }
             }
         });
@@ -71,10 +69,9 @@ impl Server {
         let log_sender = logger.run();
         let mut list_logger = Vec::new();
         list_logger.push(log_sender);
+
         let mut guard = self.channels.lock().unwrap();
-
         guard.insert("Logger".to_string(), list_logger);
-
         drop(guard);
 
         let sender = self.run_message_handler();
