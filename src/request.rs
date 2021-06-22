@@ -11,7 +11,7 @@ pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
     Suscriber(SuscriberRequest),
-    Invalid(RequestError),
+    Invalid(&'a str, RequestError),
 }
 
 pub enum RequestError {
@@ -33,7 +33,7 @@ impl SuscriberRequest {
     pub fn execute(
         self,
         stream: &mut TcpStream,
-        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
+        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<(String,String)>>>>>
     ) -> Reponse {
         match self {
             Self::Monitor => {
@@ -46,8 +46,9 @@ impl SuscriberRequest {
                 list.push(s);
 
                 drop(guard);
-
+             
                 for msg in r.iter() {
+                    let msg = "Client: ".to_string() + &msg.0 + " " + &msg.1;
                     let respons = Reponse::Valid(msg);
                     respons.respond(stream);
                 }
@@ -100,17 +101,17 @@ pub enum Query<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn new(request: &str) -> Request {
-        let request: Vec<&str> = request.split_whitespace().collect();
+    pub fn new(request_str: &str) -> Request {
+        let request: Vec<&str> = request_str.split_whitespace().collect();
 
         match request[..] {
             ["expire", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::DataBase(Query::Expire(key, seconds)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["expireat", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::DataBase(Query::ExpireAt(key, seconds)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["ttl", key] => Request::DataBase(Query::TTL(key)),
             ["type", key] => Request::DataBase(Query::TYPE(key)),
@@ -118,11 +119,11 @@ impl<'a> Request<'a> {
             ["append", key, value] => Request::DataBase(Query::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
                 Ok(incr) => Request::DataBase(Query::Incrby(key, incr)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["decrby", key, decr] => match decr.parse::<i32>() {
                 Ok(decr) => Request::DataBase(Query::Decrby(key, decr)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["get", key] => Request::DataBase(Query::Get(key)),
             ["getdel", key] => Request::DataBase(Query::Getdel(key)),
@@ -141,7 +142,7 @@ impl<'a> Request<'a> {
                 if len > 0 && (len % 2 == 0) {
                     Request::DataBase(Query::Mset(tail.to_vec()))
                 } else {
-                    Request::Invalid(RequestError::InvalidNumberOfArguments)
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
                 }
             }
             ["mget", ..] => {
@@ -150,7 +151,7 @@ impl<'a> Request<'a> {
             }
             ["lindex", key, index] => match index.parse::<i32>() {
                 Ok(index) => Request::DataBase(Query::Lindex(key, index)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["llen", key] => Request::DataBase(Query::Llen(key)),
             ["lpop", key] => Request::DataBase(Query::Lpop(key)),
@@ -159,17 +160,17 @@ impl<'a> Request<'a> {
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
                     Ok(end) => Request::DataBase(Query::Lrange(key, ini, end)),
-                    Err(_) => Request::Invalid(RequestError::ParseError),
+                    Err(_) => Request::Invalid(request_str, RequestError::ParseError),
                 },
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["lrem", key, count, value] => match count.parse::<i32>() {
                 Ok(count) => Request::DataBase(Query::Lrem(key, count, value)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["lset", key, index, value] => match index.parse::<usize>() {
                 Ok(index) => Request::DataBase(Query::Lset(key, index, value)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
+                Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["rpop", key] => Request::DataBase(Query::Rpop(key)),
             ["rpush", key, value] => Request::DataBase(Query::Rpush(key, value)),
@@ -189,20 +190,20 @@ impl<'a> Request<'a> {
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
             ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
-            _ => Request::Invalid(RequestError::UnknownRequest),
+            _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
     }
 }
 
-pub fn parse_request(stream: &mut TcpStream) -> String {
+pub fn parse_request(stream: &mut TcpStream) -> Option<String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) => value.trim().to_owned(),
-            Err(_) => "".to_string(),
+            Ok(value) if value.trim().len() > 0 => Some(value.trim().to_owned()),
+            _ => None,
         },
-        Err(_) => "".to_string(),
+        Err(_) => None,
     }
 }
 
@@ -210,33 +211,23 @@ impl<'a> Display for Query<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Query::Expire(key, seconds) => {
-                write!(f, "QueryKeys::Expire - Key: {} - Seconds: {}", key, seconds)
+                write!(f, "Expire - Key: {} - Seconds: {}", key, seconds)
             }
-            Query::ExpireAt(key, seconds) => write!(
-                f,
-                "QueryKeys::ExpireAt - Key: {} - Seconds: {}",
-                key, seconds
-            ),
-            Query::Persist(key) => write!(f, "QueryKeys::Persist - Key: {}", key),
-            Query::TYPE(key) => write!(f, "QueryKeys::Type - Key: {}", key),
-            Query::TTL(key) => write!(f, "QueryKeys::TTL - Key: {}", key),
+            Query::ExpireAt(key, seconds) => {
+                write!(f, "ExpireAt - Key: {} - Seconds: {}", key, seconds)
+            }
+            Query::Persist(key) => write!(f, "Persist - Key: {}", key),
+            Query::TYPE(key) => write!(f, "Type - Key: {}", key),
+            Query::TTL(key) => write!(f, "TTL - Key: {}", key),
             Query::Append(key, value) => {
-                write!(f, "QueryKeys::Append - Key: {} - Value: {} ", key, value)
+                write!(f, "Append - Key: {} - Value: {} ", key, value)
             }
-            Query::Incrby(key, incr) => write!(
-                f,
-                "QueryString::Incrby - Key: {} - Increment: {}",
-                key, incr
-            ),
-            Query::Decrby(key, incr) => write!(
-                f,
-                "QueryString::Decrby - Key: {} - Increment: {}",
-                key, incr
-            ),
-            Query::Get(key) => write!(f, "QueryString::Get - Key: {}", key),
-            Query::Getdel(key) => write!(f, "QueryString::Getdel - Key: {}", key),
+            Query::Incrby(key, incr) => write!(f, "Incrby - Key: {} - Increment: {}", key, incr),
+            Query::Decrby(key, incr) => write!(f, "Decrby - Key: {} - Increment: {}", key, incr),
+            Query::Get(key) => write!(f, "Get - Key: {}", key),
+            Query::Getdel(key) => write!(f, "Getdel - Key: {}", key),
             Query::Getset(key, value) => {
-                write!(f, "QueryString::Getset - Key: {} - Value: {}", key, value)
+                write!(f, "Getset - Key: {} - Value: {}", key, value)
             }
 
             Query::Mget(params) => {
@@ -247,7 +238,7 @@ impl<'a> Display for Query<'a> {
                     parms_string.push(' ');
                 }
 
-                write!(f, "QueryString::Mget Keys: {}", parms_string)
+                write!(f, "Mget Keys: {}", parms_string)
             }
             Query::Mset(params) => {
                 let mut parms_string = String::new();
@@ -256,68 +247,60 @@ impl<'a> Display for Query<'a> {
                     parms_string.push_str(elem);
                     parms_string.push(' ');
                 }
-                write!(f, "QueryString::Mset pair: {}", parms_string)
+                write!(f, "Mset pair: {}", parms_string)
             }
-            Query::Strlen(key) => write!(f, "QueryString::Strlen - Key: {}", key),
+            Query::Strlen(key) => write!(f, "Strlen - Key: {}", key),
             Query::Set(key, value) => {
-                write!(f, "QueryString::Set - Key: {} - Value: {}", key, value)
+                write!(f, "Set - Key: {} - Value: {}", key, value)
             }
             Query::Copy(key, to_key) => {
-                write!(f, "QueryKeys::Copy - Key: {} - To_Key: {}", key, to_key)
+                write!(f, "Copy - Key: {} - To_Key: {}", key, to_key)
             }
-            Query::Del(key) => write!(f, "QueryKeys::Del - Key: {}", key),
-            Query::Exists(key) => write!(f, "QueryKeys::Exists - Key: {}", key),
-            Query::Keys(pattern) => write!(f, "QueryKeys::Keys - Pattern: {}", pattern),
-            Query::Rename(old_key, new_key) => write!(
-                f,
-                "QueryKeys::Rename - Old_Key {} - New_Key {}",
-                old_key, new_key
-            ),
+            Query::Del(key) => write!(f, "Del - Key: {}", key),
+            Query::Exists(key) => write!(f, "Exists - Key: {}", key),
+            Query::Keys(pattern) => write!(f, "Keys - Pattern: {}", pattern),
+            Query::Rename(old_key, new_key) => {
+                write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
+            }
             Query::Lindex(key, indx) => {
-                write!(f, "QueryList::Lindex - Key: {} - Index: {}", key, indx)
+                write!(f, "Lindex - Key: {} - Index: {}", key, indx)
             }
-            Query::Llen(key) => write!(f, "QueryList::Llen - Key {}", key),
-            Query::Lpop(key) => write!(f, "QueryList::Lpop - Key {}", key),
+            Query::Llen(key) => write!(f, "Llen - Key {}", key),
+            Query::Lpop(key) => write!(f, "Lpop - Key {}", key),
             Query::Lpush(key, value) => {
-                write!(f, "QueryList::Lpush - Key: {} - Value: {}", key, value)
+                write!(f, "Lpush - Key: {} - Value: {}", key, value)
             }
             Query::Lpushx(key, value) => {
-                write!(f, "QueryList::Lpushx - Key: {} - Value: {}", key, value)
+                write!(f, "Lpushx - Key: {} - Value: {}", key, value)
             }
-            Query::Lrange(key, beg, end) => write!(
-                f,
-                "QueryList::Lrange - Key: {} - Begining: {} - End {}",
-                key, beg, end
-            ),
-            Query::Lrem(key, rem, value) => write!(
-                f,
-                "QueryList::Lrem - Key: {} - Rem: {} - Value: {}",
-                key, rem, value
-            ),
+            Query::Lrange(key, beg, end) => {
+                write!(f, "Lrange - Key: {} - Begining: {} - End {}", key, beg, end)
+            }
+            Query::Lrem(key, rem, value) => {
+                write!(f, "Lrem - Key: {} - Rem: {} - Value: {}", key, rem, value)
+            }
             Query::Lset(key, index, value) => write!(
                 f,
-                "QueryList::Lset - Key: {} - Index: {} - Value: {}",
+                "Lset - Key: {} - Index: {} - Value: {}",
                 key, index, value
             ),
-            Query::Rpop(key) => write!(f, "QueryList::Rpop - Key: {}", key),
+            Query::Rpop(key) => write!(f, "Rpop - Key: {}", key),
             Query::Rpush(key, value) => {
-                write!(f, "QueryList::Rpush - Key: {} - Value: {} ", key, value)
+                write!(f, "Rpush - Key: {} - Value: {} ", key, value)
             }
             Query::Rpushx(key, value) => {
-                write!(f, "QueryList::Rpushx - Key: {} - Value: {} ", key, value)
+                write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
             }
             Query::Sadd(key, element) => {
-                write!(f, "QuerySet::Sadd - Key: {} - Element: {}", key, element)
+                write!(f, "Sadd - Key: {} - Element: {}", key, element)
             }
-            Query::Sismember(key, element) => write!(
-                f,
-                "QuerySet::Sismember - Key: {} - Element: {}",
-                key, element
-            ),
-            Query::Scard(key) => write!(f, "QuerySet::Sismember - Key: {}", key),
-            Query::Flushdb() => write!(f, "QueryServer::Flushdb"),
-            Query::Dbsize() => write!(f, "QueryServer::Dbsize"),
-            Query::Smembers(key) => write!(f, "QuerySet::Smembers - Key: {}", key),
+            Query::Sismember(key, element) => {
+                write!(f, "Sismember - Key: {} - Element: {}", key, element)
+            }
+            Query::Scard(key) => write!(f, "Sismember - Key: {}", key),
+            Query::Flushdb() => write!(f, "Flushdb"),
+            Query::Dbsize() => write!(f, "Dbsize"),
+            Query::Smembers(key) => write!(f, "Smembers - Key: {}", key),
             Query::Srem(key, vec_str) => {
                 let mut members_str = String::new();
 
@@ -325,11 +308,7 @@ impl<'a> Display for Query<'a> {
                     members_str.push_str(member);
                     members_str.push(' ');
                 }
-                write!(
-                    f,
-                    "QuerySet::Srem - Key: {} - members: {}",
-                    key, members_str
-                )
+                write!(f, "Srem - Key: {} - members: {}", key, members_str)
             }
         }
     }
@@ -423,12 +402,12 @@ impl Reponse {
     pub fn respond(self, stream: &mut TcpStream) {
         match self {
             Reponse::Valid(message) => {
-                if writeln!(stream, "{}\n", message).is_err() {
+                if writeln!(stream, "{}", message).is_err() {
                     println!("Error");
                 }
             }
             Reponse::Error(message) => {
-                if writeln!(stream, "Error: {}\n", message).is_err() {
+                if writeln!(stream, "Error: {}", message).is_err() {
                     println!("Error");
                 }
             }
@@ -439,10 +418,10 @@ impl Reponse {
 impl<'a> Display for Request<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Request::DataBase(query) => writeln!(f, "Request: {}", query),
-            Request::Server(server_request) => writeln!(f, "Request: {}", server_request),
-            Request::Invalid(error) => writeln!(f, "Request: Error: {}", error),
-            Request::Suscriber(sus_request) => writeln!(f, "Request: {}", sus_request),
+            Request::DataBase(query) => write!(f, "{}", query),
+            Request::Server(server_request) => write!(f, "{}", server_request),
+            Request::Invalid(request_str, error) => write!(f, "{} On: {}", error, request_str),
+            Request::Suscriber(sus_request) => write!(f, "{}", sus_request),
         }
     }
 }
@@ -450,8 +429,8 @@ impl<'a> Display for Request<'a> {
 impl<'a> Display for Reponse {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Reponse::Valid(message) => writeln!(f, "Reponse: {}", message),
-            Reponse::Error(error) => writeln!(f, "Reponse: Error: {}", error),
+            Reponse::Valid(message) => write!(f, "{}", message),
+            Reponse::Error(error) => write!(f, "Error: {}", error),
         }
     }
 }
@@ -459,7 +438,7 @@ impl<'a> Display for Reponse {
 impl Display for SuscriberRequest {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            SuscriberRequest::Monitor => writeln!(f, "Reponse: Monitor"),
+            SuscriberRequest::Monitor => write!(f, "Monitor"),
         }
     }
 }
@@ -469,7 +448,7 @@ impl<'a> Display for RequestError {
         match self {
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
-            RequestError::UnknownRequest => write!(f, "Unknown Request"),
+            RequestError::UnknownRequest => write!(f, "Non existent Request"),
         }
     }
 }
