@@ -61,17 +61,18 @@ impl SuscriberRequest {
 pub enum Query<'a> {
     Flushdb(),
     Dbsize(),
-    Expire(&'a str, i64),
-    ExpireAt(&'a str, i64),
-    Persist(&'a str),
-    TTL(&'a str),
-    TYPE(&'a str),
-    Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
     Exists(&'a str),
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
     Keys(&'a str),
+    Persist(&'a str),
     Rename(&'a str, &'a str),
+    Sort(&'a str, i32, i32, i32, i32),
+    TTL(&'a str),
+    TYPE(&'a str),
+    Get(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -104,6 +105,16 @@ impl<'a> Request<'a> {
         let request: Vec<&str> = request.split_whitespace().collect();
 
         match request[..] {
+            ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
+            ["flushdb"] => Request::DataBase(Query::Flushdb()),
+            ["config", "get", pattern] => Request::Server(ServerRequest::ConfigGet(pattern)),
+            ["config", "set", option, new_value] => {
+                Request::Server(ServerRequest::ConfigSet(option, new_value))
+            },
+            ["dbsize"] => Request::DataBase(Query::Dbsize()),
+            ["copy", key, to_key] => Request::DataBase(Query::Copy(key, to_key)),
+            ["del", key] => Request::DataBase(Query::Del(key)),
+            ["exists", key] => Request::DataBase(Query::Exists(key)),
             ["expire", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::DataBase(Query::Expire(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
@@ -112,27 +123,47 @@ impl<'a> Request<'a> {
                 Ok(seconds) => Request::DataBase(Query::ExpireAt(key, seconds)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
+            ["keys", pattern] => Request::DataBase(Query::Keys(pattern)),
+            ["persist", key] => Request::DataBase(Query::Persist(key)),
+            ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
+            ["sort", key, ..] => {
+                let tail = &request[2..];
+                let mut pos_begin_unwrap = 0;
+                let mut num_elem_unwrap = 0;
+                let mut alpha = 0;
+                let mut desc = 0;
+                match tail[..]{
+                    [.., "limit", pos_begin, num_elems] => {
+                        match pos_begin.parse::<i32>(){
+                            Ok(begin) => {pos_begin_unwrap = begin},
+                            Err(_) => {Request::Invalid(RequestError::ParseError);}
+                        }
+                        match num_elems.parse::<i32>(){
+                            Ok(num_elems) => {num_elem_unwrap = num_elems},
+                            Err(_) => {Request::Invalid(RequestError::ParseError);}
+                        }
+                    },
+                    [.., "desc"] => { desc = 1 },
+                    [.., "alpha"] => { alpha = 1},
+                    _ => {Request::Invalid(RequestError::InvalidNumberOfArguments);}
+                    }
+                Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
+                },
             ["ttl", key] => Request::DataBase(Query::TTL(key)),
             ["type", key] => Request::DataBase(Query::TYPE(key)),
-            ["persist", key] => Request::DataBase(Query::Persist(key)),
             ["append", key, value] => Request::DataBase(Query::Append(key, value)),
-            ["incrby", key, incr] => match incr.parse::<i32>() {
-                Ok(incr) => Request::DataBase(Query::Incrby(key, incr)),
-                Err(_) => Request::Invalid(RequestError::ParseError),
-            },
             ["decrby", key, decr] => match decr.parse::<i32>() {
                 Ok(decr) => Request::DataBase(Query::Decrby(key, decr)),
+                Err(_) => Request::Invalid(RequestError::ParseError),
+            },
+            ["incrby", key, incr] => match incr.parse::<i32>() {
+                Ok(incr) => Request::DataBase(Query::Incrby(key, incr)),
                 Err(_) => Request::Invalid(RequestError::ParseError),
             },
             ["get", key] => Request::DataBase(Query::Get(key)),
             ["getdel", key] => Request::DataBase(Query::Getdel(key)),
             ["getset", key, value] => Request::DataBase(Query::Getset(key, value)),
             ["set", key, value] => Request::DataBase(Query::Set(key, value)),
-            ["copy", key, to_key] => Request::DataBase(Query::Copy(key, to_key)),
-            ["del", key] => Request::DataBase(Query::Del(key)),
-            ["exists", key] => Request::DataBase(Query::Exists(key)),
-            ["keys", pattern] => Request::DataBase(Query::Keys(pattern)),
-            ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
             ["mset", ..] => {
                 let tail = &request[1..];
@@ -177,18 +208,11 @@ impl<'a> Request<'a> {
             ["sadd", key, element] => Request::DataBase(Query::Sadd(key, element)),
             ["sismember", key, element] => Request::DataBase(Query::Sismember(key, element)),
             ["scard", key] => Request::DataBase(Query::Scard(key)),
-            ["flushdb"] => Request::DataBase(Query::Flushdb()),
-            ["dbsize"] => Request::DataBase(Query::Dbsize()),
-            ["config", "get", pattern] => Request::Server(ServerRequest::ConfigGet(pattern)),
-            ["config", "set", option, new_value] => {
-                Request::Server(ServerRequest::ConfigSet(option, new_value))
-            }
             ["smembers", key] => Request::DataBase(Query::Smembers(key)),
             ["srem", key, ..] => {
                 let tail = &request[1..];
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
-            }
-            ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
+            },
             _ => Request::Invalid(RequestError::UnknownRequest),
         }
     }
@@ -273,6 +297,9 @@ impl<'a> Display for Query<'a> {
                 "QueryKeys::Rename - Old_Key {} - New_Key {}",
                 old_key, new_key
             ),
+            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc) => {
+                write!(f, "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}", key, pos_begin, num_elems, alpha , asc_desc)
+            }
             Query::Lindex(key, indx) => {
                 write!(f, "QueryList::Lindex - Key: {} - Index: {}", key, indx)
             }
@@ -369,6 +396,9 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
+            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc) => {
+                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc)
+            }
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
             Query::Mget(vec_str) => db.mget(vec_str),

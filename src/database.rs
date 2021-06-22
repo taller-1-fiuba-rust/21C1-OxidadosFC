@@ -263,8 +263,47 @@ impl Database {
         }
     }
 
-    //sort
+    pub fn _sort(result_list: &mut Vec<SuccessQuery>, to_order : &mut Vec<&String>, pos_begin: &i32, num_elems: &i32, alpha: &i32, desc: &i32){
+        let mut range_elem = to_order.len() as i32;
+        // por defecto, deberia trata de parsear a floats
+        // devuelve error en caso de error de parseo.
+        to_order.sort();
+        if alpha == &1{
+            //correcto 
+            to_order.sort();
+        }
+        if desc == &1{
+            to_order.sort_by(|a, b| b.cmp(&a));
+        }
+        if *num_elems > 0 && *num_elems <= to_order.len() as i32{
+            range_elem = *num_elems;
+        }
+        for i in *pos_begin..range_elem {
+            result_list.push(SuccessQuery::String((&to_order[i as usize]).to_string()));
+        }
+    }
 
+    //sort
+    pub fn sort(&self, key: &str, pos_begin: &i32, num_elems: &i32, alpha: &i32, desc: &i32) -> Result<SuccessQuery, DataBaseError>{
+        let dictionary = self.dictionary.lock().unwrap();
+        let mut ordered_list: Vec<SuccessQuery> = Vec::new();
+        match dictionary.get(key) {
+            Some(StorageValue::Set(hash_set))=> {
+                let mut to_order: Vec<&String> = hash_set.iter().collect();
+                Database::_sort(&mut ordered_list, &mut to_order, pos_begin, num_elems, alpha, desc);
+                Ok(SuccessQuery::List(ordered_list))
+            },
+            Some(StorageValue::List(list)) => {
+                let mut to_order: Vec<&String> = list.iter().collect();
+                Database::_sort(&mut ordered_list, &mut to_order, pos_begin, num_elems, alpha, desc);
+                Ok(SuccessQuery::List(ordered_list))
+            }
+            Some(_) => Err(DataBaseError::NotAList),
+            None => {
+                Ok(SuccessQuery::List(ordered_list))
+            }
+        }
+    }
     //touch
 
     //ttl
