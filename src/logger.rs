@@ -15,15 +15,17 @@ impl Logger {
         Logger { file_path }
     }
 
-    pub fn run(&mut self) -> Sender<(String,String)> {
-        let (log_sender, log_rec) : (Sender<(String,String)> , Receiver<(String,String)> ) = mpsc::channel();
+    // pub fn run(&mut self) -> Sender<(String, String)> {
+    pub fn run(&mut self) -> Sender<String> {
+        // let (log_sender, log_rec) : (Sender<(String,String)> , Reeiver<(String,String)> ) = mpsc::channel();
+        let (log_sender, log_rec) : (Sender<String> , Receiver<String>) = mpsc::channel();
         let path = self.file_path.clone();
 
         thread::spawn(move || {
             let mut logger = open_logger(&path).unwrap();
 
             for msg in log_rec.iter() {
-                let msg = msg.0 + " " + " " + &msg.1;
+                // let msg = msg.0 + " " + " " + &msg.1;
                 if let Err(e) = writeln!(logger, "{}", &msg) {
                     eprintln!("Couldn't write: {}", e);
                 }

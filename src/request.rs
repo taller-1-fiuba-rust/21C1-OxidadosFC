@@ -1,16 +1,15 @@
+use crate::channels::Channels;
 use crate::database::Database;
+use crate::databasehelper::SuccessQuery;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
-    Suscriber(SuscriberRequest),
+    Suscriber(SuscriberRequest<'a>),
     Invalid(&'a str, RequestError),
 }
 
@@ -25,35 +24,61 @@ pub enum ServerRequest<'a> {
     ConfigSet(&'a str, &'a str),
 }
 
-pub enum SuscriberRequest {
+pub enum SuscriberRequest<'a> {
     Monitor,
+    Subscribe(Vec<&'a str>),
+    Publish(&'a str, &'a str)
 }
 
-impl SuscriberRequest {
+impl<'a> SuscriberRequest<'a> {
     pub fn execute(
         self,
         stream: &mut TcpStream,
-        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<(String,String)>>>>>
+        channels: &mut Channels,
     ) -> Reponse {
         match self {
             Self::Monitor => {
-                let (s, r) = channel();
+                let r =channels.add_monitor();
 
-                let mut guard = chanels.lock().unwrap();
-
-                let list = guard.get_mut("Monitor").unwrap();
-
-                list.push(s);
-
-                drop(guard);
-             
                 for msg in r.iter() {
-                    let msg = "Client: ".to_string() + &msg.0 + " " + &msg.1;
+                    let respons = Reponse::Valid(msg);
+                    respons.respond(stream);
+                }
+
+                // for msg in r.iter() {
+                //     let msg = "Client: ".to_string() + &msg.0 + " " + &msg.1;
+                //     let respons = Reponse::Valid(msg);
+                //     respons.respond(stream);
+
+                Reponse::Valid("Ok".to_string())
+            },
+            Self::Subscribe(suscriptions) => {
+                let (r, subscriptions) = channels.subscribe(suscriptions);
+                writeln!(stream, "{}", subscriptions).unwrap();
+
+                for msg in r.iter() {
+                    let msg = SuccessQuery::List(
+                        vec![
+                            SuccessQuery::String("message".to_string()),
+                            SuccessQuery::String(msg.to_string()),
+                        ]
+                    ).to_string();
                     let respons = Reponse::Valid(msg);
                     respons.respond(stream);
                 }
 
                 Reponse::Valid("Ok".to_string())
+            },
+            Self::Publish(chanel, msg) => {
+                let message = SuccessQuery::List(
+                    vec![
+                        SuccessQuery::String(chanel.to_string()),
+                        SuccessQuery::String(msg.to_string()),
+                    ]
+                );
+                let subscribers = channels.send(chanel, &message.to_string());
+
+                Reponse::Valid(subscribers.to_string())
             }
         }
     }
@@ -190,6 +215,11 @@ impl<'a> Request<'a> {
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
             ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
+            ["subscribe", ..] => {
+                let tail = &request[1..];
+                Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
+            }
+            ["publish", chanel, msg] => Request::Suscriber(SuscriberRequest::Publish(chanel, msg)),
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
     }
@@ -435,10 +465,21 @@ impl<'a> Display for Reponse {
     }
 }
 
-impl Display for SuscriberRequest {
+impl<'a> Display for SuscriberRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             SuscriberRequest::Monitor => write!(f, "Monitor"),
+            SuscriberRequest::Subscribe(suscriptions) => {
+                let mut suscriptions_string = String::new();
+
+                for elem in suscriptions {
+                    suscriptions_string.push_str(elem);
+                    suscriptions_string.push(' ');
+                }
+
+                write!(f, "Subscribe channels: {}", suscriptions_string)
+            },
+            SuscriberRequest::Publish(chanel, msg) => writeln!(f, "publish - channel: {} - message: {}", chanel, msg),
         }
     }
 }
