@@ -47,39 +47,6 @@ impl<'a> SuscriberRequest<'a> {
                 Reponse::Valid("Ok".to_string())
             },
             Self::Subscribe(suscriptions) => {
-                // let (s, r) = channel();
-
-                // let mut guard = channels.lock().unwrap();
-                
-                // let mut cont = 0;
-                // let mut suscriptions_added = Vec::new();
-                // for sus in suscriptions {
-                //     let list = match guard.get_mut(sus) {
-                //         Some(l) => l,
-                //         None => {
-                //             guard.insert(sus.to_string(), Vec::new());
-                //             guard.get_mut(sus).unwrap()
-                //         },
-                //     };
-
-                //     if !suscriptions_added.contains(&sus) {
-                //         list.push(s.clone());
-                //         cont = cont + 1;
-                //         suscriptions_added.push(sus);
-                //     }
-                    
-                //     let msg = SuccessQuery::List(
-                //         vec![
-                //             SuccessQuery::String("subscribe".to_string()),
-                //             SuccessQuery::String(sus.to_string()),
-                //             SuccessQuery::Integer(cont),
-                //         ]
-                //     );
-
-                //     writeln!(stream, "{}", msg.to_string()).unwrap();
-                // }
-
-                // drop(guard);
                 let (r, subscriptions) = channels.subscribe(suscriptions);
                 writeln!(stream, "{}", subscriptions).unwrap();
 
@@ -96,24 +63,6 @@ impl<'a> SuscriberRequest<'a> {
                 Reponse::Valid("Ok".to_string())
             },
             Self::Publish(chanel, msg) => {
-                // let guard = channels.lock().unwrap();
-                // if !guard.contains_key(chanel) {
-                //     let r = SuccessQuery::Integer(0);
-                //     return Reponse::Valid(r.to_string());
-                // }
-
-                // let list = guard.get(chanel).unwrap();
-                // let subscribers = SuccessQuery::Integer(list.len() as i32);
-
-                // for s in list {
-                //     let message = SuccessQuery::List(
-                //         vec![
-                //             SuccessQuery::String(chanel.to_string()),
-                //             SuccessQuery::String(msg.to_string()),
-                //         ]
-                //     );
-                //     s.send(message.to_string()).unwrap();
-                // }
                 let message = SuccessQuery::List(
                     vec![
                         SuccessQuery::String(chanel.to_string()),
