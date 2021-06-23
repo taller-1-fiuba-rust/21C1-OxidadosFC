@@ -1,13 +1,14 @@
 use std::collections::HashMap;
-use crate::databasehelper::SuccessQuery;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-pub const MONITOR: &'static str = "Monitor";
-pub const LOGGER: &'static str = "Logger";
+pub const MONITOR: &str = "Monitor";
+pub const LOGGER: &str = "Logger";
+
+type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
 
 pub struct Channels {
-    channels: Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>
+    channels: Dictionary,
 }
 
 impl<'a> Clone for Channels {
@@ -17,7 +18,7 @@ impl<'a> Clone for Channels {
 }
 
 impl Channels {
-    fn new_from_channels(channels: Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>) -> Self {
+    fn new_from_channels(channels: Dictionary) -> Self {
         Channels { channels }
     }
 
@@ -25,30 +26,40 @@ impl Channels {
         let mut hash = HashMap::new();
         hash.insert(MONITOR.to_string(), Vec::new());
         let channels = Arc::new(Mutex::new(hash));
-        Channels {
-            channels
+        Channels { channels }
+    }
+
+    pub fn add_to_channel(&mut self, channel: &str, sender: Sender<String>, id: u32) {
+        let mut guard = self.channels.lock().unwrap();
+        match guard.get_mut(channel) {
+            Some(l) => l.push((id, sender)),
+            None => {
+                guard.insert(channel.to_string(), vec![(id, sender)]);
+            }
         }
     }
 
-    pub fn try_add_channel(&mut self, channel: &str, senders: Vec<Sender<String>>) {
-        let mut guard = self.channels.lock().unwrap();
-        if guard.contains_key(channel) {
-            return
-        }
+    pub fn add_logger(&mut self, logger_sender: Sender<String>) {
+        self.add_to_channel(LOGGER, logger_sender, 0);
+    }
 
-        guard.insert(channel.to_string(), senders);
+    pub fn unsubscribe(&mut self, channel: &str, id: u32) {
+        let mut guard = self.channels.lock().unwrap();
+        if let Some(l) = guard.get_mut(channel) {
+            l.retain(|x| x.0 != id);
+        }
     }
 
     pub fn send(&mut self, channel: &str, msg: &str) -> i32 {
         let guard = self.channels.lock().unwrap();
-        match guard.get(channel){
+        match guard.get(channel) {
             Some(listeners) => {
                 listeners.iter().for_each(|x| {
-                    x.send(msg.to_string()).unwrap();
+                    x.1.send(msg.to_string()).unwrap();
                 });
                 listeners.len() as i32
             }
-            None => 0
+            None => 0,
         }
     }
 
@@ -62,48 +73,12 @@ impl Channels {
         self.send(MONITOR, &msg);
     }
 
-    pub fn subscribe(&mut self, channels: Vec<&str>) -> (Receiver<String>, String) {
-        let (s, r) = channel();
-        let mut guard = self.channels.lock().unwrap();
-        
-        let mut subscriptions = String::new();
-        let mut cont = 0;
-        let mut suscriptions_added = Vec::new();
-        for sus in channels {
-            let list = match guard.get_mut(sus) {
-                Some(l) => l,
-                None => {
-                    guard.insert(sus.to_string(), Vec::new());
-                    guard.get_mut(sus).unwrap()
-                },
-            };
-
-            if !suscriptions_added.contains(&sus) {
-                list.push(s.clone());
-                cont = cont + 1;
-                suscriptions_added.push(sus);
-            }
-            
-            let subscription = SuccessQuery::List(
-                vec![
-                    SuccessQuery::String("subscribe".to_string()),
-                    SuccessQuery::String(sus.to_string()),
-                    SuccessQuery::Integer(cont),
-                ]
-            ).to_string();
-
-            subscriptions = format!("{}\n{}", subscriptions, subscription);
-        }
-
-        (r, subscriptions)
-    }
-
     pub fn add_monitor(&mut self) -> Receiver<String> {
         let (s, r) = channel();
         let mut guard = self.channels.lock().unwrap();
 
         let list = guard.get_mut(MONITOR).unwrap();
-        list.push(s);
+        list.push((0, s));
 
         r
     }

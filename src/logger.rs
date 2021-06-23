@@ -2,7 +2,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
 pub struct Logger {
@@ -18,7 +18,7 @@ impl Logger {
     // pub fn run(&mut self) -> Sender<(String, String)> {
     pub fn run(&mut self) -> Sender<String> {
         // let (log_sender, log_rec) : (Sender<(String,String)> , Reeiver<(String,String)> ) = mpsc::channel();
-        let (log_sender, log_rec) : (Sender<String> , Receiver<String>) = mpsc::channel();
+        let (log_sender, log_rec): (Sender<String>, Receiver<String>) = mpsc::channel();
         let path = self.file_path.clone();
 
         thread::spawn(move || {

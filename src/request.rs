@@ -5,6 +5,8 @@ use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::mpsc::channel;
+use std::thread;
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
@@ -27,7 +29,8 @@ pub enum ServerRequest<'a> {
 pub enum SuscriberRequest<'a> {
     Monitor,
     Subscribe(Vec<&'a str>),
-    Publish(&'a str, &'a str)
+    Publish(&'a str, &'a str),
+    Unsubscribe(Vec<&'a str>),
 }
 
 impl<'a> SuscriberRequest<'a> {
@@ -35,50 +38,83 @@ impl<'a> SuscriberRequest<'a> {
         self,
         stream: &mut TcpStream,
         channels: &mut Channels,
+        subscriptions: &mut Vec<String>,
+        id: u32,
     ) -> Reponse {
         match self {
             Self::Monitor => {
-                let r =channels.add_monitor();
+                let r = channels.add_monitor();
 
                 for msg in r.iter() {
                     let respons = Reponse::Valid(msg);
                     respons.respond(stream);
                 }
 
-                // for msg in r.iter() {
-                //     let msg = "Client: ".to_string() + &msg.0 + " " + &msg.1;
-                //     let respons = Reponse::Valid(msg);
-                //     respons.respond(stream);
-
                 Reponse::Valid("Ok".to_string())
-            },
-            Self::Subscribe(suscriptions) => {
-                let (r, subscriptions) = channels.subscribe(suscriptions);
-                writeln!(stream, "{}", subscriptions).unwrap();
+            }
+            Self::Subscribe(channels_to_add) => {
+                let (s, r) = channel();
+                for channel in channels_to_add {
+                    if !subscriptions.contains(&channel.to_string()) {
+                        subscriptions.push(channel.to_string());
+                        channels.add_to_channel(channel, s.clone(), id);
+                    }
 
-                for msg in r.iter() {
-                    let msg = SuccessQuery::List(
-                        vec![
+                    let subscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("subscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    let response = Reponse::Valid(subscription);
+                    response.respond(stream);
+                }
+
+                let mut s = stream.try_clone().expect("clone failed...");
+                thread::spawn(move || {
+                    for msg in r.iter() {
+                        let msg = SuccessQuery::List(vec![
                             SuccessQuery::String("message".to_string()),
                             SuccessQuery::String(msg.to_string()),
-                        ]
-                    ).to_string();
-                    let respons = Reponse::Valid(msg);
-                    respons.respond(stream);
+                        ])
+                        .to_string();
+                        let respons = Reponse::Valid(msg);
+                        respons.respond(&mut s);
+                    }
+                });
+
+                Reponse::Valid("Ok".to_string())
+            }
+            Self::Publish(chanel, msg) => {
+                let message = SuccessQuery::List(vec![
+                    SuccessQuery::String(chanel.to_string()),
+                    SuccessQuery::String(msg.to_string()),
+                ])
+                .to_string();
+                let subscribers = channels.send(chanel, &message);
+
+                Reponse::Valid(subscribers.to_string())
+            }
+            Self::Unsubscribe(channels_to_unsubscribe) => {
+                for channel in channels_to_unsubscribe {
+                    if subscriptions.contains(&channel.to_string()) {
+                        subscriptions.retain(|x| *x != channel);
+                        channels.unsubscribe(channel, id);
+                    }
+
+                    let subscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("usubscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    let response = Reponse::Valid(subscription);
+                    response.respond(stream);
                 }
 
                 Reponse::Valid("Ok".to_string())
-            },
-            Self::Publish(chanel, msg) => {
-                let message = SuccessQuery::List(
-                    vec![
-                        SuccessQuery::String(chanel.to_string()),
-                        SuccessQuery::String(msg.to_string()),
-                    ]
-                );
-                let subscribers = channels.send(chanel, &message.to_string());
-
-                Reponse::Valid(subscribers.to_string())
             }
         }
     }
@@ -220,6 +256,10 @@ impl<'a> Request<'a> {
                 Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
             }
             ["publish", chanel, msg] => Request::Suscriber(SuscriberRequest::Publish(chanel, msg)),
+            ["unsubscribe", ..] => {
+                let tail = &request[1..];
+                Request::Suscriber(SuscriberRequest::Unsubscribe(tail.to_vec()))
+            }
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
     }
@@ -230,7 +270,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Option<String> {
 
     match stream.read(&mut buf) {
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if value.trim().len() > 0 => Some(value.trim().to_owned()),
+            Ok(value) if !value.trim().is_empty() => Some(value.trim().to_owned()),
             _ => None,
         },
         Err(_) => None,
@@ -478,8 +518,20 @@ impl<'a> Display for SuscriberRequest<'a> {
                 }
 
                 write!(f, "Subscribe channels: {}", suscriptions_string)
-            },
-            SuscriberRequest::Publish(chanel, msg) => writeln!(f, "publish - channel: {} - message: {}", chanel, msg),
+            }
+            SuscriberRequest::Publish(chanel, msg) => {
+                write!(f, "Publish - channel: {} - message: {}", chanel, msg)
+            }
+            SuscriberRequest::Unsubscribe(unsuscriptions) => {
+                let mut unsuscriptions_string = String::new();
+
+                for elem in unsuscriptions {
+                    unsuscriptions_string.push_str(elem);
+                    unsuscriptions_string.push(' ');
+                }
+
+                write!(f, "Unsubscribe channels: {}", unsuscriptions_string)
+            }
         }
     }
 }

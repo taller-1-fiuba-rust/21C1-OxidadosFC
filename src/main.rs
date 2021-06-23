@@ -1,3 +1,4 @@
+mod channels;
 mod database;
 mod databasehelper;
 mod logger;
@@ -5,7 +6,6 @@ mod matcher;
 mod request;
 mod server;
 mod server_conf;
-mod channels;
 
 use server::Server;
 use std::env;

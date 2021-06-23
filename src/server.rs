@@ -1,4 +1,4 @@
-use crate::channels::{Channels, LOGGER};
+use crate::channels::Channels;
 use crate::database::Database;
 use crate::logger::Logger;
 use crate::request::{self, Reponse, Request};
@@ -32,22 +32,24 @@ impl Server {
             config,
             // event_comm,
             next_id,
-            channels
+            channels,
         })
     }
 
-    fn new_client<'a>(&self, stream: TcpStream, id: u32) -> Client {
+    fn new_client(&self, stream: TcpStream, id: u32) -> Client {
         let database = self.database.clone();
         let config = self.config.clone();
         // let channels = self.event_comm.channels.clone();
         let channels = self.channels.clone();
         let stream = stream;
+        let subscriptions = Vec::new();
 
         Client {
             stream,
             database,
             // msg_sender,
             channels,
+            subscriptions,
             config,
             id,
         }
@@ -60,8 +62,7 @@ impl Server {
     // fn run_logger(&self) -> Sender<(String, String)> {
     fn run_logger(&self) -> Sender<String> {
         let mut logger = Logger::new(&self.config.logfile());
-        let log_sender = logger.run();
-        log_sender
+        logger.run()
     }
 
     fn get_next_id(&self) -> u32 {
@@ -75,9 +76,7 @@ impl Server {
     pub fn run(mut self) {
         let log_sender = self.run_logger();
         // let msg_sender = self.run_message_handler(log_sender);
-        let mut list_logger = Vec::new();
-        list_logger.push(log_sender);
-        self.channels.try_add_channel(LOGGER, list_logger);
+        self.channels.add_logger(log_sender);
 
         for stream in self.listener.incoming() {
             match stream {
@@ -95,13 +94,13 @@ impl Server {
         }
     }
 }
-    // pub fn run(mut self) {
-    //     let mut logger = Logger::new(&self.config.logfile());
-    //     let log_sender = logger.run();
-    //     let mut list_logger = Vec::new();
-    //     list_logger.push(log_sender);
+// pub fn run(mut self) {
+//     let mut logger = Logger::new(&self.config.logfile());
+//     let log_sender = logger.run();
+//     let mut list_logger = Vec::new();
+//     list_logger.push(log_sender);
 
-    //     self.channels.try_add_channel(LOGGER, list_logger);
+//     self.channels.try_add_channel(LOGGER, list_logger);
 
 pub struct Client {
     stream: TcpStream,
@@ -109,6 +108,7 @@ pub struct Client {
     // msg_sender: Sender<EventMsg>,
     // channels: Arc<Mutex<HashMap<String, Vec<Sender<(String, String)>>>>>,
     channels: Channels,
+    subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
 }
@@ -128,7 +128,13 @@ impl Client {
                         request.exec_request(&mut self.config)
                     }
                     Request::Suscriber(request) => {
-                        request.execute(&mut self.stream, &mut self.channels)
+                        self.emit_request(request.to_string());
+                        request.execute(
+                            &mut self.stream,
+                            &mut self.channels,
+                            &mut self.subscriptions,
+                            self.id,
+                        )
                     }
                     Request::Invalid(_, _) => Reponse::Error(request.to_string()),
                 };
@@ -146,8 +152,8 @@ impl Client {
         //     request,
         // );
         // self.msg_sender.send(event).unwrap();
-        self.channels.send_logger(self.id, &request.to_string());
-        self.channels.send_monitor(self.id, &request.to_string());
+        self.channels.send_logger(self.id, &request);
+        self.channels.send_monitor(self.id, &request);
     }
 
     fn emit_reponse(&mut self, respond: String) {
