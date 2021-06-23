@@ -33,7 +33,9 @@ impl Client {
     }
 
     pub fn handle_client(&mut self) {
-        loop {
+        let mut a_live = true;
+
+        while a_live {
             if let Some(request) = request::parse_request(&mut self.stream) {
                 let request = Request::new(&request);
                 let respond = match request {
@@ -55,12 +57,23 @@ impl Client {
                         )
                     }
                     Request::Invalid(_, _) => Reponse::Error(request.to_string()),
+                    Request::CloseClient => {
+                        a_live = false;
+
+                        for subs in self.subscriptions.iter() {
+                            self.channels.unsubscribe(&subs, self.id);
+                        }
+
+                        Reponse::Valid("OK".to_string())
+                    }
                 };
 
                 self.emit_reponse(respond.to_string());
                 respond.respond(&mut self.stream);
             }
         }
+
+        
     }
 
     fn emit_request(&mut self, request: String) {

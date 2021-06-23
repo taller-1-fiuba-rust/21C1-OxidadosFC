@@ -12,6 +12,7 @@ pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
     Suscriber(SuscriberRequest<'a>),
+    CloseClient,
     Invalid(&'a str, RequestError),
 }
 
@@ -270,6 +271,7 @@ impl<'a> Request<'a> {
                 let tail = &request[1..];
                 Request::Suscriber(SuscriberRequest::Unsubscribe(tail.to_vec()))
             }
+            ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
     }
@@ -502,6 +504,7 @@ impl<'a> Display for Request<'a> {
             Request::Server(server_request) => write!(f, "{}", server_request),
             Request::Invalid(request_str, error) => write!(f, "{} On: {}", error, request_str),
             Request::Suscriber(sus_request) => write!(f, "{}", sus_request),
+            Request::CloseClient => write!(f, "Close"),
         }
     }
 }
