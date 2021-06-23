@@ -54,6 +54,7 @@ impl<'a> SuscriberRequest<'a> {
             }
             Self::Subscribe(channels_to_add) => {
                 let (s, r) = channel();
+                let mut result = String::new();
                 for channel in channels_to_add {
                     if !subscriptions.contains(&channel.to_string()) {
                         subscriptions.push(channel.to_string());
@@ -67,8 +68,11 @@ impl<'a> SuscriberRequest<'a> {
                     ])
                     .to_string();
 
-                    let response = Reponse::Valid(subscription);
-                    response.respond(stream);
+                    if result.is_empty() {
+                        result = subscription;
+                    } else {
+                        result = format!("{}\n{}", result, subscription);
+                    }
                 }
 
                 let mut s = stream.try_clone().expect("clone failed...");
@@ -84,7 +88,7 @@ impl<'a> SuscriberRequest<'a> {
                     }
                 });
 
-                Reponse::Valid("Ok".to_string())
+                Reponse::Valid(result)
             }
             Self::Publish(chanel, msg) => {
                 let message = SuccessQuery::List(vec![
@@ -97,24 +101,28 @@ impl<'a> SuscriberRequest<'a> {
                 Reponse::Valid(subscribers.to_string())
             }
             Self::Unsubscribe(channels_to_unsubscribe) => {
+                let mut result = String::new();
                 for channel in channels_to_unsubscribe {
                     if subscriptions.contains(&channel.to_string()) {
                         subscriptions.retain(|x| *x != channel);
                         channels.unsubscribe(channel, id);
                     }
 
-                    let subscription = SuccessQuery::List(vec![
+                    let unsubscription = SuccessQuery::List(vec![
                         SuccessQuery::String("usubscribe".to_string()),
                         SuccessQuery::String(channel.to_string()),
                         SuccessQuery::Integer(subscriptions.len() as i32),
                     ])
                     .to_string();
 
-                    let response = Reponse::Valid(subscription);
-                    response.respond(stream);
+                    if result.is_empty() {
+                        result = unsubscription;
+                    } else {
+                        result = format!("{}\n{}", result, unsubscription);
+                    }
                 }
 
-                Reponse::Valid("Ok".to_string())
+                Reponse::Valid(result)
             }
         }
     }
