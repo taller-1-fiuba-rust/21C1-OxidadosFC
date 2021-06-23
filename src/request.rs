@@ -1,16 +1,17 @@
+use crate::channels::Channels;
 use crate::database::Database;
+use crate::databasehelper::SuccessQuery;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::channel;
+use std::thread;
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
-    Suscriber(SuscriberRequest),
+    Suscriber(SuscriberRequest<'a>),
     Invalid(&'a str, RequestError),
 }
 
@@ -25,35 +26,103 @@ pub enum ServerRequest<'a> {
     ConfigSet(&'a str, &'a str),
 }
 
-pub enum SuscriberRequest {
+pub enum SuscriberRequest<'a> {
     Monitor,
+    Subscribe(Vec<&'a str>),
+    Publish(&'a str, &'a str),
+    Unsubscribe(Vec<&'a str>),
 }
 
-impl SuscriberRequest {
+impl<'a> SuscriberRequest<'a> {
     pub fn execute(
         self,
         stream: &mut TcpStream,
-        chanels: &mut Arc<Mutex<HashMap<String, Vec<Sender<(String,String)>>>>>
+        channels: &mut Channels,
+        subscriptions: &mut Vec<String>,
+        id: u32,
     ) -> Reponse {
         match self {
             Self::Monitor => {
-                let (s, r) = channel();
+                let r = channels.add_monitor();
 
-                let mut guard = chanels.lock().unwrap();
-
-                let list = guard.get_mut("Monitor").unwrap();
-
-                list.push(s);
-
-                drop(guard);
-             
                 for msg in r.iter() {
-                    let msg = "Client: ".to_string() + &msg.0 + " " + &msg.1;
                     let respons = Reponse::Valid(msg);
                     respons.respond(stream);
                 }
 
                 Reponse::Valid("Ok".to_string())
+            }
+            Self::Subscribe(channels_to_add) => {
+                let (s, r) = channel();
+                let mut result = String::new();
+                for channel in channels_to_add {
+                    if !subscriptions.contains(&channel.to_string()) {
+                        subscriptions.push(channel.to_string());
+                        channels.add_to_channel(channel, s.clone(), id);
+                    }
+
+                    let subscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("subscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    if result.is_empty() {
+                        result = subscription;
+                    } else {
+                        result = format!("{}\n{}", result, subscription);
+                    }
+                }
+
+                let mut s = stream.try_clone().expect("clone failed...");
+                thread::spawn(move || {
+                    for msg in r.iter() {
+                        let msg = SuccessQuery::List(vec![
+                            SuccessQuery::String("message".to_string()),
+                            SuccessQuery::String(msg.to_string()),
+                        ])
+                        .to_string();
+                        let respons = Reponse::Valid(msg);
+                        respons.respond(&mut s);
+                    }
+                });
+
+                Reponse::Valid(result)
+            }
+            Self::Publish(chanel, msg) => {
+                let message = SuccessQuery::List(vec![
+                    SuccessQuery::String(chanel.to_string()),
+                    SuccessQuery::String(msg.to_string()),
+                ])
+                .to_string();
+                let subscribers = channels.send(chanel, &message);
+
+                Reponse::Valid(subscribers.to_string())
+            }
+            Self::Unsubscribe(channels_to_unsubscribe) => {
+                let mut result = String::new();
+                for channel in channels_to_unsubscribe {
+                    if subscriptions.contains(&channel.to_string()) {
+                        subscriptions.retain(|x| *x != channel);
+                        channels.unsubscribe(channel, id);
+                    }
+
+                    let unsubscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("usubscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    if result.is_empty() {
+                        result = unsubscription;
+                    } else {
+                        result = format!("{}\n{}", result, unsubscription);
+                    }
+                }
+
+                Reponse::Valid(result)
             }
         }
     }
@@ -190,6 +259,15 @@ impl<'a> Request<'a> {
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
             }
             ["monitor"] => Request::Suscriber(SuscriberRequest::Monitor),
+            ["subscribe", ..] => {
+                let tail = &request[1..];
+                Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
+            }
+            ["publish", chanel, msg] => Request::Suscriber(SuscriberRequest::Publish(chanel, msg)),
+            ["unsubscribe", ..] => {
+                let tail = &request[1..];
+                Request::Suscriber(SuscriberRequest::Unsubscribe(tail.to_vec()))
+            }
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
     }
@@ -200,7 +278,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Option<String> {
 
     match stream.read(&mut buf) {
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if value.trim().len() > 0 => Some(value.trim().to_owned()),
+            Ok(value) if !value.trim().is_empty() => Some(value.trim().to_owned()),
             _ => None,
         },
         Err(_) => None,
@@ -435,10 +513,33 @@ impl<'a> Display for Reponse {
     }
 }
 
-impl Display for SuscriberRequest {
+impl<'a> Display for SuscriberRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             SuscriberRequest::Monitor => write!(f, "Monitor"),
+            SuscriberRequest::Subscribe(suscriptions) => {
+                let mut suscriptions_string = String::new();
+
+                for elem in suscriptions {
+                    suscriptions_string.push_str(elem);
+                    suscriptions_string.push(' ');
+                }
+
+                write!(f, "Subscribe channels: {}", suscriptions_string)
+            }
+            SuscriberRequest::Publish(chanel, msg) => {
+                write!(f, "Publish - channel: {} - message: {}", chanel, msg)
+            }
+            SuscriberRequest::Unsubscribe(unsuscriptions) => {
+                let mut unsuscriptions_string = String::new();
+
+                for elem in unsuscriptions {
+                    unsuscriptions_string.push_str(elem);
+                    unsuscriptions_string.push(' ');
+                }
+
+                write!(f, "Unsubscribe channels: {}", unsuscriptions_string)
+            }
         }
     }
 }
