@@ -1,3 +1,5 @@
+mod channels;
+mod client;
 mod database;
 mod databasehelper;
 mod logger;
