@@ -55,6 +55,7 @@ impl<'a> SuscriberRequest<'a> {
             Self::Subscribe(channels_to_add) => {
                 let (s, r) = channel();
                 let mut result = String::new();
+
                 for channel in channels_to_add {
                     if !subscriptions.contains(&channel.to_string()) {
                         subscriptions.push(channel.to_string());
@@ -76,6 +77,7 @@ impl<'a> SuscriberRequest<'a> {
                 }
 
                 let mut s = stream.try_clone().expect("clone failed...");
+
                 thread::spawn(move || {
                     for msg in r.iter() {
                         let msg = SuccessQuery::List(vec![
