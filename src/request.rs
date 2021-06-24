@@ -254,10 +254,14 @@ impl<'a> SuscriberRequest<'a> {
             }
             Self::Unsubscribe(channels_to_unsubscribe) => {
                 let mut result = String::new();
+                let mut channels_to_unsubscribe = channels_to_unsubscribe.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+                if channels_to_unsubscribe.is_empty() {
+                    channels_to_unsubscribe = subscriptions.to_owned();
+                }
                 for channel in channels_to_unsubscribe {
                     if subscriptions.contains(&channel.to_string()) {
                         subscriptions.retain(|x| *x != channel);
-                        channels.unsubscribe(channel, id);
+                        channels.unsubscribe(&channel, id);
                     }
                     
                     let unsubscription = SuccessQuery::List(vec![

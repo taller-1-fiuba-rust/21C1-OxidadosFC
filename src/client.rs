@@ -67,6 +67,14 @@ impl Client {
                                 request.exec_request(&mut self.config)
                             }
                         }
+                        Request::Publisher(request) => {
+                            if subscription_mode {
+                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                            } else {
+                                self.emit_request(request.to_string());
+                                request.execute(&mut self.channels)
+                            }
+                        }
                         Request::Suscriber(request) => {
                             self.emit_request(request.to_string());
                             request.execute(
@@ -76,14 +84,6 @@ impl Client {
                                 self.id,
                                 &mut subscription_mode
                             )
-                        }
-                        Request::Publisher(request) => {
-                            if subscription_mode {
-                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
-                            } else {
-                                self.emit_request(request.to_string());
-                                request.execute(&mut self.channels)
-                            }
                         }
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),
                         Request::CloseClient => {
