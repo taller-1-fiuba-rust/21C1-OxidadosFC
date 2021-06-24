@@ -37,7 +37,14 @@ impl Client {
         let mut a_live = true;
 
         while a_live {
-            let time_out = Some(Duration::new(self.config.get_time_out(), 0));
+            let time_out = self.config.get_time_out();
+
+            let time_out = if time_out > 0 {
+                Some(Duration::from_secs(time_out))
+            } else {
+                None
+            };
+
             self.stream.set_read_timeout(time_out).unwrap();
 
             match request::parse_request(&mut self.stream) {
