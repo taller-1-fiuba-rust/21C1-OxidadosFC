@@ -148,6 +148,20 @@ impl<'a> Request<'a> {
                     _ => {Request::Invalid(RequestError::InvalidNumberOfArguments);}
                     }
                 Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
+                /*if tail.contains(&["limit", pos_begin.to_string(), num_elems.to_string()]){
+                    match pos_begin.parse::<i32>(){
+                            Ok(begin) => {pos_begin_unwrap = begin},
+                            Err(_) => {Request::Invalid(RequestError::ParseError);}
+                        }
+                    match num_elems.parse::<i32>(){
+                        Ok(num_elems) => {num_elem_unwrap = num_elems},
+                        Err(_) => {Request::Invalid(RequestError::ParseError);}
+                    }
+                }
+                if tail[..] == [.., "desc"] => { desc = 1 }
+                if tail[..] == [.., "alpha"] => { alpha = 1}             
+                Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
+                */
                 },
             ["ttl", key] => Request::DataBase(Query::TTL(key)),
             ["type", key] => Request::DataBase(Query::TYPE(key)),
