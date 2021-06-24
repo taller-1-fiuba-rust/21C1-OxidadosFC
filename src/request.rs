@@ -338,7 +338,8 @@ impl<'a> PubSubSubcommand<'a> {
                     r.push(count.to_string());
                 }
 
-                Reponse::Valid(vec_to_string(&r.iter().map(|s| &s[..]).collect()))
+                let r: Vec<&str> = r.iter().map(|s| &s[..]).collect();
+                Reponse::Valid(vec_to_string(&r))
             }
         }
     }
@@ -609,6 +610,6 @@ impl<'a> Display for Reponse {
     }
 }
 
-fn vec_to_string(vec: &Vec<&str>) -> String {
+fn vec_to_string(vec: &[&str]) -> String {
     vec.iter().map(|s| s.to_string() + " ").collect()
 }
