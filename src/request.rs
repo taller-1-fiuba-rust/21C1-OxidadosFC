@@ -132,37 +132,29 @@ impl<'a> Request<'a> {
                 let mut num_elem_unwrap = 0;
                 let mut alpha = 0;
                 let mut desc = 0;
-                match tail[..]{
-                    [.., "limit", pos_begin, num_elems] => {
-                        match pos_begin.parse::<i32>(){
-                            Ok(begin) => {pos_begin_unwrap = begin},
-                            Err(_) => {Request::Invalid(RequestError::ParseError);}
-                        }
-                        match num_elems.parse::<i32>(){
-                            Ok(num_elems) => {num_elem_unwrap = num_elems},
-                            Err(_) => {Request::Invalid(RequestError::ParseError);}
-                        }
-                    },
-                    [.., "desc"] => { desc = 1 },
-                    [.., "alpha"] => { alpha = 1},
-                    _ => {Request::Invalid(RequestError::InvalidNumberOfArguments);}
-                    }
-                Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
-                /*if tail.contains(&["limit", pos_begin.to_string(), num_elems.to_string()]){
+                let _ = if let ["alpha",..] = tail[..]{
+                    alpha = 1;
+                    println!("entre alpha");
+                };
+                let _ = if let ["desc",..] = tail[..]{
+                    desc = 1;
+                    println!("entre desc");
+                };
+                let _ = if let ["limit", pos_begin, num_elems,..] = tail[..]{
+                    println!("entre limit");
                     match pos_begin.parse::<i32>(){
-                            Ok(begin) => {pos_begin_unwrap = begin},
+                            Ok(begin) => {pos_begin_unwrap = begin;},
                             Err(_) => {Request::Invalid(RequestError::ParseError);}
-                        }
+                    };
                     match num_elems.parse::<i32>(){
-                        Ok(num_elems) => {num_elem_unwrap = num_elems},
+                        Ok(num_elems) => {num_elem_unwrap = num_elems;},
                         Err(_) => {Request::Invalid(RequestError::ParseError);}
-                    }
-                }
-                if tail[..] == [.., "desc"] => { desc = 1 }
-                if tail[..] == [.., "alpha"] => { alpha = 1}             
+                    };
+                };
+                println!("alpha: {} limit{} {} desc:{}", alpha, pos_begin_unwrap, num_elem_unwrap, desc);
+                //_ => {Request::Invalid(RequestError::InvalidNumberOfArguments);}
                 Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
-                */
-                },
+            },
             ["ttl", key] => Request::DataBase(Query::TTL(key)),
             ["type", key] => Request::DataBase(Query::TYPE(key)),
             ["append", key, value] => Request::DataBase(Query::Append(key, value)),
