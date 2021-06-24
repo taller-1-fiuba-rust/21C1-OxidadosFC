@@ -35,30 +35,37 @@ impl Client {
 
     pub fn handle_client(&mut self) {
         let mut a_live = true;
+        let mut subscription_mode = false;
 
         while a_live {
             let time_out = self.config.get_time_out();
-
-            let time_out = if time_out > 0 {
+            let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
                 None
             };
 
             self.stream.set_read_timeout(time_out).unwrap();
-
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
                     let request = Request::new(&request);
                     let respond = match request {
                         Request::DataBase(query) => {
-                            self.emit_request(query.to_string());
-                            query.exec_query(&mut self.database)
+                            if subscription_mode {
+                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                            } else {
+                                self.emit_request(query.to_string());
+                                query.exec_query(&mut self.database)
+                            }
                         }
                         Request::Server(request) => {
-                            self.emit_request(request.to_string());
-                            request.exec_request(&mut self.config)
+                            if subscription_mode {
+                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                            } else {
+                                self.emit_request(request.to_string());
+                                request.exec_request(&mut self.config)
+                            }
                         }
                         Request::Suscriber(request) => {
                             self.emit_request(request.to_string());
@@ -67,7 +74,16 @@ impl Client {
                                 &mut self.channels,
                                 &mut self.subscriptions,
                                 self.id,
+                                &mut subscription_mode
                             )
+                        }
+                        Request::Publisher(request) => {
+                            if subscription_mode {
+                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                            } else {
+                                self.emit_request(request.to_string());
+                                request.execute(&mut self.channels)
+                            }
                         }
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),
                         Request::CloseClient => {

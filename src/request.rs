@@ -12,164 +12,9 @@ pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
     Suscriber(SuscriberRequest<'a>),
+    Publisher(PublisherRequest<'a>),
     CloseClient,
     Invalid(&'a str, RequestError),
-}
-
-pub enum RequestError {
-    ParseError,
-    UnknownRequest,
-    InvalidNumberOfArguments,
-}
-
-pub enum ServerRequest<'a> {
-    ConfigGet(&'a str),
-    ConfigSet(&'a str, &'a str),
-}
-
-pub enum SuscriberRequest<'a> {
-    Monitor,
-    Subscribe(Vec<&'a str>),
-    Publish(&'a str, &'a str),
-    Unsubscribe(Vec<&'a str>),
-}
-
-impl<'a> SuscriberRequest<'a> {
-    pub fn execute(
-        self,
-        stream: &mut TcpStream,
-        channels: &mut Channels,
-        subscriptions: &mut Vec<String>,
-        id: u32,
-    ) -> Reponse {
-        match self {
-            Self::Monitor => {
-                let r = channels.add_monitor();
-
-                for msg in r.iter() {
-                    let respons = Reponse::Valid(msg);
-                    respons.respond(stream);
-                }
-
-                Reponse::Valid("Ok".to_string())
-            }
-            Self::Subscribe(channels_to_add) => {
-                let (s, r) = channel();
-                let mut result = String::new();
-
-                for channel in channels_to_add {
-                    if !subscriptions.contains(&channel.to_string()) {
-                        subscriptions.push(channel.to_string());
-                        channels.add_to_channel(channel, s.clone(), id);
-                    }
-
-                    let subscription = SuccessQuery::List(vec![
-                        SuccessQuery::String("subscribe".to_string()),
-                        SuccessQuery::String(channel.to_string()),
-                        SuccessQuery::Integer(subscriptions.len() as i32),
-                    ])
-                    .to_string();
-
-                    if result.is_empty() {
-                        result = subscription;
-                    } else {
-                        result = format!("{}\n{}", result, subscription);
-                    }
-                }
-
-                let mut s = stream.try_clone().expect("clone failed...");
-
-                thread::spawn(move || {
-                    for msg in r.iter() {
-                        let msg = SuccessQuery::List(vec![
-                            SuccessQuery::String("message".to_string()),
-                            SuccessQuery::String(msg.to_string()),
-                        ])
-                        .to_string();
-                        let respons = Reponse::Valid(msg);
-                        respons.respond(&mut s);
-                    }
-                });
-
-                Reponse::Valid(result)
-            }
-            Self::Publish(chanel, msg) => {
-                let message = SuccessQuery::List(vec![
-                    SuccessQuery::String(chanel.to_string()),
-                    SuccessQuery::String(msg.to_string()),
-                ])
-                .to_string();
-                let subscribers = channels.send(chanel, &message);
-
-                Reponse::Valid(subscribers.to_string())
-            }
-            Self::Unsubscribe(channels_to_unsubscribe) => {
-                let mut result = String::new();
-                for channel in channels_to_unsubscribe {
-                    if subscriptions.contains(&channel.to_string()) {
-                        subscriptions.retain(|x| *x != channel);
-                        channels.unsubscribe(channel, id);
-                    }
-
-                    let unsubscription = SuccessQuery::List(vec![
-                        SuccessQuery::String("usubscribe".to_string()),
-                        SuccessQuery::String(channel.to_string()),
-                        SuccessQuery::Integer(subscriptions.len() as i32),
-                    ])
-                    .to_string();
-
-                    if result.is_empty() {
-                        result = unsubscription;
-                    } else {
-                        result = format!("{}\n{}", result, unsubscription);
-                    }
-                }
-
-                Reponse::Valid(result)
-            }
-        }
-    }
-}
-
-pub enum Query<'a> {
-    Flushdb(),
-    Dbsize(),
-    Expire(&'a str, i64),
-    ExpireAt(&'a str, i64),
-    Persist(&'a str),
-    Ttl(&'a str),
-    Type(&'a str),
-    Get(&'a str),
-    Copy(&'a str, &'a str),
-    Del(&'a str),
-    Exists(&'a str),
-    Keys(&'a str),
-    Rename(&'a str, &'a str),
-    Append(&'a str, &'a str),
-    Incrby(&'a str, i32),
-    Decrby(&'a str, i32),
-    Getdel(&'a str),
-    Getset(&'a str, &'a str),
-    Set(&'a str, &'a str),
-    Strlen(&'a str),
-    Mset(Vec<&'a str>),
-    Mget(Vec<&'a str>),
-    Lindex(&'a str, i32),
-    Llen(&'a str),
-    Lpop(&'a str),
-    Lpush(&'a str, &'a str),
-    Lpushx(&'a str, &'a str),
-    Lrange(&'a str, i32, i32),
-    Lrem(&'a str, i32, &'a str),
-    Lset(&'a str, usize, &'a str),
-    Rpop(&'a str),
-    Rpush(&'a str, &'a str),
-    Rpushx(&'a str, &'a str),
-    Sadd(&'a str, &'a str),
-    Sismember(&'a str, &'a str),
-    Scard(&'a str),
-    Smembers(&'a str),
-    Srem(&'a str, Vec<&'a str>),
 }
 
 impl<'a> Request<'a> {
@@ -266,7 +111,7 @@ impl<'a> Request<'a> {
                 let tail = &request[1..];
                 Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
             }
-            ["publish", chanel, msg] => Request::Suscriber(SuscriberRequest::Publish(chanel, msg)),
+            ["publish", chanel, msg] => Request::Publisher(PublisherRequest::Publish(chanel, msg)),
             ["unsubscribe", ..] => {
                 let tail = &request[1..];
                 Request::Suscriber(SuscriberRequest::Unsubscribe(tail.to_vec()))
@@ -277,123 +122,38 @@ impl<'a> Request<'a> {
     }
 }
 
-pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
-    let mut buf = [0; 512];
-
-    match stream.read(&mut buf) {
-        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
-            _ => Ok("".to_string()),
-        },
-        Err(_) => Err("Time Out".to_string()),
+impl<'a> Display for Request<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Request::DataBase(query) => write!(f, "{}", query),
+            Request::Server(server_request) => write!(f, "{}", server_request),
+            Request::Invalid(request_str, error) => write!(f, "{} On: {}", error, request_str),
+            Request::Suscriber(sus_request) => write!(f, "{}", sus_request),
+            Request::Publisher(pub_request) => write!(f, "{}", pub_request),
+            Request::CloseClient => write!(f, "Close"),
+        }
     }
 }
 
-impl<'a> Display for Query<'a> {
+pub enum RequestError {
+    ParseError,
+    UnknownRequest,
+    InvalidNumberOfArguments,
+}
+
+impl<'a> Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Query::Expire(key, seconds) => {
-                write!(f, "Expire - Key: {} - Seconds: {}", key, seconds)
-            }
-            Query::ExpireAt(key, seconds) => {
-                write!(f, "ExpireAt - Key: {} - Seconds: {}", key, seconds)
-            }
-            Query::Persist(key) => write!(f, "Persist - Key: {}", key),
-            Query::Type(key) => write!(f, "Type - Key: {}", key),
-            Query::Ttl(key) => write!(f, "TTL - Key: {}", key),
-            Query::Append(key, value) => {
-                write!(f, "Append - Key: {} - Value: {} ", key, value)
-            }
-            Query::Incrby(key, incr) => write!(f, "Incrby - Key: {} - Increment: {}", key, incr),
-            Query::Decrby(key, incr) => write!(f, "Decrby - Key: {} - Increment: {}", key, incr),
-            Query::Get(key) => write!(f, "Get - Key: {}", key),
-            Query::Getdel(key) => write!(f, "Getdel - Key: {}", key),
-            Query::Getset(key, value) => {
-                write!(f, "Getset - Key: {} - Value: {}", key, value)
-            }
-
-            Query::Mget(params) => {
-                let mut parms_string = String::new();
-
-                for elem in params {
-                    parms_string.push_str(elem);
-                    parms_string.push(' ');
-                }
-
-                write!(f, "Mget Keys: {}", parms_string)
-            }
-            Query::Mset(params) => {
-                let mut parms_string = String::new();
-
-                for elem in params {
-                    parms_string.push_str(elem);
-                    parms_string.push(' ');
-                }
-                write!(f, "Mset pair: {}", parms_string)
-            }
-            Query::Strlen(key) => write!(f, "Strlen - Key: {}", key),
-            Query::Set(key, value) => {
-                write!(f, "Set - Key: {} - Value: {}", key, value)
-            }
-            Query::Copy(key, to_key) => {
-                write!(f, "Copy - Key: {} - To_Key: {}", key, to_key)
-            }
-            Query::Del(key) => write!(f, "Del - Key: {}", key),
-            Query::Exists(key) => write!(f, "Exists - Key: {}", key),
-            Query::Keys(pattern) => write!(f, "Keys - Pattern: {}", pattern),
-            Query::Rename(old_key, new_key) => {
-                write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
-            }
-            Query::Lindex(key, indx) => {
-                write!(f, "Lindex - Key: {} - Index: {}", key, indx)
-            }
-            Query::Llen(key) => write!(f, "Llen - Key {}", key),
-            Query::Lpop(key) => write!(f, "Lpop - Key {}", key),
-            Query::Lpush(key, value) => {
-                write!(f, "Lpush - Key: {} - Value: {}", key, value)
-            }
-            Query::Lpushx(key, value) => {
-                write!(f, "Lpushx - Key: {} - Value: {}", key, value)
-            }
-            Query::Lrange(key, beg, end) => {
-                write!(f, "Lrange - Key: {} - Begining: {} - End {}", key, beg, end)
-            }
-            Query::Lrem(key, rem, value) => {
-                write!(f, "Lrem - Key: {} - Rem: {} - Value: {}", key, rem, value)
-            }
-            Query::Lset(key, index, value) => write!(
-                f,
-                "Lset - Key: {} - Index: {} - Value: {}",
-                key, index, value
-            ),
-            Query::Rpop(key) => write!(f, "Rpop - Key: {}", key),
-            Query::Rpush(key, value) => {
-                write!(f, "Rpush - Key: {} - Value: {} ", key, value)
-            }
-            Query::Rpushx(key, value) => {
-                write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
-            }
-            Query::Sadd(key, element) => {
-                write!(f, "Sadd - Key: {} - Element: {}", key, element)
-            }
-            Query::Sismember(key, element) => {
-                write!(f, "Sismember - Key: {} - Element: {}", key, element)
-            }
-            Query::Scard(key) => write!(f, "Sismember - Key: {}", key),
-            Query::Flushdb() => write!(f, "Flushdb"),
-            Query::Dbsize() => write!(f, "Dbsize"),
-            Query::Smembers(key) => write!(f, "Smembers - Key: {}", key),
-            Query::Srem(key, vec_str) => {
-                let mut members_str = String::new();
-
-                for member in vec_str {
-                    members_str.push_str(member);
-                    members_str.push(' ');
-                }
-                write!(f, "Srem - Key: {} - members: {}", key, members_str)
-            }
+            RequestError::ParseError => write!(f, "Couldn't Parse number input"),
+            RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
+            RequestError::UnknownRequest => write!(f, "Non existent Request"),
         }
     }
+}
+
+pub enum ServerRequest<'a> {
+    ConfigGet(&'a str),
+    ConfigSet(&'a str, &'a str),
 }
 
 impl<'a> ServerRequest<'a> {
@@ -408,6 +168,199 @@ impl<'a> ServerRequest<'a> {
             Err(err) => Reponse::Error(err.to_string()),
         }
     }
+}
+
+impl<'a> Display for ServerRequest<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ServerRequest::ConfigGet(pattern) => {
+                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+            }
+            ServerRequest::ConfigSet(option, new_value) => write!(
+                f,
+                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                option, new_value
+            ),
+        }
+    }
+}
+
+pub enum SuscriberRequest<'a> {
+    Monitor,
+    Subscribe(Vec<&'a str>),
+    Unsubscribe(Vec<&'a str>),
+}
+
+impl<'a> SuscriberRequest<'a> {
+    pub fn execute(
+        self,
+        stream: &mut TcpStream,
+        channels: &mut Channels,
+        subscriptions: &mut Vec<String>,
+        id: u32,
+        subscription_mode: &mut bool
+    ) -> Reponse {
+        match self {
+            Self::Monitor => {
+                let r = channels.add_monitor();
+
+                for msg in r.iter() {
+                    let respons = Reponse::Valid(msg);
+                    respons.respond(stream);
+                }
+
+                Reponse::Valid("Ok".to_string())
+            }
+            Self::Subscribe(channels_to_add) => {
+                let (s, r) = channel();
+                let mut result = String::new();
+
+                for channel in channels_to_add {
+                    if !subscriptions.contains(&channel.to_string()) {
+                        subscriptions.push(channel.to_string());
+                        channels.add_to_channel(channel, s.clone(), id);
+                    }
+
+                    let subscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("subscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    if result.is_empty() {
+                        result = subscription;
+                    } else {
+                        result = format!("{}\n{}", result, subscription);
+                    }
+                }
+
+                let mut s = stream.try_clone().expect("clone failed...");
+
+                thread::spawn(move || {
+                    for msg in r.iter() {
+                        let msg = SuccessQuery::List(vec![
+                            SuccessQuery::String("message".to_string()),
+                            SuccessQuery::String(msg.to_string()),
+                        ])
+                        .to_string();
+                        let respons = Reponse::Valid(msg);
+                        respons.respond(&mut s);
+                    }
+                });
+
+                *subscription_mode = true;
+                Reponse::Valid(result)
+            }
+            Self::Unsubscribe(channels_to_unsubscribe) => {
+                let mut result = String::new();
+                for channel in channels_to_unsubscribe {
+                    if subscriptions.contains(&channel.to_string()) {
+                        subscriptions.retain(|x| *x != channel);
+                        channels.unsubscribe(channel, id);
+                    }
+                    
+                    let unsubscription = SuccessQuery::List(vec![
+                        SuccessQuery::String("usubscribe".to_string()),
+                        SuccessQuery::String(channel.to_string()),
+                        SuccessQuery::Integer(subscriptions.len() as i32),
+                    ])
+                    .to_string();
+
+                    if result.is_empty() {
+                        result = unsubscription;
+                    } else {
+                        result = format!("{}\n{}", result, unsubscription);
+                    }
+                }
+
+                Reponse::Valid(result)
+            }
+        }
+    }
+}
+
+impl<'a> Display for SuscriberRequest<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            SuscriberRequest::Monitor => write!(f, "Monitor"),
+            SuscriberRequest::Subscribe(suscriptions) => write!(f, "Subscribe channels: {}", vec_to_string(suscriptions)),
+            SuscriberRequest::Unsubscribe(unsuscriptions) => write!(f, "Unsubscribe channels: {}", vec_to_string(unsuscriptions))
+        }
+    }
+}
+
+pub enum PublisherRequest<'a> {
+    Publish(&'a str, &'a str)
+}
+
+impl<'a> PublisherRequest<'a> {
+    pub fn execute(
+        self,
+        channels: &mut Channels,
+    ) -> Reponse {
+        match self {
+            Self::Publish(chanel, msg) => {
+                let message = SuccessQuery::List(vec![
+                    SuccessQuery::String(chanel.to_string()),
+                    SuccessQuery::String(msg.to_string()),
+                ])
+                .to_string();
+                let subscribers = channels.send(chanel, &message);
+
+                Reponse::Valid(subscribers.to_string())
+            }
+        }
+    }
+}
+
+impl<'a> Display for PublisherRequest<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            PublisherRequest::Publish(chanel, msg) => write!(f, "Publish - channel: {} - message: {}", chanel, msg),
+        }
+    }
+}
+
+pub enum Query<'a> {
+    Flushdb(),
+    Dbsize(),
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
+    Persist(&'a str),
+    Ttl(&'a str),
+    Type(&'a str),
+    Get(&'a str),
+    Copy(&'a str, &'a str),
+    Del(&'a str),
+    Exists(&'a str),
+    Keys(&'a str),
+    Rename(&'a str, &'a str),
+    Append(&'a str, &'a str),
+    Incrby(&'a str, i32),
+    Decrby(&'a str, i32),
+    Getdel(&'a str),
+    Getset(&'a str, &'a str),
+    Set(&'a str, &'a str),
+    Strlen(&'a str),
+    Mset(Vec<&'a str>),
+    Mget(Vec<&'a str>),
+    Lindex(&'a str, i32),
+    Llen(&'a str),
+    Lpop(&'a str),
+    Lpush(&'a str, &'a str),
+    Lpushx(&'a str, &'a str),
+    Lrange(&'a str, i32, i32),
+    Lrem(&'a str, i32, &'a str),
+    Lset(&'a str, usize, &'a str),
+    Rpop(&'a str),
+    Rpush(&'a str, &'a str),
+    Rpushx(&'a str, &'a str),
+    Sadd(&'a str, &'a str),
+    Sismember(&'a str, &'a str),
+    Scard(&'a str),
+    Smembers(&'a str),
+    Srem(&'a str, Vec<&'a str>),
 }
 
 impl<'a> Query<'a> {
@@ -460,24 +413,104 @@ impl<'a> Query<'a> {
     }
 }
 
+
+impl<'a> Display for Query<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Query::Expire(key, seconds) => {
+                write!(f, "Expire - Key: {} - Seconds: {}", key, seconds)
+            }
+            Query::ExpireAt(key, seconds) => {
+                write!(f, "ExpireAt - Key: {} - Seconds: {}", key, seconds)
+            }
+            Query::Persist(key) => write!(f, "Persist - Key: {}", key),
+            Query::Type(key) => write!(f, "Type - Key: {}", key),
+            Query::Ttl(key) => write!(f, "TTL - Key: {}", key),
+            Query::Append(key, value) => {
+                write!(f, "Append - Key: {} - Value: {} ", key, value)
+            }
+            Query::Incrby(key, incr) => write!(f, "Incrby - Key: {} - Increment: {}", key, incr),
+            Query::Decrby(key, incr) => write!(f, "Decrby - Key: {} - Increment: {}", key, incr),
+            Query::Get(key) => write!(f, "Get - Key: {}", key),
+            Query::Getdel(key) => write!(f, "Getdel - Key: {}", key),
+            Query::Getset(key, value) => {
+                write!(f, "Getset - Key: {} - Value: {}", key, value)
+            }
+
+            Query::Mget(params) => write!(f, "Mget Keys: {}", vec_to_string(params)),
+            Query::Mset(params) => write!(f, "Mset pair: {}", vec_to_string(params)),
+            Query::Strlen(key) => write!(f, "Strlen - Key: {}", key),
+            Query::Set(key, value) => {
+                write!(f, "Set - Key: {} - Value: {}", key, value)
+            }
+            Query::Copy(key, to_key) => {
+                write!(f, "Copy - Key: {} - To_Key: {}", key, to_key)
+            }
+            Query::Del(key) => write!(f, "Del - Key: {}", key),
+            Query::Exists(key) => write!(f, "Exists - Key: {}", key),
+            Query::Keys(pattern) => write!(f, "Keys - Pattern: {}", pattern),
+            Query::Rename(old_key, new_key) => {
+                write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
+            }
+            Query::Lindex(key, indx) => {
+                write!(f, "Lindex - Key: {} - Index: {}", key, indx)
+            }
+            Query::Llen(key) => write!(f, "Llen - Key {}", key),
+            Query::Lpop(key) => write!(f, "Lpop - Key {}", key),
+            Query::Lpush(key, value) => {
+                write!(f, "Lpush - Key: {} - Value: {}", key, value)
+            }
+            Query::Lpushx(key, value) => {
+                write!(f, "Lpushx - Key: {} - Value: {}", key, value)
+            }
+            Query::Lrange(key, beg, end) => {
+                write!(f, "Lrange - Key: {} - Begining: {} - End {}", key, beg, end)
+            }
+            Query::Lrem(key, rem, value) => {
+                write!(f, "Lrem - Key: {} - Rem: {} - Value: {}", key, rem, value)
+            }
+            Query::Lset(key, index, value) => write!(
+                f,
+                "Lset - Key: {} - Index: {} - Value: {}",
+                key, index, value
+            ),
+            Query::Rpop(key) => write!(f, "Rpop - Key: {}", key),
+            Query::Rpush(key, value) => {
+                write!(f, "Rpush - Key: {} - Value: {} ", key, value)
+            }
+            Query::Rpushx(key, value) => {
+                write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
+            }
+            Query::Sadd(key, element) => {
+                write!(f, "Sadd - Key: {} - Element: {}", key, element)
+            }
+            Query::Sismember(key, element) => {
+                write!(f, "Sismember - Key: {} - Element: {}", key, element)
+            }
+            Query::Scard(key) => write!(f, "Sismember - Key: {}", key),
+            Query::Flushdb() => write!(f, "Flushdb"),
+            Query::Dbsize() => write!(f, "Dbsize"),
+            Query::Smembers(key) => write!(f, "Smembers - Key: {}", key),
+            Query::Srem(key, vec_str) => write!(f, "Srem - Key: {} - members: {}", key, vec_to_string(vec_str))
+        }
+    }
+}
+
+pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
+    let mut buf = [0; 512];
+
+    match stream.read(&mut buf) {
+        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
+            Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
+            _ => Ok("".to_string()),
+        },
+        Err(_) => Err("Time Out".to_string()),
+    }
+}
+
 pub enum Reponse {
     Valid(String),
     Error(String),
-}
-
-impl<'a> Display for ServerRequest<'a> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            ServerRequest::ConfigGet(pattern) => {
-                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
-            }
-            ServerRequest::ConfigSet(option, new_value) => write!(
-                f,
-                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
-                option, new_value
-            ),
-        }
-    }
 }
 
 impl Reponse {
@@ -497,18 +530,6 @@ impl Reponse {
     }
 }
 
-impl<'a> Display for Request<'a> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Request::DataBase(query) => write!(f, "{}", query),
-            Request::Server(server_request) => write!(f, "{}", server_request),
-            Request::Invalid(request_str, error) => write!(f, "{} On: {}", error, request_str),
-            Request::Suscriber(sus_request) => write!(f, "{}", sus_request),
-            Request::CloseClient => write!(f, "Close"),
-        }
-    }
-}
-
 impl<'a> Display for Reponse {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -518,43 +539,6 @@ impl<'a> Display for Reponse {
     }
 }
 
-impl<'a> Display for SuscriberRequest<'a> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            SuscriberRequest::Monitor => write!(f, "Monitor"),
-            SuscriberRequest::Subscribe(suscriptions) => {
-                let mut suscriptions_string = String::new();
-
-                for elem in suscriptions {
-                    suscriptions_string.push_str(elem);
-                    suscriptions_string.push(' ');
-                }
-
-                write!(f, "Subscribe channels: {}", suscriptions_string)
-            }
-            SuscriberRequest::Publish(chanel, msg) => {
-                write!(f, "Publish - channel: {} - message: {}", chanel, msg)
-            }
-            SuscriberRequest::Unsubscribe(unsuscriptions) => {
-                let mut unsuscriptions_string = String::new();
-
-                for elem in unsuscriptions {
-                    unsuscriptions_string.push_str(elem);
-                    unsuscriptions_string.push(' ');
-                }
-
-                write!(f, "Unsubscribe channels: {}", unsuscriptions_string)
-            }
-        }
-    }
-}
-
-impl<'a> Display for RequestError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            RequestError::ParseError => write!(f, "Couldn't Parse number input"),
-            RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
-            RequestError::UnknownRequest => write!(f, "Non existent Request"),
-        }
-    }
+fn vec_to_string(vec: &Vec<&str>) -> String {
+    vec.iter().map(|s| s.to_string() + " " ).collect()
 }
