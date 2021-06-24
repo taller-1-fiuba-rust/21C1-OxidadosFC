@@ -49,6 +49,9 @@ impl Channels {
         let mut guard = self.channels.lock().unwrap();
         if let Some(l) = guard.get_mut(channel) {
             l.retain(|x| x.0 != id);
+            if l.is_empty() {
+                guard.remove(channel);
+            }
         }
     }
 
@@ -92,5 +95,13 @@ impl Channels {
             .filter(|x| matcher(x, pattern) && *x != MONITOR && *x != LOGGER)
             .map(|item| item.to_string())
             .collect()
+    }
+
+    pub fn subcriptors_number(&self, channel: &str) -> usize {
+        let guard = self.channels.lock().unwrap();
+        match guard.get(channel) {
+            Some(l) => l.len(),
+            None => 0
+        }
     }
 }

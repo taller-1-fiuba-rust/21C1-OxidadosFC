@@ -126,6 +126,10 @@ impl<'a> Request<'a> {
                     pattern,
                 )))
             }
+            ["pubsub", "numsub", ..] => {
+                let tail = &request[2..];
+                Request::Publisher(PublisherRequest::PubSub(PubSubSubcommand::NumSub(tail.to_vec())))
+            }
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
@@ -307,6 +311,7 @@ impl<'a> Display for SuscriberRequest<'a> {
 
 pub enum PubSubSubcommand<'a> {
     Channels(Option<&'a str>),
+    NumSub(Vec<&'a str>)
 }
 
 impl<'a> PubSubSubcommand<'a> {
@@ -326,6 +331,16 @@ impl<'a> PubSubSubcommand<'a> {
                     Reponse::Valid(vec_to_string(&c))
                 }
             }
+            Self::NumSub(channels_to_count) => {
+                let mut r = Vec::new();
+                for channel in channels_to_count {
+                    r.push(channel.to_string());
+                    let count = channels.subcriptors_number(channel);
+                    r.push(count.to_string());
+                }
+
+                Reponse::Valid(vec_to_string(&r.iter().map(|s| &s[..]).collect()))
+            }
         }
     }
 }
@@ -341,6 +356,7 @@ impl<'a> Display for PubSubSubcommand<'a> {
 
                 write!(f, "channels pattern: {}", pattern)
             }
+            PubSubSubcommand::NumSub(channels) => write!(f, "numsub channels: {}", vec_to_string(channels))
         }
     }
 }
