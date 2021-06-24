@@ -101,7 +101,7 @@ impl Channels {
         let guard = self.channels.lock().unwrap();
         match guard.get(channel) {
             Some(l) => l.len(),
-            None => 0
+            None => 0,
         }
     }
 }

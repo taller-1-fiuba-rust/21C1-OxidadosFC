@@ -128,7 +128,9 @@ impl<'a> Request<'a> {
             }
             ["pubsub", "numsub", ..] => {
                 let tail = &request[2..];
-                Request::Publisher(PublisherRequest::PubSub(PubSubSubcommand::NumSub(tail.to_vec())))
+                Request::Publisher(PublisherRequest::PubSub(PubSubSubcommand::NumSub(
+                    tail.to_vec(),
+                )))
             }
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
@@ -311,7 +313,7 @@ impl<'a> Display for SuscriberRequest<'a> {
 
 pub enum PubSubSubcommand<'a> {
     Channels(Option<&'a str>),
-    NumSub(Vec<&'a str>)
+    NumSub(Vec<&'a str>),
 }
 
 impl<'a> PubSubSubcommand<'a> {
@@ -326,7 +328,7 @@ impl<'a> PubSubSubcommand<'a> {
                 let c = channels.get_channels(pattern);
                 let c: Vec<&str> = c.iter().map(|s| &s[..]).collect();
                 if c.is_empty() {
-                    Reponse::Valid("(empty set or list)".to_string())    
+                    Reponse::Valid("(empty set or list)".to_string())
                 } else {
                     Reponse::Valid(vec_to_string(&c))
                 }
@@ -356,7 +358,9 @@ impl<'a> Display for PubSubSubcommand<'a> {
 
                 write!(f, "channels pattern: {}", pattern)
             }
-            PubSubSubcommand::NumSub(channels) => write!(f, "numsub channels: {}", vec_to_string(channels))
+            PubSubSubcommand::NumSub(channels) => {
+                write!(f, "numsub channels: {}", vec_to_string(channels))
+            }
         }
     }
 }
