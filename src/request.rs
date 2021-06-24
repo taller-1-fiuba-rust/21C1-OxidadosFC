@@ -137,8 +137,8 @@ pub enum Query<'a> {
     Expire(&'a str, i64),
     ExpireAt(&'a str, i64),
     Persist(&'a str),
-    TTL(&'a str),
-    TYPE(&'a str),
+    Ttl(&'a str),
+    Type(&'a str),
     Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
@@ -185,8 +185,8 @@ impl<'a> Request<'a> {
                 Ok(seconds) => Request::DataBase(Query::ExpireAt(key, seconds)),
                 Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
-            ["ttl", key] => Request::DataBase(Query::TTL(key)),
-            ["type", key] => Request::DataBase(Query::TYPE(key)),
+            ["ttl", key] => Request::DataBase(Query::Ttl(key)),
+            ["type", key] => Request::DataBase(Query::Type(key)),
             ["persist", key] => Request::DataBase(Query::Persist(key)),
             ["append", key, value] => Request::DataBase(Query::Append(key, value)),
             ["incrby", key, incr] => match incr.parse::<i32>() {
@@ -277,15 +277,15 @@ impl<'a> Request<'a> {
     }
 }
 
-pub fn parse_request(stream: &mut TcpStream) -> Option<String> {
+pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if !value.trim().is_empty() => Some(value.trim().to_owned()),
-            _ => None,
+            Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
+            _ => Ok("".to_string()),
         },
-        Err(_) => None,
+        Err(_) => Err("Time Out".to_string()),
     }
 }
 
@@ -299,8 +299,8 @@ impl<'a> Display for Query<'a> {
                 write!(f, "ExpireAt - Key: {} - Seconds: {}", key, seconds)
             }
             Query::Persist(key) => write!(f, "Persist - Key: {}", key),
-            Query::TYPE(key) => write!(f, "Type - Key: {}", key),
-            Query::TTL(key) => write!(f, "TTL - Key: {}", key),
+            Query::Type(key) => write!(f, "Type - Key: {}", key),
+            Query::Ttl(key) => write!(f, "TTL - Key: {}", key),
             Query::Append(key, value) => {
                 write!(f, "Append - Key: {} - Value: {} ", key, value)
             }
@@ -416,8 +416,8 @@ impl<'a> Query<'a> {
             Query::ExpireAt(key, seconds) => db.expireat(&key, seconds),
             Query::Expire(key, seconds) => db.expire(&key, seconds),
             Query::Persist(key) => db.persist(&key),
-            Query::TTL(key) => db.ttl(&key),
-            Query::TYPE(key) => db.get_type(&key),
+            Query::Ttl(key) => db.ttl(&key),
+            Query::Type(key) => db.get_type(&key),
             Query::Append(key, value) => db.append(&key, value),
             Query::Incrby(key, incr) => db.incrby(&key, incr),
             Query::Decrby(key, decr) => db.decrby(&key, decr),

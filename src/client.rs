@@ -3,6 +3,7 @@ use crate::database::Database;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
+use std::time::Duration;
 
 pub struct Client {
     stream: TcpStream,
@@ -36,44 +37,51 @@ impl Client {
         let mut a_live = true;
 
         while a_live {
-            if let Some(request) = request::parse_request(&mut self.stream) {
-                let request = Request::new(&request);
-                let respond = match request {
-                    Request::DataBase(query) => {
-                        self.emit_request(query.to_string());
-                        query.exec_query(&mut self.database)
-                    }
-                    Request::Server(request) => {
-                        self.emit_request(request.to_string());
-                        request.exec_request(&mut self.config)
-                    }
-                    Request::Suscriber(request) => {
-                        self.emit_request(request.to_string());
-                        request.execute(
-                            &mut self.stream,
-                            &mut self.channels,
-                            &mut self.subscriptions,
-                            self.id,
-                        )
-                    }
-                    Request::Invalid(_, _) => Reponse::Error(request.to_string()),
-                    Request::CloseClient => {
-                        a_live = false;
+            let time_out = Some(Duration::new(self.config.get_time_out(), 0));
+            self.stream.set_read_timeout(time_out).unwrap();
 
-                        for subs in self.subscriptions.iter() {
-                            self.channels.unsubscribe(&subs, self.id);
+            match request::parse_request(&mut self.stream) {
+                Ok(request) if request.is_empty() => {}
+                Ok(request) => {
+                    let request = Request::new(&request);
+                    let respond = match request {
+                        Request::DataBase(query) => {
+                            self.emit_request(query.to_string());
+                            query.exec_query(&mut self.database)
                         }
-
-                        Reponse::Valid("OK".to_string())
-                    }
-                };
-
-                self.emit_reponse(respond.to_string());
-                respond.respond(&mut self.stream);
+                        Request::Server(request) => {
+                            self.emit_request(request.to_string());
+                            request.exec_request(&mut self.config)
+                        }
+                        Request::Suscriber(request) => {
+                            self.emit_request(request.to_string());
+                            request.execute(
+                                &mut self.stream,
+                                &mut self.channels,
+                                &mut self.subscriptions,
+                                self.id,
+                            )
+                        }
+                        Request::Invalid(_, _) => Reponse::Error(request.to_string()),
+                        Request::CloseClient => {
+                            a_live = false;
+                            Reponse::Valid("OK".to_string())
+                        }
+                    };
+                    self.emit_reponse(respond.to_string());
+                    respond.respond(&mut self.stream);
+                }
+                Err(error) => {
+                    a_live = false;
+                    let response = Reponse::Error(error);
+                    response.respond(&mut self.stream);
+                }
             }
         }
 
-        
+        for subs in self.subscriptions.iter() {
+            self.channels.unsubscribe(&subs, self.id);
+        }
     }
 
     fn emit_request(&mut self, request: String) {
