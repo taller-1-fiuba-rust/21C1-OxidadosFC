@@ -221,12 +221,9 @@ impl<'a> SuscriberRequest<'a> {
                         channels.add_to_channel(channel, s.clone(), id);
                     }
 
-                    let subscription = SuccessQuery::List(vec![
-                        SuccessQuery::String("subscribe".to_string()),
-                        SuccessQuery::String(channel.to_string()),
-                        SuccessQuery::Integer(subscriptions.len() as i32),
-                    ])
-                    .to_string();
+                    let subscription = vec_to_string(&vec![
+                        "subscribe", &channel, &subscriptions.len().to_string()
+                    ]);
 
                     if result.is_empty() {
                         result = subscription;
@@ -239,11 +236,9 @@ impl<'a> SuscriberRequest<'a> {
 
                 thread::spawn(move || {
                     for msg in r.iter() {
-                        let msg = SuccessQuery::List(vec![
-                            SuccessQuery::String("message".to_string()),
-                            SuccessQuery::String(msg.to_string()),
-                        ])
-                        .to_string();
+                        let msg = vec_to_string(&vec![
+                            "message", &msg
+                        ]);
                         let respons = Reponse::Valid(msg);
                         respons.respond(&mut s);
                     }
@@ -264,12 +259,9 @@ impl<'a> SuscriberRequest<'a> {
                         channels.unsubscribe(&channel, id);
                     }
                     
-                    let unsubscription = SuccessQuery::List(vec![
-                        SuccessQuery::String("usubscribe".to_string()),
-                        SuccessQuery::String(channel.to_string()),
-                        SuccessQuery::Integer(subscriptions.len() as i32),
-                    ])
-                    .to_string();
+                    let unsubscription = vec_to_string(&vec![
+                        "unsubscribe", &channel, &subscriptions.len().to_string()
+                    ]);
 
                     if result.is_empty() {
                         result = unsubscription;
