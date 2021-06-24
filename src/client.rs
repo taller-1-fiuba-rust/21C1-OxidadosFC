@@ -5,6 +5,8 @@ use crate::server_conf::ServerConf;
 use std::net::TcpStream;
 use std::time::Duration;
 
+const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
+
 pub struct Client {
     stream: TcpStream,
     database: Database,
@@ -53,7 +55,7 @@ impl Client {
                     let respond = match request {
                         Request::DataBase(query) => {
                             if subscription_mode {
-                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(query.to_string());
                                 query.exec_query(&mut self.database)
@@ -61,7 +63,7 @@ impl Client {
                         }
                         Request::Server(request) => {
                             if subscription_mode {
-                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(request.to_string());
                                 request.exec_request(&mut self.config)
@@ -69,7 +71,7 @@ impl Client {
                         }
                         Request::Publisher(request) => {
                             if subscription_mode {
-                                Reponse::Error("Subscription mode doesn't support other commands".to_string())
+                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(request.to_string());
                                 request.execute(&mut self.channels)
@@ -82,7 +84,7 @@ impl Client {
                                 &mut self.channels,
                                 &mut self.subscriptions,
                                 self.id,
-                                &mut subscription_mode
+                                &mut subscription_mode,
                             )
                         }
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),

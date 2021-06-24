@@ -1,6 +1,5 @@
 use crate::channels::Channels;
 use crate::database::Database;
-use crate::databasehelper::SuccessQuery;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
@@ -116,6 +115,17 @@ impl<'a> Request<'a> {
                 let tail = &request[1..];
                 Request::Suscriber(SuscriberRequest::Unsubscribe(tail.to_vec()))
             }
+            ["pubsub", "channels", ..] => {
+                let arg = &mut request[2..].to_vec();
+                if arg.len() > 1 {
+                    return Request::Invalid(request_str, RequestError::InvalidNumberOfArguments);
+                }
+
+                let pattern = arg.pop();
+                Request::Publisher(PublisherRequest::PubSub(PubSubSubcommand::Channels(
+                    pattern,
+                )))
+            }
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
@@ -198,7 +208,7 @@ impl<'a> SuscriberRequest<'a> {
         channels: &mut Channels,
         subscriptions: &mut Vec<String>,
         id: u32,
-        subscription_mode: &mut bool
+        subscription_mode: &mut bool,
     ) -> Reponse {
         match self {
             Self::Monitor => {
@@ -222,7 +232,9 @@ impl<'a> SuscriberRequest<'a> {
                     }
 
                     let subscription = vec_to_string(&vec![
-                        "subscribe", &channel, &subscriptions.len().to_string()
+                        "subscribe",
+                        &channel,
+                        &subscriptions.len().to_string(),
                     ]);
 
                     if result.is_empty() {
@@ -236,9 +248,7 @@ impl<'a> SuscriberRequest<'a> {
 
                 thread::spawn(move || {
                     for msg in r.iter() {
-                        let msg = vec_to_string(&vec![
-                            "message", &msg
-                        ]);
+                        let msg = vec_to_string(&vec!["message", &msg]);
                         let respons = Reponse::Valid(msg);
                         respons.respond(&mut s);
                     }
@@ -249,7 +259,10 @@ impl<'a> SuscriberRequest<'a> {
             }
             Self::Unsubscribe(channels_to_unsubscribe) => {
                 let mut result = String::new();
-                let mut channels_to_unsubscribe = channels_to_unsubscribe.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+                let mut channels_to_unsubscribe = channels_to_unsubscribe
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>();
                 if channels_to_unsubscribe.is_empty() {
                     channels_to_unsubscribe = subscriptions.to_owned();
                 }
@@ -258,9 +271,11 @@ impl<'a> SuscriberRequest<'a> {
                         subscriptions.retain(|x| *x != channel);
                         channels.unsubscribe(&channel, id);
                     }
-                    
+
                     let unsubscription = vec_to_string(&vec![
-                        "unsubscribe", &channel, &subscriptions.len().to_string()
+                        "unsubscribe",
+                        &channel,
+                        &subscriptions.len().to_string(),
                     ]);
 
                     if result.is_empty() {
@@ -280,32 +295,71 @@ impl<'a> Display for SuscriberRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             SuscriberRequest::Monitor => write!(f, "Monitor"),
-            SuscriberRequest::Subscribe(suscriptions) => write!(f, "Subscribe channels: {}", vec_to_string(suscriptions)),
-            SuscriberRequest::Unsubscribe(unsuscriptions) => write!(f, "Unsubscribe channels: {}", vec_to_string(unsuscriptions))
+            SuscriberRequest::Subscribe(suscriptions) => {
+                write!(f, "Subscribe channels: {}", vec_to_string(suscriptions))
+            }
+            SuscriberRequest::Unsubscribe(unsuscriptions) => {
+                write!(f, "Unsubscribe channels: {}", vec_to_string(unsuscriptions))
+            }
+        }
+    }
+}
+
+pub enum PubSubSubcommand<'a> {
+    Channels(Option<&'a str>),
+}
+
+impl<'a> PubSubSubcommand<'a> {
+    pub fn execute(self, channels: &mut Channels) -> Reponse {
+        match self {
+            Self::Channels(pattern) => {
+                let pattern = match pattern {
+                    Some(pattern) => pattern,
+                    None => "*",
+                };
+
+                let c = channels.get_channels(pattern);
+                let c: Vec<&str> = c.iter().map(|s| &s[..]).collect();
+                if c.is_empty() {
+                    Reponse::Valid("(empty set or list)".to_string())    
+                } else {
+                    Reponse::Valid(vec_to_string(&c))
+                }
+            }
+        }
+    }
+}
+
+impl<'a> Display for PubSubSubcommand<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            PubSubSubcommand::Channels(pattern) => {
+                let pattern = match pattern {
+                    Some(pattern) => pattern,
+                    None => "*",
+                };
+
+                write!(f, "channels pattern: {}", pattern)
+            }
         }
     }
 }
 
 pub enum PublisherRequest<'a> {
-    Publish(&'a str, &'a str)
+    Publish(&'a str, &'a str),
+    PubSub(PubSubSubcommand<'a>),
 }
 
 impl<'a> PublisherRequest<'a> {
-    pub fn execute(
-        self,
-        channels: &mut Channels,
-    ) -> Reponse {
+    pub fn execute(self, channels: &mut Channels) -> Reponse {
         match self {
             Self::Publish(chanel, msg) => {
-                let message = SuccessQuery::List(vec![
-                    SuccessQuery::String(chanel.to_string()),
-                    SuccessQuery::String(msg.to_string()),
-                ])
-                .to_string();
+                let message = vec_to_string(&vec![chanel, msg]);
                 let subscribers = channels.send(chanel, &message);
 
                 Reponse::Valid(subscribers.to_string())
             }
+            Self::PubSub(pub_sub_command) => pub_sub_command.execute(channels),
         }
     }
 }
@@ -313,7 +367,10 @@ impl<'a> PublisherRequest<'a> {
 impl<'a> Display for PublisherRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            PublisherRequest::Publish(chanel, msg) => write!(f, "Publish - channel: {} - message: {}", chanel, msg),
+            PublisherRequest::Publish(chanel, msg) => {
+                write!(f, "Publish - channel: {} - message: {}", chanel, msg)
+            }
+            PublisherRequest::PubSub(pub_sub_command) => write!(f, "PubSub {}", pub_sub_command),
         }
     }
 }
@@ -409,7 +466,6 @@ impl<'a> Query<'a> {
     }
 }
 
-
 impl<'a> Display for Query<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -487,7 +543,12 @@ impl<'a> Display for Query<'a> {
             Query::Flushdb() => write!(f, "Flushdb"),
             Query::Dbsize() => write!(f, "Dbsize"),
             Query::Smembers(key) => write!(f, "Smembers - Key: {}", key),
-            Query::Srem(key, vec_str) => write!(f, "Srem - Key: {} - members: {}", key, vec_to_string(vec_str))
+            Query::Srem(key, vec_str) => write!(
+                f,
+                "Srem - Key: {} - members: {}",
+                key,
+                vec_to_string(vec_str)
+            ),
         }
     }
 }
@@ -536,5 +597,5 @@ impl<'a> Display for Reponse {
 }
 
 fn vec_to_string(vec: &Vec<&str>) -> String {
-    vec.iter().map(|s| s.to_string() + " " ).collect()
+    vec.iter().map(|s| s.to_string() + " ").collect()
 }
