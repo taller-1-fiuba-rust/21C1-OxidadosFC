@@ -99,6 +99,15 @@ impl ServerConf {
         }
     }
 
+    pub fn get_time_out(&self) -> u64 {
+        let conf = self.conf.lock().unwrap();
+
+        match conf.get(TIMEOUT) {
+            Some(value) => value.parse::<u64>().unwrap(),
+            None => 0,
+        }
+    }
+
     pub fn get_config(&self, pattern: &str) -> Result<SuccessServerRequest, ServerError> {
         let conf = self.conf.lock().unwrap();
         let mut list = Vec::new();
