@@ -320,10 +320,7 @@ impl<'a> PubSubSubcommand<'a> {
     pub fn execute(self, channels: &mut Channels) -> Reponse {
         match self {
             Self::Channels(pattern) => {
-                let pattern = match pattern {
-                    Some(pattern) => pattern,
-                    None => "*",
-                };
+                let pattern = pattern.unwrap_or("*");
 
                 let c = channels.get_channels(pattern);
                 let c: Vec<&str> = c.iter().map(|s| &s[..]).collect();
@@ -351,11 +348,7 @@ impl<'a> Display for PubSubSubcommand<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             PubSubSubcommand::Channels(pattern) => {
-                let pattern = match pattern {
-                    Some(pattern) => pattern,
-                    None => "*",
-                };
-
+                let pattern = pattern.unwrap_or("*");
                 write!(f, "channels pattern: {}", pattern)
             }
             PubSubSubcommand::NumSub(channels) => {
