@@ -1,10 +1,10 @@
+use crate::channels::Channels;
+use crate::client::Client;
 use crate::database::Database;
 use crate::logger::Logger;
-use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
-use std::collections::HashMap;
-use std::net::TcpListener;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -12,7 +12,8 @@ pub struct Server {
     database: Database,
     listener: TcpListener,
     config: ServerConf,
-    channels: Arc<Mutex<HashMap<String, Vec<Sender<String>>>>>,
+    next_id: Arc<Mutex<u32>>,
+    channels: Channels,
 }
 
 impl Server {
@@ -20,121 +21,57 @@ impl Server {
         let config = ServerConf::new(config_file)?;
         let listener = TcpListener::bind(config.addr()).expect("Could not bind");
         let database = Database::new();
-
-        listener
-            .set_nonblocking(true)
-            .expect("Cannot set non-blocking");
-
-        let channels = Arc::new(Mutex::new(HashMap::new()));
-        let mut guard = channels.lock().unwrap();
-
-        guard.insert("Monitor".to_string(), Vec::new());
-
-        drop(guard);
+        let next_id = Arc::new(Mutex::new(1));
+        let channels = Channels::new();
 
         Ok(Server {
             database,
             listener,
             config,
+            next_id,
             channels,
         })
     }
 
-    pub fn run_message_handler(&self) -> Sender<(Vec<String>, String)> {
-        let (sender, reci): (
-            Sender<(Vec<String>, String)>,
-            Receiver<(Vec<String>, String)>,
-        ) = channel();
+    fn new_client(&self, stream: TcpStream, id: u32) -> Client {
+        let database = self.database.clone();
+        let config = self.config.clone();
         let channels = self.channels.clone();
+        let stream = stream;
+        let subscriptions = Vec::new();
 
-        thread::spawn(move || {
-            for rec in reci.iter() {
-                let list = rec.0;
-                let msg = &rec.1;
-                for elem in list {
-                    let guard = channels.lock().unwrap();
-                    let listeners = guard.get(&elem).unwrap();
-                    listeners.iter().for_each(|x| {
-                        x.send(msg.to_string()).unwrap();
-                    });
+        Client::new(stream, database, channels, subscriptions, config, id)
+    }
 
-                    drop(guard);
-                }
-            }
-        });
+    fn run_logger(&self) -> Sender<String> {
+        let mut logger = Logger::new(&self.config.logfile());
+        logger.run()
+    }
 
-        sender
+    fn get_next_id(&self) -> u32 {
+        let next_id = self.next_id.clone();
+        let mut guard = next_id.lock().unwrap();
+        let id = *guard;
+        *guard = id + 1;
+        id
     }
 
     pub fn run(mut self) {
-        let mut logger = Logger::new(&self.config.logfile());
-        let log_sender = logger.run();
-        let mut list_logger = Vec::new();
-        list_logger.push(log_sender);
-        let mut guard = self.channels.lock().unwrap();
+        let log_sender = self.run_logger();
+        self.channels.add_logger(log_sender);
 
-        guard.insert("Logger".to_string(), list_logger);
+        for stream in self.listener.incoming() {
+            match stream {
+                Err(e) => eprintln!("failed: {}", e),
+                Ok(stream) => {
+                    let id = self.get_next_id();
+                    let mut client = self.new_client(stream, id);
 
-        drop(guard);
-
-        let sender = self.run_message_handler();
-
-        loop {
-            if let Ok((stream, _)) = self.listener.accept() {
-                let mut database = self.database.clone();
-                let mut config = self.config.clone();
-                let mut channels = self.channels.clone();
-                let msg_sender = sender.clone();
-
-                let mut stream = stream;
-
-                thread::spawn(move || {
-                    let database = &mut database;
-                    let config = &mut config;
-                    let channels = &mut channels;
-                    let msg_sender = &msg_sender;
-                    
-                    loop {
-                        let request = request::parse_request(&mut stream);
-                        let request = Request::new(&request);
-                        let list = ["Logger".to_string(), "Monitor".to_string()].to_vec();
-
-                        msg_sender.send((list, request.to_string())).unwrap();
-
-                        let respond = match request {
-                            Request::DataBase(query) => query.exec_query(database),
-                            Request::Server(request) => request.exec_request(config),
-                            Request::Suscriber(request) => request.execute(&mut stream, channels),
-                            Request::Invalid(err) => Reponse::Error(err.to_string()),
-                        };
-
-                        let list = ["Logger".to_string()].to_vec();
-                        msg_sender.send((list, respond.to_string())).unwrap();
-
-                        respond.respond(&mut stream);
-                    }
-                });
-            }
-
-            if changed_port(&self.listener, &self.config) {
-                self.listener = on_changed_port(&self.config);
+                    thread::spawn(move || {
+                        client.handle_client();
+                    });
+                }
             }
         }
     }
-}
-
-fn changed_port(listener: &TcpListener, config: &ServerConf) -> bool {
-    let addr = listener.local_addr().unwrap().to_string();
-    let new_addr = config.addr();
-    addr != new_addr
-}
-
-fn on_changed_port(config: &ServerConf) -> TcpListener {
-    let new_addr = config.addr();
-    let listener = TcpListener::bind(new_addr).expect("Could not bind");
-    listener
-        .set_nonblocking(true)
-        .expect("Cannot set non-blocking");
-
-    listener
 }
