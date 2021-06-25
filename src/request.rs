@@ -237,11 +237,8 @@ impl<'a> SuscriberRequest<'a> {
                         channels.add_to_channel(channel, s.clone(), id);
                     }
 
-                    let subscription = vec_to_string(&vec![
-                        "subscribe",
-                        &channel,
-                        &subscriptions.len().to_string(),
-                    ]);
+                    let subscription =
+                        vec_to_string(&["subscribe", &channel, &subscriptions.len().to_string()]);
 
                     if result.is_empty() {
                         result = subscription;
@@ -254,7 +251,7 @@ impl<'a> SuscriberRequest<'a> {
 
                 thread::spawn(move || {
                     for msg in r.iter() {
-                        let msg = vec_to_string(&vec!["message", &msg]);
+                        let msg = vec_to_string(&["message", &msg]);
                         let respons = Reponse::Valid(msg);
                         respons.respond(&mut s);
                     }
@@ -278,11 +275,8 @@ impl<'a> SuscriberRequest<'a> {
                         channels.unsubscribe(&channel, id);
                     }
 
-                    let unsubscription = vec_to_string(&vec![
-                        "unsubscribe",
-                        &channel,
-                        &subscriptions.len().to_string(),
-                    ]);
+                    let unsubscription =
+                        vec_to_string(&["unsubscribe", &channel, &subscriptions.len().to_string()]);
 
                     if result.is_empty() {
                         result = unsubscription;
@@ -368,7 +362,7 @@ impl<'a> PublisherRequest<'a> {
     pub fn execute(self, channels: &mut Channels) -> Reponse {
         match self {
             Self::Publish(chanel, msg) => {
-                let message = vec_to_string(&vec![chanel, msg]);
+                let message = vec_to_string(&[chanel, msg]);
                 let subscribers = channels.send(chanel, &message);
 
                 Reponse::Valid(subscribers.to_string())
