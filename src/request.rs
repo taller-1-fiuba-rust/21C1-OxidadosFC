@@ -1,3 +1,4 @@
+use regex::Regex;
 use crate::database::Database;
 use crate::server_conf::ServerConf;
 use core::fmt::{self, Display, Formatter};
@@ -132,27 +133,25 @@ impl<'a> Request<'a> {
                 let mut num_elem_unwrap = 0;
                 let mut alpha = 0;
                 let mut desc = 0;
-                let _ = if let ["alpha",..] = tail[..]{
-                    alpha = 1;
-                    println!("entre alpha");
-                };
-                let _ = if let ["desc",..] = tail[..]{
-                    desc = 1;
-                    println!("entre desc");
-                };
-                let _ = if let ["limit", pos_begin, num_elems,..] = tail[..]{
-                    println!("entre limit");
-                    match pos_begin.parse::<i32>(){
-                            Ok(begin) => {pos_begin_unwrap = begin;},
-                            Err(_) => {Request::Invalid(RequestError::ParseError);}
-                    };
-                    match num_elems.parse::<i32>(){
-                        Ok(num_elems) => {num_elem_unwrap = num_elems;},
-                        Err(_) => {Request::Invalid(RequestError::ParseError);}
-                    };
-                };
-                println!("alpha: {} limit{} {} desc:{}", alpha, pos_begin_unwrap, num_elem_unwrap, desc);
-                //_ => {Request::Invalid(RequestError::InvalidNumberOfArguments);}
+
+                for elem in tail.iter(){
+                    if elem.contains("alpha"){
+                        alpha = 1;
+                    }
+                    if elem.contains("desc"){
+                        desc = 1;
+                    }
+                    if elem.contains("limit"){
+                        if let (Some(pos_begin), Some(num_elems)) = (tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1), tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2)){
+                            if let (Ok(num_pos_begin), Ok(num_elems)) = (pos_begin.parse::<i32>(), num_elems.parse::<i32>()){
+                                pos_begin_unwrap = num_pos_begin;
+                                num_elem_unwrap = num_elems;
+                                continue;
+                            };
+                            return Request::Invalid(RequestError::ParseError);
+                        };
+                    }
+                }
                 Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
             },
             ["ttl", key] => Request::DataBase(Query::TTL(key)),
