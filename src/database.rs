@@ -266,6 +266,7 @@ impl Database {
     pub fn _sort(to_order : &mut Vec<&String>, pos_begin: &i32, num_elems: &i32, alpha: &i32, desc: &i32)-> Result<Vec<SuccessQuery>, DataBaseError>{
         let mut result_list: Vec<SuccessQuery> = Vec::new();
         let mut range_elem = to_order.len() as i32;
+        let mut pos_begin = pos_begin;
         match alpha {
             0 => {
                 let mut parse_error = false;
@@ -284,29 +285,42 @@ impl Database {
                 if desc == &1{
                     to_order.sort_by(|a, b| b.cmp(&a));
                 }
-                if *num_elems > 0 && *num_elems <= to_order.len() as i32{
-                    range_elem = *num_elems;
+                if *pos_begin >= to_order.len() as i32{
+                    return Ok(result_list);
                 }
                 if *num_elems == 0{
                     return Ok(result_list);
                 }
-                for i in *pos_begin..range_elem {
+                if *pos_begin < 0{
+                    pos_begin = &0;
+                }
+                if *num_elems > 0 && *num_elems <= to_order.len() as i32{
+                    range_elem = *num_elems;
+                }
+                for i in *pos_begin..(pos_begin+range_elem) {
                     result_list.push(SuccessQuery::String((&to_order[i as usize]).to_string()));
                 }
                 Ok(result_list)
             }
             1 => {
                 to_order.sort();
+
                 if desc == &1{
                     to_order.sort_by(|a, b| b.cmp(&a));
                 }
-                if *num_elems > 0 && *num_elems <= to_order.len() as i32{
-                    range_elem = *num_elems;
+                if *pos_begin >= to_order.len() as i32{
+                    return Ok(result_list);
                 }
                 if *num_elems == 0{
                     return Ok(result_list);
                 }
-                for i in *pos_begin..range_elem {
+                if *pos_begin < 0{
+                    pos_begin = &0;
+                }
+                if *num_elems > 0 && *num_elems <= to_order.len() as i32{
+                    range_elem = *num_elems;
+                }
+                for i in *pos_begin..(pos_begin+range_elem) {
                     result_list.push(SuccessQuery::String((&to_order[i as usize]).to_string()));
                 }
                 Ok(result_list)
@@ -1798,10 +1812,65 @@ mod group_keys {
             }
         }
 
-        
+        #[test]
+        fn test_sort_list_with_limit_offset_neg_count_0_return_emptylist(){
+            let database = create_database();
+            database.lpush(LIST, VALUE_1).unwrap();
+            database.lpush(LIST, VALUE_NEG_1).unwrap();
+            database.lpush(LIST, VALUE_2).unwrap();
 
+            if let SuccessQuery::List(list) = database.sort(LIST, &-2, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF).unwrap(){
+                assert!(list.is_empty());
+            }
+        }
 
+        #[test]
+        fn test_sort_list_with_limit_offset_out_of_range_of_list_count_return_empty_list(){
+            let database = create_database();
+            database.lpush(LIST, VALUE_1).unwrap();
+            database.lpush(LIST, VALUE_NEG_1).unwrap();
+            database.lpush(LIST, VALUE_2).unwrap();
 
+            if let SuccessQuery::List(list) = database.sort(LIST, &4, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF).unwrap(){
+                assert!(list.is_empty());
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_negative_count_negative_return_sorted_list_with_all_elements(){
+            let database = create_database();
+            database.lpush(LIST, VALUE_1).unwrap();
+            database.lpush(LIST, VALUE_NEG_1).unwrap();
+            database.lpush(LIST, VALUE_2).unwrap();
+
+            if let SuccessQuery::List(list) = database.sort(LIST, &-2, &-2, &ALPHA_OFF, &DESC_OFF).unwrap(){
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> = list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 3);
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_in_range_count_2_return_sorted_sublist_of(){
+            let database = create_database();
+            database.lpush(LIST, VALUE_1).unwrap();
+            database.lpush(LIST, VALUE_NEG_1).unwrap();
+            database.lpush(LIST, VALUE_2).unwrap();
+
+            if let SuccessQuery::List(list) = database.sort(LIST, &1, &2, &ALPHA_OFF, &DESC_OFF).unwrap(){
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![ VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> = list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 2);
+            }
+        }
     }
 }
 
