@@ -1,0 +1,48 @@
+@startuml
+hide circles
+skinparam ClassAttributeIconSize 0
+hide interface fields
+
+Class Server {
+    - listener: TcpListener
+    + run(): ()
+}
+
+Class Database {
+    - dictionary: HashMap<String, StorageValue>
+    + flushdb(): Result<SuccessQuery, DataBaseError>
+    + dbsize(): Result<SuccessQuery, DataBaseError>
+    + copy(key: &str, to_key: &str): Result<SuccessQuery, DataBaseError>
+}
+
+Class ServerConf {
+    - conf: HashMap<String, String>
+    + addr(): String
+    + logfile(): String
+    + get_config(): Result<SuccessQuery, DataBaseError>
+    + set_config(): Result<SuccessQuery, DataBaseError>
+}
+
+Class Logger {
+    - file_path: String
+    - reciver: Receiver<String>
+    + run(): ()
+}
+
+Class Request {
+    + new(request: &str): Request
+    + invalid_request(request_error: RequestError): Request
+    + execute(db: &Database, conf: &ServerConf): Reponse
+}
+
+Class Response {
+    + respond(stream: &TcpStream, log_sender: &Sender<String>)
+}
+
+Server *-- Database
+Server *-- ServerConf
+Server .left.> Logger
+Server .up.> Request
+Server .up.> Response
+
+@enduml
