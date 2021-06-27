@@ -1,4 +1,4 @@
-@startuml
+@startuml redis
 hide circles
 skinparam ClassAttributeIconSize 0
 hide interface fields
