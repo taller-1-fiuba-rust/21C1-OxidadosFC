@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use crate::matcher::matcher;
+
 pub const MONITOR: &str = "Monitor";
 pub const LOGGER: &str = "Logger";
 
@@ -47,6 +49,9 @@ impl Channels {
         let mut guard = self.channels.lock().unwrap();
         if let Some(l) = guard.get_mut(channel) {
             l.retain(|x| x.0 != id);
+            if l.is_empty() {
+                guard.remove(channel);
+            }
         }
     }
 
@@ -81,5 +86,22 @@ impl Channels {
         list.push((0, s));
 
         r
+    }
+
+    pub fn get_channels(&self, pattern: &str) -> Vec<String> {
+        let guard = self.channels.lock().unwrap();
+        guard
+            .keys()
+            .filter(|x| matcher(x, pattern) && *x != MONITOR && *x != LOGGER)
+            .map(|item| item.to_string())
+            .collect()
+    }
+
+    pub fn subcriptors_number(&self, channel: &str) -> usize {
+        let guard = self.channels.lock().unwrap();
+        match guard.get(channel) {
+            Some(l) => l.len(),
+            None => 0,
+        }
     }
 }

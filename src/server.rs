@@ -37,7 +37,6 @@ impl Server {
         let database = self.database.clone();
         let config = self.config.clone();
         let channels = self.channels.clone();
-        let stream = stream;
         let subscriptions = Vec::new();
 
         Client::new(stream, database, channels, subscriptions, config, id)
