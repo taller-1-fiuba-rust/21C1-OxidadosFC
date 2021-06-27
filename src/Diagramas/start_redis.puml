@@ -1,0 +1,19 @@
+@startuml start_redis
+hide footbox
+User -> Server ++: new(config_file: &str)
+User -> Server: run()
+
+Server -> Server ++: run_logger()
+Server -> Logger ++: new(config.log_file())
+Server -> Logger : run()
+Logger --> Server: log_sender = Sender<String>
+deactivate Server
+
+Server -> Channels ++: add_logger(log_sender)
+    loop for stream in listener.incoming()
+        Server -> Server: id = get_next_id()
+        Server -> Server ++: client = new_client(stream, id)
+        Server -> Client ++: new(stream, database, channels, subscriptions, config, id)
+    end
+
+@enduml
