@@ -183,7 +183,7 @@ impl<'a> Request<'a> {
             ["config", "get", pattern] => Request::Server(ServerRequest::ConfigGet(pattern)),
             ["config", "set", option, new_value] => {
                 Request::Server(ServerRequest::ConfigSet(option, new_value))
-            },
+            }
             ["dbsize"] => Request::DataBase(Query::Dbsize()),
             ["copy", key, to_key] => Request::DataBase(Query::Copy(key, to_key)),
             ["del", key] => Request::DataBase(Query::Del(key)),
@@ -206,16 +206,21 @@ impl<'a> Request<'a> {
                 let mut alpha = 0;
                 let mut desc = 0;
 
-                for elem in tail.iter(){
-                    if elem.contains("alpha"){
+                for elem in tail.iter() {
+                    if elem.contains("alpha") {
                         alpha = 1;
                     }
-                    if elem.contains("desc"){
+                    if elem.contains("desc") {
                         desc = 1;
                     }
-                    if elem.contains("limit"){
-                        if let (Some(pos_begin), Some(num_elems)) = (tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1), tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2)){
-                            if let (Ok(num_pos_begin), Ok(num_elems)) = (pos_begin.parse::<i32>(), num_elems.parse::<i32>()){
+                    if elem.contains("limit") {
+                        if let (Some(pos_begin), Some(num_elems)) = (
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1),
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2),
+                        ) {
+                            if let (Ok(num_pos_begin), Ok(num_elems)) =
+                                (pos_begin.parse::<i32>(), num_elems.parse::<i32>())
+                            {
                                 pos_begin_unwrap = num_pos_begin;
                                 num_elem_unwrap = num_elems;
                                 continue;
@@ -224,8 +229,14 @@ impl<'a> Request<'a> {
                         };
                     }
                 }
-                Request::DataBase(Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc))
-            },
+                Request::DataBase(Query::Sort(
+                    key,
+                    pos_begin_unwrap,
+                    num_elem_unwrap,
+                    alpha,
+                    desc,
+                ))
+            }
             ["ttl", key] => Request::DataBase(Query::Ttl(key)),
             ["type", key] => Request::DataBase(Query::Type(key)),
             ["append", key, value] => Request::DataBase(Query::Append(key, value)),
@@ -289,7 +300,7 @@ impl<'a> Request<'a> {
             ["srem", key, ..] => {
                 let tail = &request[1..];
                 Request::DataBase(Query::Srem(key, tail.to_vec()))
-            },
+            }
             ["subscribe", ..] => {
                 let tail = &request[1..];
                 Request::Suscriber(SuscriberRequest::Subscribe(tail.to_vec()))
@@ -373,7 +384,11 @@ impl<'a> Display for Query<'a> {
                 write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
             }
             Query::Sort(key, pos_begin, num_elems, alpha, asc_desc) => {
-                write!(f, "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}", key, pos_begin, num_elems, alpha , asc_desc)
+                write!(
+                    f,
+                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}",
+                    key, pos_begin, num_elems, alpha, asc_desc
+                )
             }
             Query::Lindex(key, indx) => {
                 write!(f, "Lindex - Key: {} - Index: {}", key, indx)

@@ -109,7 +109,9 @@ impl fmt::Display for DataBaseError {
             DataBaseError::NotASet => write!(f, "element of key isn't a Set"),
             DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
-            DataBaseError::SortParseError => write!(f, "One or more elements in list/set are not numeric type")
+            DataBaseError::SortParseError => {
+                write!(f, "One or more elements in list/set are not numeric type")
+            }
         }
     }
 }
