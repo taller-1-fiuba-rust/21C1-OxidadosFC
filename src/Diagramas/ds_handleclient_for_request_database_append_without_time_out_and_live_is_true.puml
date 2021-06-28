@@ -1,0 +1,42 @@
+@startuml database init
+hide footbox
+
+
+"s:Server" -> "c:Client"++: handle_client()
+    loop while a_live
+        "c:Client" -> "conf:ServerConf"++: get_time_out()
+        return None
+        note over "c:Client" : time_out = None
+        
+        "c:Client" -> "Request"++: parse_request(&mut self.stream: TcpStream)
+        return [request_str]
+        
+        create "req:Request"
+        "c:Client" -> "req:Request"++ : new(request_str: &str): Request
+            create "request:Database(query)"
+            "req:Request" -> "request:Database(query)"++: new()
+            return
+        return [query]
+        
+        "c:Client" -> "c:Client"++: emit_request(query.to_string(): &str): ()
+        return []
+
+        "c:Client" -> "request:Database(query)"++: exec_query(&mut self.database: Database): Response
+            create "Query::Append(key, value)"
+            "request:Database(query)" -> "Query::Append(key, value)"++: new() 
+            "Query::Append(key, value)" ->"db:Database"++: append(key: &str, value: &str)
+            return[successQuery]
+            return
+            create "response:Response::Valid"
+            "request:Database(query)" -> "response:Response::Valid"++ : new(successQuery)
+            return [response]
+        return [response]
+        
+        "c:Client" -> "c:Client"++: emit_reponse(response.to_string(): &str): ()
+        return []
+
+        "c:Client" -> "response:Response::Valid"++ :respond(&mut self.stream: TcpStream): ()
+        return []
+    end
+
+@enduml

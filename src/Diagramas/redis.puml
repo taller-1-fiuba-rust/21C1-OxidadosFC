@@ -17,6 +17,8 @@ Class Client{
     -database: Database
     -subscriptions: Vec<String>
     -id: u32
+    -emit_request(request: String):()
+    -emit_reponse(respond: String):()
     +new(stream: TcpStream, db: Database, c: Channels, subs: Vec<String>, conf: ServerConf, id: u32): Client
     +handle_client(): ()
 }
@@ -50,6 +52,7 @@ Class ServerConf {
     + logfile(): String
     + get_config(): Result<SuccessQuery, DataBaseError>
     + set_config(): Result<SuccessQuery, DataBaseError>
+    + get_time_out(): u64
 }
 
 Class Logger {
@@ -60,6 +63,7 @@ Class Logger {
 
 abstract Class Request {
     +{abstract}new(request: &str): Request
+    +{static}parse_request(stream: &mut TcpStream) -> Result<String, String>
 }
 
 abstract Class Response {
