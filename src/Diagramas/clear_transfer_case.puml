@@ -1,0 +1,25 @@
+@startuml clear and transfer case
+hide footbox
+
+activate Database
+alt MessageTtl::Clear(key: String)
+    Database -> ttl_keys++: lock()
+    Database -> ttl_keys: iter().position(|x| x.key == key)
+    return option
+    alt option == Some(pos)
+        Database -> ttl_keys ++: remove(pos)
+        deactivate ttl_keys
+    end
+else MessageTtl::Transfer(from_key: String, to_key: String)
+    Database -> ttl_keys++: lock()
+    Database -> ttl_keys: iter().position(|x| x.key == key) {\n\tlet ttl = keys_locked.get_mut(pos).unwrap();\n\tttl.key = to_key;\n}
+    return option
+    alt option == Some(pos)
+        Database -> ttl_keys ++: get_mut(pos)
+        return ttl_key
+        Database -> Database: ttl_key.key = to_key
+        deactivate ttl_keys
+    end
+end
+
+@enduml
