@@ -45,15 +45,16 @@ impl Channels {
         self.add_to_channel(LOGGER, logger_sender, 0);
     }
 
-    pub fn unsubscribe(&mut self, channel: &str, id: u32) {
+    pub fn add_monitor(&mut self) -> Receiver<String> {
+        let (s, r) = channel();
         let mut guard = self.channels.lock().unwrap();
-        if let Some(l) = guard.get_mut(channel) {
-            l.retain(|x| x.0 != id);
-            if l.is_empty() {
-                guard.remove(channel);
-            }
-        }
+
+        let list = guard.get_mut(MONITOR).unwrap();
+        list.push((0, s));
+
+        r
     }
+    
 
     pub fn send(&mut self, channel: &str, msg: &str) -> i32 {
         let guard = self.channels.lock().unwrap();
@@ -78,14 +79,14 @@ impl Channels {
         self.send(MONITOR, &msg);
     }
 
-    pub fn add_monitor(&mut self) -> Receiver<String> {
-        let (s, r) = channel();
+    pub fn unsubscribe(&mut self, channel: &str, id: u32) {
         let mut guard = self.channels.lock().unwrap();
-
-        let list = guard.get_mut(MONITOR).unwrap();
-        list.push((0, s));
-
-        r
+        if let Some(l) = guard.get_mut(channel) {
+            l.retain(|x| x.0 != id);
+            if l.is_empty() {
+                guard.remove(channel);
+            }
+        }
     }
 
     pub fn get_channels(&self, pattern: &str) -> Vec<String> {

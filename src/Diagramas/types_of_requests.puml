@@ -1,0 +1,72 @@
+@startuml redis
+skinparam ClassAttributeIconSize 0
+hide interface fields
+
+abstract Response
+abstract Request
+
+abstract Class Request {
+    +{abstract}new(request: &str): Request
+}
+
+Class Req_Database{
+    -query: Query
+    +new(query: Query): Request
+    +exec_query(db: &mut Database) -> Response
+}
+
+Class Req_Server{
+    -server_request: ServerRequest
+    +new(server_request: ServerRequest): Request
+    +exec_request(conf: &mut ServerConf) -> Response
+}
+
+Class Req_Suscriber{
+    -suscriber_request: SuscriberRequest
+    +new(request: &str): Request
+    +execute(stream: &mut TcpStream, channels: &mut Channels, subscriptions: &mut Vec<String>, id: u32, subs_mode: &mut bool): Response
+}
+
+Class Req_Publiher{
+    -publisher_request: PublisherRequest 
+    +new(request: &str): Request
+    +execute(channels: &mut Channels): Response
+}
+
+Class CloseClient{
+    +new(): Request
+}
+
+Class Invalid{
+    -request: &str 
+    -request_error: RequestError
+    +new(): Request
+}
+
+abstract Class Response {
+    -msg: &str
+    +{abstract}respond(stream: &TcpStream)
+}
+
+Class Valid{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Class Error{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Request .left.> Response
+
+Request -.right-> Req_Database
+Request -.-> Req_Server
+Request -.-> Req_Suscriber
+Request -.-> Req_Publiher
+Request -.-> CloseClient
+Request -.-> Invalid
+
+Response <|-- Valid
+Response <|-- Error
+
+
+@enduml
