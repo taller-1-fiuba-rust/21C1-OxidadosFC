@@ -4,10 +4,6 @@ hide footbox
 
 "s:Server" -> "c:Client"++: handle_client()
     loop while a_live
-        "c:Client" -> "conf:ServerConf"++: get_time_out()
-        return None
-        note over "c:Client" : time_out = None
-        
         "c:Client" -> "Request"++: parse_request(&mut self.stream: TcpStream)
         return [request_str]
         
@@ -19,7 +15,7 @@ hide footbox
         return [query]
         
         "c:Client" -> "c:Client"++: emit_request(query.to_string(): &str): ()
-        return []
+        return
 
         "c:Client" -> "request:Database(query)"++: exec_query(&mut self.database: Database): Response
             create "Query::Append(key, value)"
@@ -33,10 +29,10 @@ hide footbox
         return [response]
         
         "c:Client" -> "c:Client"++: emit_reponse(response.to_string(): &str): ()
-        return []
+        return
 
         "c:Client" -> "response:Response::Valid"++ :respond(&mut self.stream: TcpStream): ()
-        return []
+        return
     end
 
 @enduml
