@@ -1,15 +1,44 @@
 @startuml redis
-hide circles
 skinparam ClassAttributeIconSize 0
 hide interface fields
 
+abstract Response
+abstract Request
+
 Class Server {
-    - listener: TcpListener
+    -listener: TcpListener
+    -next_id: Arc<Mutex<u32>>
+    +new(config_file: &str): Result<Server, String>
     + run(): ()
+}
+
+Class Client{
+    -stream: TcpStream
+    -database: Database
+    -subscriptions: Vec<String>
+    -id: u32
+    +new(stream: TcpStream, db: Database, c: Channels, subs: Vec<String>, conf: ServerConf, id: u32): Client
+    +handle_client(): ()
+}
+
+Class Channels{
+    - channels: Dictionary
+    + new(): Channels
+    + add_to_channel( channel: &str, sender: Sender<String>, id: u32) : ()
+    + add_monitor(): Receiver<String>
+    + add_logger( logger_sender: Sender<String>): ()
+    + send( channel: &str, msg: &str): i32
+    + send_logger( id: u32, msg: &str): ()
+    + send_monitor( id: u32, msg: &str): ()
+    + unsubscribe( channel: &str, id: u32): ()
+    + get_channels( pattern: &str) -> Vec<String>
+    + subcriptors_number( channel: &str) -> usize
 }
 
 Class Database {
     - dictionary: HashMap<String, StorageValue>
+    -ttl_msg_sender: Sender<MessageTtl>
+    + new(): Database
     + flushdb(): Result<SuccessQuery, DataBaseError>
     + dbsize(): Result<SuccessQuery, DataBaseError>
     + copy(key: &str, to_key: &str): Result<SuccessQuery, DataBaseError>
@@ -26,23 +55,41 @@ Class ServerConf {
 Class Logger {
     - file_path: String
     - reciver: Receiver<String>
+    + new(file_path: &str): Logger
     + run(): ()
 }
 
-Class Request {
-    + new(request: &str): Request
-    + invalid_request(request_error: RequestError): Request
-    + execute(db: &Database, conf: &ServerConf): Reponse
+abstract Class Request {
+    +{abstract}new(request: &str): Request
 }
 
-Class Response {
-    + respond(stream: &TcpStream, log_sender: &Sender<String>)
+abstract Class Response {
+    -msg: &str
+    +{abstract}respond(stream: &TcpStream)
 }
+
+Class Valid{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Class Error{
+    +respond(stream: &mut TcpStream): ()
+}
+
 
 Server *-- Database
 Server *-- ServerConf
+Server *-- Channels
 Server .left.> Logger
-Server .up.> Request
-Server .up.> Response
+Server .right.> Client
+
+Client .up.> Request
+Client o--ServerConf
+
+Request .right.> Response
+
+Response <|-- Valid
+Response <|-- Error
+
 
 @enduml
