@@ -23,9 +23,11 @@ Server -> Channels ++: add_logger(log_sender)
         Server -> Server: id = get_next_id()
         Server -> Server ++: client = new_client(stream, id)
         create Client
-        Server -> Client : new(stream, database, channels, subscriptions, config, id)
+        Server -> Client : new(stream, database, channels, config, id)
         deactivate Server
-        Server -> Client ++: handle_client();
+        group Thread:
+            Server -> Client ++: handle_client();
+        end
     end
 
 @enduml

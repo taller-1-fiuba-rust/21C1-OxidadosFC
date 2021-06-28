@@ -37,9 +37,8 @@ impl Server {
         let database = self.database.clone();
         let config = self.config.clone();
         let channels = self.channels.clone();
-        let subscriptions = Vec::new();
 
-        Client::new(stream, database, channels, subscriptions, config, id)
+        Client::new(stream, database, channels, config, id)
     }
 
     fn run_logger(&self) -> Sender<String> {

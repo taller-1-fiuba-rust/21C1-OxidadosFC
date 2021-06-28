@@ -21,10 +21,10 @@ impl Client {
         stream: TcpStream,
         database: Database,
         channels: Channels,
-        subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
     ) -> Client {
+        let subscriptions = Vec::new();
         Client {
             stream,
             database,
