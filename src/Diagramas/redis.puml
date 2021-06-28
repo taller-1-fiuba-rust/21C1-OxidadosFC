@@ -54,9 +54,8 @@ Class ServerConf {
 
 Class Logger {
     - file_path: String
-    - reciver: Receiver<String>
     + new(file_path: &str): Logger
-    + run(): ()
+    + run(): Sender<String>
 }
 
 abstract Class Request {
