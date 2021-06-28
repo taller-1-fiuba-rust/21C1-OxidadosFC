@@ -1,0 +1,29 @@
+@startuml handle_client
+hide footbox
+activate Database
+Database -> Client++: handle_client()
+Client -> Client: a_live = true\nsubscription_mode = false
+loop while a_live
+    participant Config as "config: ServerConfig"
+    Client -> Config ++: get_time_out()
+    return time_out
+
+    alt time_out > 0 && !subscription_mode
+        Client -> Client: time_out = Some(Duration::from_secs(time_out))
+    else else
+        Client -> Client: time_out = None
+    end
+
+    participant Stream as "stream: TcpStream"
+    Client -> Stream++: set_read_timeout(time_out).unwrap()
+    deactivate Stream
+
+    Client -> Request++: parse_request(&mut self.stream: TcpStream)
+    return result
+
+    
+
+    
+
+end
+@enduml
