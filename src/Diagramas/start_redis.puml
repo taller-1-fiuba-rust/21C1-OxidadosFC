@@ -6,13 +6,15 @@ participant Client order 30
 participant Logger order 40
 participant Channels order 50
 
-User -> Server ++: new(config_file: &str)
+create Server
+User -> Server: new(config_file: &str)
+User -> Server ++: run()
 note right: Initialize server:\nconfig = ServerConf::new(config_file)\nlistener = TcpListener::bind(config.addr())\ndatabase = Database::new()\nnext_id = Arc::new(Mutex::new(1))\nchannels = Channels::new()
-User -> Server: run()
 
 Server -> Server ++: run_logger()
-Server -> Logger ++: new(config.log_file())
-Server -> Logger : run()
+create Logger
+Server -> Logger : new(config.log_file())
+Server -> Logger ++: run()
 Logger --> Server: log_sender = Sender<String>
 deactivate Server
 
@@ -20,9 +22,10 @@ Server -> Channels ++: add_logger(log_sender)
     loop for stream in listener.incoming()
         Server -> Server: id = get_next_id()
         Server -> Server ++: client = new_client(stream, id)
-        Server -> Client ++: new(stream, database, channels, subscriptions, config, id)
+        create Client
+        Server -> Client : new(stream, database, channels, subscriptions, config, id)
         deactivate Server
-        Server -> Client : handle_client();
+        Server -> Client ++: handle_client();
     end
 
 @enduml
