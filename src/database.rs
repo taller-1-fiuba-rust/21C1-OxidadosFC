@@ -694,7 +694,7 @@ impl Database {
                     }
 
                     Ok(SuccessQuery::Integer(list.len() as i32))
-                }sfafe
+                }
                 Ordering::Equal => {
                     list.retain(|x| *x != elem);
                     Ok(SuccessQuery::Integer(list.len() as i32))
