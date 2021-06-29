@@ -12,7 +12,7 @@ const PORT: &str = "port";
 const TIMEOUT: &str = "timeout";
 const DBFILENAME: &str = "dbfilename";
 const LOGFILE: &str = "logfile";
-const DEFAULT_VERBOSE: u64 = 0;
+const DEFAULT_VERBOSE: bool = false;
 const DEFAULT_PORT: &str = "8888";
 const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.rdb";
@@ -172,15 +172,15 @@ impl ServerConf {
     //     }
     // }
 
-    // pub fn verbose(&self) -> u64 {
-    //     if let Some(value) = self.conf.get(VERBOSE) {
-    //         if let Ok(v) = value.parse::<u64>() {
-    //             return v;
-    //         }
-    //     }
+    pub fn verbose(&self) -> bool {
+        if let Some(value) = self.conf.lock().unwrap().get(VERBOSE) {
+            if let Ok(v) = value.parse::<u64>() {
+                return v != 0
+            }
+        }
 
-    //     DEFAULT_VERBOSE
-    // }
+        DEFAULT_VERBOSE
+    }
 }
 
 impl<'a> fmt::Display for SuccessServerRequest {

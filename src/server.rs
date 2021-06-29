@@ -42,7 +42,7 @@ impl Server {
         Client::new(stream, database, channels, subscriptions, config, id)
     }
 
-    fn run_logger(&self) -> Sender<String> {
+    fn run_logger(&self) -> Sender<(String, bool)> {
         let mut logger = Logger::new(&self.config.logfile());
         logger.run()
     }

@@ -110,11 +110,11 @@ impl Client {
     }
 
     fn emit_request(&mut self, request: String) {
-        self.channels.send_logger(self.id, &request);
+        self.channels.send_logger(self.id, &request, self.config.verbose());
         self.channels.send_monitor(self.id, &request);
     }
 
     fn emit_reponse(&mut self, respond: String) {
-        self.channels.send_logger(self.id, &respond);
+        self.channels.send_logger(self.id, &respond, self.config.verbose());
     }
 }

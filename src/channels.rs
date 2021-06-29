@@ -6,29 +6,33 @@ use crate::matcher::matcher;
 
 pub const MONITOR: &str = "Monitor";
 pub const LOGGER: &str = "Logger";
+pub const SPECIAL_CHANNELS_ID: u32 = 0;
 
 type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
+type SendersLog = Arc<Mutex<Vec<Sender<(String, bool)>>>>;
 
 pub struct Channels {
     channels: Dictionary,
+    log_chanel: SendersLog
 }
 
 impl<'a> Clone for Channels {
     fn clone(&self) -> Self {
-        Channels::new_from_channels(self.channels.clone())
+        Channels::new_from_channels(self.channels.clone(), self.log_chanel.clone())
     }
 }
 
 impl Channels {
-    fn new_from_channels(channels: Dictionary) -> Self {
-        Channels { channels }
+    fn new_from_channels(channels: Dictionary, log_chanel: SendersLog) -> Self {
+        Channels { channels, log_chanel}
     }
 
     pub fn new() -> Channels {
         let mut hash = HashMap::new();
         hash.insert(MONITOR.to_string(), Vec::new());
         let channels = Arc::new(Mutex::new(hash));
-        Channels { channels }
+        let log_chanel = Arc::new(Mutex::new(Vec::new()));
+        Channels { channels, log_chanel }
     }
 
     pub fn add_to_channel(&mut self, channel: &str, sender: Sender<String>, id: u32) {
@@ -41,8 +45,10 @@ impl Channels {
         }
     }
 
-    pub fn add_logger(&mut self, logger_sender: Sender<String>) {
-        self.add_to_channel(LOGGER, logger_sender, 0);
+    pub fn add_logger(&mut self, logger_sender: Sender<(String, bool)>) {
+        let mut guard = self.log_chanel.lock().unwrap();
+        guard.push(logger_sender)
+        // self.add_to_channel(LOGGER, logger_sender, SPECIAL_CHANNELS_ID);
     }
 
     pub fn unsubscribe(&mut self, channel: &str, id: u32) {
@@ -68,9 +74,13 @@ impl Channels {
         }
     }
 
-    pub fn send_logger(&mut self, id: u32, msg: &str) {
+    pub fn send_logger(&mut self, id: u32, msg: &str, verbose: bool) {
         let msg: String = id.to_string() + " " + " " + msg;
-        self.send(LOGGER, &msg);
+        let msg = (msg, verbose);
+        let guard = self.log_chanel.lock().unwrap();
+        guard.iter().for_each(|x| {
+            x.send(msg.clone()).unwrap();
+        });
     }
 
     pub fn send_monitor(&mut self, id: u32, msg: &str) {
@@ -83,7 +93,7 @@ impl Channels {
         let mut guard = self.channels.lock().unwrap();
 
         let list = guard.get_mut(MONITOR).unwrap();
-        list.push((0, s));
+        list.push((SPECIAL_CHANNELS_ID, s));
 
         r
     }
