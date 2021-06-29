@@ -109,7 +109,14 @@ impl<'a> Request<'a> {
             },
             ["llen", key] => Request::DataBase(Query::Llen(key)),
             ["lpop", key] => Request::DataBase(Query::Lpop(key)),
-            ["lpush", key, value] => Request::DataBase(Query::Lpush(key, value)),
+            ["lpush", key, ..] => {
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)    
+                } else {
+                    Request::DataBase(Query::Lpush(key, tail.to_vec()))
+                }
+            }
             ["lpushx", key, value] => Request::DataBase(Query::Lpushx(key, value)),
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
@@ -448,7 +455,7 @@ pub enum Query<'a> {
     Lindex(&'a str, i32),
     Llen(&'a str),
     Lpop(&'a str),
-    Lpush(&'a str, &'a str),
+    Lpush(&'a str, Vec<&'a str>),
     Lpushx(&'a str, &'a str),
     Lrange(&'a str, i32, i32),
     Lrem(&'a str, i32, &'a str),
@@ -492,7 +499,7 @@ impl<'a> Query<'a> {
             Query::Lindex(key, indx) => db.lindex(&key, indx),
             Query::Llen(key) => db.llen(&key),
             Query::Lpop(key) => db.lpop(&key),
-            Query::Lpush(key, value) => db.lpush(&key, value),
+            Query::Lpush(key, values) => db.lpush(&key, values),
             Query::Lpushx(key, value) => db.lpushx(&key, value),
             Query::Lrange(key, ini, end) => db.lrange(&key, ini, end),
             Query::Lrem(key, count, value) => db.lrem(&key, count, value),
@@ -566,8 +573,8 @@ impl<'a> Display for Query<'a> {
             }
             Query::Llen(key) => write!(f, "Llen - Key {}", key),
             Query::Lpop(key) => write!(f, "Lpop - Key {}", key),
-            Query::Lpush(key, value) => {
-                write!(f, "Lpush - Key: {} - Value: {}", key, value)
+            Query::Lpush(key, values) => {
+                write!(f, "Lpush - Key: {} - Value: {}", key, vec_to_string(values))
             }
             Query::Lpushx(key, value) => {
                 write!(f, "Lpushx - Key: {} - Value: {}", key, value)
