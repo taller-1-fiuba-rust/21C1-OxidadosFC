@@ -40,13 +40,14 @@ impl Client {
         let mut subscription_mode = false;
 
         while a_live {
-            let time_out = self.config.get_time_out();
+            let time_out = self.config.time_out();
             let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
                 None
             };
 
+            let verbose = self.config.verbose();
             self.stream.set_read_timeout(time_out).unwrap();
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
@@ -57,7 +58,7 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(query.to_string());
+                                self.emit_request(query.to_string(), verbose);
                                 query.exec_query(&mut self.database)
                             }
                         }
@@ -65,7 +66,7 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
+                                self.emit_request(request.to_string(), verbose);
                                 request.exec_request(&mut self.config)
                             }
                         }
@@ -73,12 +74,12 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
+                                self.emit_request(request.to_string(), verbose);
                                 request.execute(&mut self.channels)
                             }
                         }
                         Request::Suscriber(request) => {
-                            self.emit_request(request.to_string());
+                            self.emit_request(request.to_string(), verbose);
                             request.execute(
                                 &mut self.stream,
                                 &mut self.channels,
@@ -93,7 +94,7 @@ impl Client {
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string());
+                    self.emit_reponse(respond.to_string(), verbose);
                     respond.respond(&mut self.stream);
                 }
                 Err(error) => {
@@ -109,12 +110,12 @@ impl Client {
         }
     }
 
-    fn emit_request(&mut self, request: String) {
-        self.channels.send_logger(self.id, &request, self.config.verbose());
+    fn emit_request(&mut self, request: String, verbose: bool) {
+        self.channels.send_logger(self.id, &request, verbose);
         self.channels.send_monitor(self.id, &request);
     }
 
-    fn emit_reponse(&mut self, respond: String) {
-        self.channels.send_logger(self.id, &respond, self.config.verbose());
+    fn emit_reponse(&mut self, respond: String, verbose: bool) {
+        self.channels.send_logger(self.id, &respond, verbose);
     }
 }
