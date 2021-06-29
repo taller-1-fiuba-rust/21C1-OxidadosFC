@@ -168,7 +168,7 @@ impl ServerConf {
     pub fn verbose(&self) -> bool {
         if let Some(value) = self.conf.lock().unwrap().get(VERBOSE) {
             if let Ok(v) = value.parse::<u64>() {
-                return v != 0
+                return v != 0;
             }
         }
 

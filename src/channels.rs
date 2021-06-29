@@ -12,7 +12,7 @@ type SendersLog = Arc<Mutex<Vec<Sender<(String, bool)>>>>;
 
 pub struct Channels {
     channels: Dictionary,
-    log_chanel: SendersLog
+    log_chanel: SendersLog,
 }
 
 impl<'a> Clone for Channels {
@@ -23,7 +23,10 @@ impl<'a> Clone for Channels {
 
 impl Channels {
     fn new_from_channels(channels: Dictionary, log_chanel: SendersLog) -> Self {
-        Channels { channels, log_chanel}
+        Channels {
+            channels,
+            log_chanel,
+        }
     }
 
     pub fn new() -> Channels {
@@ -31,7 +34,10 @@ impl Channels {
         hash.insert(MONITOR.to_string(), Vec::new());
         let channels = Arc::new(Mutex::new(hash));
         let log_chanel = Arc::new(Mutex::new(Vec::new()));
-        Channels { channels, log_chanel }
+        Channels {
+            channels,
+            log_chanel,
+        }
     }
 
     pub fn add_to_channel(&mut self, channel: &str, sender: Sender<String>, id: u32) {

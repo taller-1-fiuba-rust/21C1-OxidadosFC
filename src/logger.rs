@@ -5,6 +5,9 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
+type LogSender = Sender<(String, bool)>;
+type LogReceiver = Receiver<(String, bool)>;
+
 pub struct Logger {
     file_path: String,
 }
@@ -16,7 +19,7 @@ impl Logger {
     }
 
     pub fn run(&mut self) -> Sender<(String, bool)> {
-        let (log_sender, log_rec): (Sender<(String, bool)>, Receiver<(String, bool)>) = mpsc::channel();
+        let (log_sender, log_rec): (LogSender, LogReceiver) = mpsc::channel();
         let path = self.file_path.clone();
 
         thread::spawn(move || {
@@ -26,7 +29,7 @@ impl Logger {
                 if let Err(e) = writeln!(logger, "{}", &msg.0) {
                     eprintln!("Couldn't write: {}", e);
                 }
-             
+
                 if msg.1 {
                     println!("{}", msg.0)
                 }
