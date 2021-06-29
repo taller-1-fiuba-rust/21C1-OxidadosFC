@@ -50,6 +50,44 @@ impl<'a> Request<'a> {
             ["exists", key] => Request::DataBase(Query::Exists(key)),
             ["keys", pattern] => Request::DataBase(Query::Keys(pattern)),
             ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
+            ["sort", key, ..] => {
+                let tail = &request[2..];
+                let mut pos_begin_unwrap = 0;
+                let mut num_elem_unwrap = -1;
+                let mut alpha = 0;
+                let mut desc = 0;
+
+                for elem in tail.iter() {
+                    if elem.contains("alpha") {
+                        alpha = 1;
+                    }
+                    if elem.contains("desc") {
+                        desc = 1;
+                    }
+                    if elem.contains("limit") {
+                        if let (Some(pos_begin), Some(num_elems)) = (
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1),
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2),
+                        ) {
+                            if let (Ok(num_pos_begin), Ok(num_elems)) =
+                                (pos_begin.parse::<i32>(), num_elems.parse::<i32>())
+                            {
+                                pos_begin_unwrap = num_pos_begin;
+                                num_elem_unwrap = num_elems;
+                                continue;
+                            };
+                            return Request::Invalid(request_str, RequestError::ParseError);
+                        };
+                    }
+                }
+                Request::DataBase(Query::Sort(
+                    key,
+                    pos_begin_unwrap,
+                    num_elem_unwrap,
+                    alpha,
+                    desc,
+                ))
+            }
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
             ["mset", ..] => {
                 let tail = &request[1..];
@@ -386,17 +424,18 @@ impl<'a> Display for PublisherRequest<'a> {
 pub enum Query<'a> {
     Flushdb(),
     Dbsize(),
-    Expire(&'a str, i64),
-    ExpireAt(&'a str, i64),
-    Persist(&'a str),
-    Ttl(&'a str),
-    Type(&'a str),
-    Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
     Exists(&'a str),
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
     Keys(&'a str),
+    Persist(&'a str),
     Rename(&'a str, &'a str),
+    Sort(&'a str, i32, i32, i32, i32),
+    Ttl(&'a str),
+    Type(&'a str),
+    Get(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -444,6 +483,9 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
+            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc) => {
+                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc)
+            }
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
             Query::Mget(vec_str) => db.mget(vec_str),
@@ -511,6 +553,13 @@ impl<'a> Display for Query<'a> {
             Query::Keys(pattern) => write!(f, "Keys - Pattern: {}", pattern),
             Query::Rename(old_key, new_key) => {
                 write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
+            }
+            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc) => {
+                write!(
+                    f,
+                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}",
+                    key, pos_begin, num_elems, alpha, asc_desc
+                )
             }
             Query::Lindex(key, indx) => {
                 write!(f, "Lindex - Key: {} - Index: {}", key, indx)
