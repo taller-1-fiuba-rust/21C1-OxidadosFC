@@ -608,8 +608,8 @@ impl Database {
 
     pub fn lpush(&self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut result = self.lpush_one(key, values[0]);
-        for i in 1..values.len() {
-            result = self.lpush_one(key, values[i])
+        for item in values.iter().skip(1) {
+            result = self.lpush_one(key, item)
         }
 
         result
@@ -1728,7 +1728,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -1753,7 +1755,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_without_flags_return_err_if_elem_in_list_are_not_numbers() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_2, VALUE_A].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_A].to_vec())
+                .unwrap();
 
             let result = database.sort(
                 LIST,
@@ -1769,7 +1773,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_alpha_on_return_sorted_list_with_numbers_and_string_values() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -1794,7 +1800,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_desc_on_return_sorted_list_with_numbers_descending() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -1819,7 +1827,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_count_0_return_empty_list() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -1839,7 +1849,9 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_count_in_range_of_list_return_sorted_list_with_count_elem(
         ) {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(LIST, &LIMIT_OFFSET_OFF, &2, &ALPHA_OFF, &DESC_OFF)
@@ -1859,7 +1871,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_count_negative_return_sorted_list_with_all_elements() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(LIST, &LIMIT_OFFSET_OFF, &-1, &ALPHA_OFF, &DESC_OFF)
@@ -1879,7 +1893,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_neg_count_0_return_emptylist() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(LIST, &-2, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF)
@@ -1892,7 +1908,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_out_of_range_of_list_count_return_empty_list() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(LIST, &4, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF)
@@ -1906,7 +1924,9 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_negative_count_negative_return_sorted_list_with_all_elements(
         ) {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(LIST, &-2, &-2, &ALPHA_OFF, &DESC_OFF)
@@ -1926,7 +1946,9 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_in_range_count_2_return_sorted_sublist_of_2_elements() {
             let database = create_database();
-            database.lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec()).unwrap();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
 
             if let SuccessQuery::List(list) =
                 database.sort(LIST, &1, &2, &ALPHA_OFF, &DESC_OFF).unwrap()
@@ -2209,7 +2231,9 @@ mod group_list {
         fn test_lpush_more_than_one_value_with_a_key_non_existent() {
             let database = create_database();
 
-            let result = database.lpush(KEY, [VALUEA, VALUEB, VALUEC].to_vec()).unwrap();
+            let result = database
+                .lpush(KEY, [VALUEA, VALUEB, VALUEC].to_vec())
+                .unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(3));
 

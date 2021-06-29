@@ -112,7 +112,7 @@ impl<'a> Request<'a> {
             ["lpush", key, ..] => {
                 let tail = &request[2..];
                 if tail.is_empty() {
-                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)    
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
                 } else {
                     Request::DataBase(Query::Lpush(key, tail.to_vec()))
                 }
