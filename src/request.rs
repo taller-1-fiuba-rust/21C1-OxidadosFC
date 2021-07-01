@@ -56,6 +56,7 @@ impl<'a> Request<'a> {
                 let mut num_elem_unwrap = -1;
                 let mut alpha = 0;
                 let mut desc = 0;
+                let mut pattern_unwrap = None;
 
                 for elem in tail.iter() {
                     if elem.contains("alpha") {
@@ -79,6 +80,13 @@ impl<'a> Request<'a> {
                             return Request::Invalid(request_str, RequestError::ParseError);
                         };
                     }
+                    if elem.contains("by"){
+                        if let Some(pattern) = tail.get(tail.iter().position(|r| *r == "by").unwrap() + 1){
+                            pattern_unwrap = Some(pattern.to_owned());
+                            continue;
+                        }
+                        return Request::Invalid(request_str, RequestError::ParseError)
+                    }
                 }
                 Request::DataBase(Query::Sort(
                     key,
@@ -86,6 +94,7 @@ impl<'a> Request<'a> {
                     num_elem_unwrap,
                     alpha,
                     desc,
+                    pattern_unwrap
                 ))
             }
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
@@ -432,7 +441,7 @@ pub enum Query<'a> {
     Keys(&'a str),
     Persist(&'a str),
     Rename(&'a str, &'a str),
-    Sort(&'a str, i32, i32, i32, i32),
+    Sort(&'a str, i32, i32, i32, i32, Option<&'a str>),
     Ttl(&'a str),
     Type(&'a str),
     Get(&'a str),
@@ -483,8 +492,8 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
-            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc) => {
-                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc)
+            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc, pattern) => {
+                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc, &pattern)
             }
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
@@ -554,11 +563,11 @@ impl<'a> Display for Query<'a> {
             Query::Rename(old_key, new_key) => {
                 write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
             }
-            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc) => {
+            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc, pattern) => {
                 write!(
                     f,
-                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}",
-                    key, pos_begin, num_elems, alpha, asc_desc
+                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {} - Pattern {}",
+                    key, pos_begin, num_elems, alpha, asc_desc, pattern.unwrap_or("None")
                 )
             }
             Query::Lindex(key, indx) => {
