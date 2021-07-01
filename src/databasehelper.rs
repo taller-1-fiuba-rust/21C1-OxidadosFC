@@ -97,6 +97,7 @@ pub enum DataBaseError {
     NotAList,
     IndexOutOfRange,
     SortParseError,
+    SortByParseError,
 }
 
 impl fmt::Display for DataBaseError {
@@ -111,6 +112,9 @@ impl fmt::Display for DataBaseError {
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
             DataBaseError::SortParseError => {
                 write!(f, "One or more elements in list/set are not numeric type")
+            }
+            DataBaseError::SortByParseError => {
+                write!(f, "pattern has keys that values hasn't parse to number")
             }
         }
     }

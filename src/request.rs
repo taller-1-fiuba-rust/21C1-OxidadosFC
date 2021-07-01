@@ -80,12 +80,14 @@ impl<'a> Request<'a> {
                             return Request::Invalid(request_str, RequestError::ParseError);
                         };
                     }
-                    if elem.contains("by"){
-                        if let Some(pattern) = tail.get(tail.iter().position(|r| *r == "by").unwrap() + 1){
+                    if elem.contains("by") {
+                        if let Some(pattern) =
+                            tail.get(tail.iter().position(|r| *r == "by").unwrap() + 1)
+                        {
                             pattern_unwrap = Some(pattern.to_owned());
                             continue;
                         }
-                        return Request::Invalid(request_str, RequestError::ParseError)
+                        return Request::Invalid(request_str, RequestError::ParseError);
                     }
                 }
                 Request::DataBase(Query::Sort(
@@ -94,7 +96,7 @@ impl<'a> Request<'a> {
                     num_elem_unwrap,
                     alpha,
                     desc,
-                    pattern_unwrap
+                    pattern_unwrap,
                 ))
             }
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
@@ -492,9 +494,14 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
-            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc, pattern) => {
-                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc, &pattern)
-            }
+            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc, pattern) => db.sort(
+                &key,
+                &pos_begin_unwrap,
+                &num_elem_unwrap,
+                &alpha,
+                &desc,
+                &pattern,
+            ),
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
             Query::Mget(vec_str) => db.mget(vec_str),
@@ -567,7 +574,12 @@ impl<'a> Display for Query<'a> {
                 write!(
                     f,
                     "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {} - Pattern {}",
-                    key, pos_begin, num_elems, alpha, asc_desc, pattern.unwrap_or("None")
+                    key,
+                    pos_begin,
+                    num_elems,
+                    alpha,
+                    asc_desc,
+                    pattern.unwrap_or("None")
                 )
             }
             Query::Lindex(key, indx) => {
