@@ -3,7 +3,7 @@ use crate::database::Database;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
 
@@ -14,6 +14,7 @@ pub struct Client {
     subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
+    uptime: SystemTime
 }
 
 impl Client {
@@ -24,6 +25,7 @@ impl Client {
         subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
+        uptime: SystemTime
     ) -> Client {
         Client {
             stream,
@@ -32,6 +34,7 @@ impl Client {
             subscriptions,
             config,
             id,
+            uptime
         }
     }
 
@@ -66,7 +69,7 @@ impl Client {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(request.to_string());
-                                request.exec_request(&mut self.config)
+                                request.exec_request(&mut self.config, self.uptime)
                             }
                         }
                         Request::Publisher(request) => {

@@ -6,6 +6,7 @@ use crate::server_conf::ServerConf;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use std::thread;
 
 pub struct Server {
@@ -14,6 +15,7 @@ pub struct Server {
     config: ServerConf,
     next_id: Arc<Mutex<u32>>,
     channels: Channels,
+    uptime: SystemTime
 }
 
 impl Server {
@@ -23,6 +25,7 @@ impl Server {
         let database = Database::new();
         let next_id = Arc::new(Mutex::new(1));
         let channels = Channels::new();
+        let uptime = SystemTime::now();
 
         Ok(Server {
             database,
@@ -30,6 +33,7 @@ impl Server {
             config,
             next_id,
             channels,
+            uptime
         })
     }
 
@@ -38,8 +42,9 @@ impl Server {
         let config = self.config.clone();
         let channels = self.channels.clone();
         let subscriptions = Vec::new();
+        let uptime = self.uptime;
 
-        Client::new(stream, database, channels, subscriptions, config, id)
+        Client::new(stream, database, channels, subscriptions, config, id, uptime)
     }
 
     fn run_logger(&self) -> Sender<String> {
