@@ -6,6 +6,7 @@ use crate::server_conf::ServerConf;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::SystemTime;
 
 pub struct Server {
     database: Database,
@@ -13,6 +14,8 @@ pub struct Server {
     config: ServerConf,
     next_id: Arc<Mutex<u32>>,
     channels: Channels,
+    uptime: SystemTime,
+    clients: Arc<Mutex<u64>>,
 }
 
 impl Server {
@@ -22,6 +25,8 @@ impl Server {
         let database = Database::new();
         let next_id = Arc::new(Mutex::new(1));
         let channels = Channels::new();
+        let uptime = SystemTime::now();
+        let clients = Arc::new(Mutex::new(0));
 
         Ok(Server {
             database,
@@ -29,24 +34,19 @@ impl Server {
             config,
             next_id,
             channels,
+            uptime,
+            clients,
         })
     }
 
     fn new_client(&self, stream: TcpStream, id: u32, logger_ref: Arc<Mutex<Logger>>) -> Client {
-        let database = self.database.clone();
-        let config = self.config.clone();
-        let channels = self.channels.clone();
         let subscriptions = Vec::new();
+        let total_clients = self.clients.clone();
+        let mut clients = self.clients.lock().unwrap();
+        *clients += 1;
+        drop(clients);
 
-        Client::new(
-            stream,
-            database,
-            channels,
-            subscriptions,
-            config,
-            id,
-            logger_ref,
-        )
+        Client::new(stream, subscriptions, id, total_clients, logger_ref)
     }
 
     // fn run_logger(&self) -> Sender<(String, bool)> {
@@ -74,10 +74,14 @@ impl Server {
                 Err(e) => eprintln!("failed: {}", e),
                 Ok(stream) => {
                     let id = self.get_next_id();
+                    let database = self.database.clone();
+                    let channels = self.channels.clone();
+                    let uptime = self.uptime;
+                    let config = self.config.clone();
                     let mut client = self.new_client(stream, id, logger_ref);
 
                     thread::spawn(move || {
-                        client.handle_client();
+                        client.handle_client(database, channels, uptime, config);
                     });
                 }
             }

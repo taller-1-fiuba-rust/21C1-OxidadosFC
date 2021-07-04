@@ -1,11 +1,13 @@
 use crate::channels::Channels;
 use crate::database::Database;
-use crate::server_conf::ServerConf;
+use crate::server_conf::{ServerConf, SuccessServerRequest};
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::channel;
-use std::thread;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use std::{process, thread};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
@@ -177,6 +179,7 @@ impl<'a> Request<'a> {
                     tail.to_vec(),
                 )))
             }
+            ["info"] => Request::Server(ServerRequest::Info()),
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
@@ -215,13 +218,37 @@ impl<'a> Display for RequestError {
 pub enum ServerRequest<'a> {
     ConfigGet(&'a str),
     ConfigSet(&'a str, &'a str),
+    Info(),
 }
 
 impl<'a> ServerRequest<'a> {
-    pub fn exec_request(self, conf: &mut ServerConf) -> Reponse {
+    pub fn exec_request(
+        self,
+        conf: &mut ServerConf,
+        uptime: SystemTime,
+        total_clients: Arc<Mutex<u64>>,
+    ) -> Reponse {
         let result = match self {
             ServerRequest::ConfigGet(option) => conf.get_config(option),
             ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
+            ServerRequest::Info() => {
+                let mut r = format!("process_id:{}\r\n", process::id());
+                r.push_str(&format!("tcp_port:{}\r\n", conf.port()));
+                let now = SystemTime::now();
+                let uptime_in_seconds = now
+                    .duration_since(uptime)
+                    .expect("Clock may have gone backwards");
+                r.push_str(&format!(
+                    "uptime_in_seconds:{}\r\n",
+                    uptime_in_seconds.as_secs()
+                ));
+                let uptime_in_days: u64 = uptime_in_seconds.as_secs() / (60 * 60 * 24);
+                r.push_str(&format!("uptime_in_days:{}\r\n", uptime_in_days));
+                let clients = total_clients.lock().unwrap();
+                r.push_str(&format!("clients:{}", clients));
+
+                Ok(SuccessServerRequest::String(r))
+            }
         };
 
         match result {
@@ -235,13 +262,14 @@ impl<'a> Display for ServerRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             ServerRequest::ConfigGet(pattern) => {
-                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+                write!(f, "Config get - Pattern: {}", pattern)
             }
             ServerRequest::ConfigSet(option, new_value) => write!(
                 f,
-                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                "Config set - Option: {} - NewValue: {}",
                 option, new_value
             ),
+            ServerRequest::Info() => write!(f, "Info"),
         }
     }
 }
@@ -264,6 +292,7 @@ impl<'a> SuscriberRequest<'a> {
         match self {
             Self::Monitor => {
                 let r = channels.add_monitor();
+                Reponse::Valid("Ok".to_string()).respond(stream);
 
                 for msg in r.iter() {
                     let respons = Reponse::Valid(msg);
@@ -621,6 +650,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
+        Ok(0) => Err("EOF".to_string()),
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
             Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
             _ => Ok("".to_string()),

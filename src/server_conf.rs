@@ -12,8 +12,8 @@ const PORT: &str = "port";
 const TIMEOUT: &str = "timeout";
 const DBFILENAME: &str = "dbfilename";
 const LOGFILE: &str = "logfile";
-const DEFAULT_VERBOSE: u32 = 0;
-const DEFAULT_PORT: &str = "8888";
+const DEFAULT_VERBOSE: u64 = 0;
+const DEFAULT_PORT: u64 = 8888;
 const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.rdb";
 const DEFAULT_LOGFILE: &str = "lf.log";
@@ -78,16 +78,21 @@ impl ServerConf {
         Ok(ServerConf { conf })
     }
 
-    pub fn addr(&self) -> String {
+    pub fn port(&self) -> u64 {
         let conf = self.conf.lock().unwrap();
 
         if let Some(value) = conf.get(PORT) {
             if let Ok(v) = value.parse::<u64>() {
-                return "0.0.0.0:".to_owned() + &v.to_string();
+                return v;
             }
         }
 
-        "0.0.0.0:".to_owned() + DEFAULT_PORT
+        DEFAULT_PORT
+    }
+
+    pub fn addr(&self) -> String {
+        let port = self.port();
+        "0.0.0.0:".to_owned() + &port.to_string()
     }
 
     pub fn logfile(&self) -> String {
