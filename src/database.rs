@@ -1889,7 +1889,7 @@ mod group_keys {
         fn test_sort_list_with_alpha_on_return_sorted_list_with_numbers_and_string_values() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .lpush(LIST, [VALUE_A, VALUE_2, VALUE_NEG_1].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
