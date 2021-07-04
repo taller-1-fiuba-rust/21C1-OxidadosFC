@@ -1,38 +1,48 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 
 pub struct Logger {
     file_path: String,
+    verbose: Arc<AtomicBool>,
 }
 
 impl Logger {
-    pub fn new(file_path: &str) -> Logger {
+    pub fn new(file_path: &str, verbose: bool) -> Logger {
         let file_path = file_path.to_string();
-        Logger { file_path }
+        let verbose = Arc::new(AtomicBool::new(verbose));
+        Logger { file_path, verbose }
     }
 
-    // pub fn run(&mut self) -> Sender<(String, String)> {
     pub fn run(&mut self) -> Sender<String> {
-        // let (log_sender, log_rec) : (Sender<(String,String)> , Reeiver<(String,String)> ) = mpsc::channel();
         let (log_sender, log_rec): (Sender<String>, Receiver<String>) = mpsc::channel();
         let path = self.file_path.clone();
+        let verbose = self.verbose.clone();
 
         thread::spawn(move || {
             let mut logger = open_logger(&path).unwrap();
 
             for msg in log_rec.iter() {
-                // let msg = msg.0 + " " + " " + &msg.1;
                 if let Err(e) = writeln!(logger, "{}", &msg) {
                     eprintln!("Couldn't write: {}", e);
+                }
+
+                if verbose.load(Ordering::Relaxed) {
+                    println!("{}", msg)
                 }
             }
         });
 
         log_sender
+    }
+
+    pub fn set_verbose(&mut self, new_value: bool) {
+        self.verbose.store(new_value, Ordering::Relaxed);
     }
 }
 
@@ -61,7 +71,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message() {
-        let mut logger = Logger::new("log_testA.log");
+        let mut logger = Logger::new("log_testA.log", false);
         let sen = logger.run();
 
         sen.send("Message".to_owned()).unwrap();
@@ -83,7 +93,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_two_message() {
-        let mut logger = Logger::new("log_testB.log");
+        let mut logger = Logger::new("log_testB.log", false);
 
         let sen = logger.run();
 
@@ -110,7 +120,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message_from_two_senders() {
-        let mut logger = Logger::new("log_testC.log");
+        let mut logger = Logger::new("log_testC.log", false);
         let sen = logger.run();
 
         let sen1 = sen.clone();

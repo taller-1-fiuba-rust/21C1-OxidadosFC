@@ -1,8 +1,10 @@
 use crate::channels::Channels;
 use crate::database::Database;
+use crate::logger::Logger;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
@@ -14,6 +16,7 @@ pub struct Client {
     subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
+    logger_ref: Arc<Mutex<Logger>>,
 }
 
 impl Client {
@@ -24,6 +27,7 @@ impl Client {
         subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
+        logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
         Client {
             stream,
@@ -32,6 +36,7 @@ impl Client {
             subscriptions,
             config,
             id,
+            logger_ref,
         }
     }
 
@@ -40,7 +45,7 @@ impl Client {
         let mut subscription_mode = false;
 
         while a_live {
-            let time_out = self.config.get_time_out();
+            let time_out = self.config.time_out();
             let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
@@ -48,6 +53,11 @@ impl Client {
             };
 
             self.stream.set_read_timeout(time_out).unwrap();
+
+            let mut logger = self.logger_ref.lock().unwrap();
+            logger.set_verbose(self.config.verbose());
+            drop(logger);
+
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
@@ -93,7 +103,11 @@ impl Client {
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string());
+
+                    if let Reponse::Valid(msg) = &respond {
+                        self.emit_reponse(msg.to_string());
+                    }
+
                     respond.respond(&mut self.stream);
                 }
                 Err(error) => {
