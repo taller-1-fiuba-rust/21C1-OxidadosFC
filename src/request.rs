@@ -633,7 +633,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
-        Ok(0) => Ok("close".to_string()),
+        Ok(0) => Err("EOF".to_string()),
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
             Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
             _ => Ok("".to_string()),

@@ -105,6 +105,11 @@ impl Client {
                     self.emit_reponse(respond.to_string());
                     respond.respond(&mut self.stream);
                 }
+                Err(eof) if eof == "EOF"=> {
+                    a_live = false;
+                    let mut clients = self.total_clients.lock().unwrap();
+                    *clients = *clients - 1;
+                }
                 Err(error) => {
                     a_live = false;
                     let mut clients = self.total_clients.lock().unwrap();
