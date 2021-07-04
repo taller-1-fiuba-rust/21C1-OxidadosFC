@@ -4,6 +4,7 @@ use crate::server_conf::{ServerConf, SuccessServerRequest};
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use std::{process, thread};
 use std::time::SystemTime;
@@ -214,7 +215,7 @@ pub enum ServerRequest<'a> {
 }
 
 impl<'a> ServerRequest<'a> {
-    pub fn exec_request(self, conf: &mut ServerConf, uptime: SystemTime) -> Reponse {
+    pub fn exec_request(self, conf: &mut ServerConf, uptime: SystemTime, total_clients: Arc<Mutex<u64>>) -> Reponse {
         let result = match self {
             ServerRequest::ConfigGet(option) => conf.get_config(option),
             ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
@@ -226,6 +227,8 @@ impl<'a> ServerRequest<'a> {
                 r.push_str(&format!("uptime_in_seconds:{}\r\n", uptime_in_seconds.as_secs()));
                 let uptime_in_days: u64 = uptime_in_seconds.as_secs() / (60 * 60 * 24);
                 r.push_str(&format!("uptime_in_days:{}\r\n", uptime_in_days));
+                let clients = total_clients.lock().unwrap();
+                r.push_str(&format!("clients:{}", clients));
 
                 Ok(SuccessServerRequest::String(r))
             }
@@ -272,6 +275,7 @@ impl<'a> SuscriberRequest<'a> {
         match self {
             Self::Monitor => {
                 let r = channels.add_monitor();
+                Reponse::Valid("Ok".to_string()).respond(stream);
 
                 for msg in r.iter() {
                     let respons = Reponse::Valid(msg);
@@ -629,6 +633,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
+        Ok(0) => Ok("close".to_string()),
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
             Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
             _ => Ok("".to_string()),

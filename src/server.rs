@@ -15,7 +15,8 @@ pub struct Server {
     config: ServerConf,
     next_id: Arc<Mutex<u32>>,
     channels: Channels,
-    uptime: SystemTime
+    uptime: SystemTime,
+    clients: Arc<Mutex<u64>>
 }
 
 impl Server {
@@ -26,6 +27,7 @@ impl Server {
         let next_id = Arc::new(Mutex::new(1));
         let channels = Channels::new();
         let uptime = SystemTime::now();
+        let clients = Arc::new(Mutex::new(0));
 
         Ok(Server {
             database,
@@ -33,7 +35,8 @@ impl Server {
             config,
             next_id,
             channels,
-            uptime
+            uptime,
+            clients
         })
     }
 
@@ -43,8 +46,9 @@ impl Server {
         let channels = self.channels.clone();
         let subscriptions = Vec::new();
         let uptime = self.uptime;
+        let clients = self.clients.clone();
 
-        Client::new(stream, database, channels, subscriptions, config, id, uptime)
+        Client::new(stream, database, channels, subscriptions, config, id, uptime, clients)
     }
 
     fn run_logger(&self) -> Sender<String> {
@@ -70,6 +74,8 @@ impl Server {
                 Ok(stream) => {
                     let id = self.get_next_id();
                     let mut client = self.new_client(stream, id);
+                    let mut clients = self.clients.lock().unwrap();
+                    *clients = *clients + 1;
 
                     thread::spawn(move || {
                         client.handle_client();

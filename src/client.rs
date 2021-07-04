@@ -3,6 +3,7 @@ use crate::database::Database;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
@@ -14,7 +15,8 @@ pub struct Client {
     subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
-    uptime: SystemTime
+    uptime: SystemTime,
+    total_clients: Arc<Mutex<u64>>
 }
 
 impl Client {
@@ -25,7 +27,8 @@ impl Client {
         subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
-        uptime: SystemTime
+        uptime: SystemTime,
+        total_clients: Arc<Mutex<u64>>
     ) -> Client {
         Client {
             stream,
@@ -34,7 +37,8 @@ impl Client {
             subscriptions,
             config,
             id,
-            uptime
+            uptime,
+            total_clients
         }
     }
 
@@ -69,7 +73,7 @@ impl Client {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(request.to_string());
-                                request.exec_request(&mut self.config, self.uptime)
+                                request.exec_request(&mut self.config, self.uptime, self.total_clients.clone())
                             }
                         }
                         Request::Publisher(request) => {
@@ -93,6 +97,8 @@ impl Client {
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),
                         Request::CloseClient => {
                             a_live = false;
+                            let mut clients = self.total_clients.lock().unwrap();
+                            *clients = *clients - 1;
                             Reponse::Valid("OK".to_string())
                         }
                     };
@@ -101,6 +107,8 @@ impl Client {
                 }
                 Err(error) => {
                     a_live = false;
+                    let mut clients = self.total_clients.lock().unwrap();
+                    *clients = *clients - 1;
                     let response = Reponse::Error(error);
                     response.respond(&mut self.stream);
                 }
