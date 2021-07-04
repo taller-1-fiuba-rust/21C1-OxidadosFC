@@ -10,44 +10,38 @@ const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other c
 
 pub struct Client {
     stream: TcpStream,
-    database: Database,
-    channels: Channels,
     subscriptions: Vec<String>,
-    config: ServerConf,
     id: u32,
-    uptime: SystemTime,
     total_clients: Arc<Mutex<u64>>,
 }
 
 impl Client {
     pub fn new(
         stream: TcpStream,
-        database: Database,
-        channels: Channels,
         subscriptions: Vec<String>,
-        config: ServerConf,
         id: u32,
-        uptime: SystemTime,
         total_clients: Arc<Mutex<u64>>,
     ) -> Client {
         Client {
             stream,
-            database,
-            channels,
             subscriptions,
-            config,
             id,
-            uptime,
             total_clients,
         }
     }
 
-    pub fn handle_client(&mut self) {
+    pub fn handle_client(
+        &mut self,
+        mut database: Database,
+        mut channels: Channels,
+        uptime: SystemTime,
+        mut config: ServerConf,
+    ) {
         let mut a_live = true;
         let mut subscription_mode = false;
 
         while a_live {
-            let time_out = self.config.get_time_out();
+            let time_out = config.get_time_out();
             let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
@@ -64,18 +58,18 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(query.to_string());
-                                query.exec_query(&mut self.database)
+                                self.emit_request(query.to_string(), &mut channels);
+                                query.exec_query(&mut database)
                             }
                         }
                         Request::Server(request) => {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
+                                self.emit_request(request.to_string(), &mut channels);
                                 request.exec_request(
-                                    &mut self.config,
-                                    self.uptime,
+                                    &mut config,
+                                    uptime,
                                     self.total_clients.clone(),
                                 )
                             }
@@ -84,15 +78,15 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
-                                request.execute(&mut self.channels)
+                                self.emit_request(request.to_string(), &mut channels);
+                                request.execute(&mut channels)
                             }
                         }
                         Request::Suscriber(request) => {
-                            self.emit_request(request.to_string());
+                            self.emit_request(request.to_string(), &mut channels);
                             request.execute(
                                 &mut self.stream,
-                                &mut self.channels,
+                                &mut channels,
                                 &mut self.subscriptions,
                                 self.id,
                                 &mut subscription_mode,
@@ -106,7 +100,7 @@ impl Client {
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string());
+                    self.emit_reponse(respond.to_string(), &mut channels);
                     respond.respond(&mut self.stream);
                 }
                 Err(eof) if eof == "EOF" => {
@@ -125,16 +119,16 @@ impl Client {
         }
 
         for subs in self.subscriptions.iter() {
-            self.channels.unsubscribe(&subs, self.id);
+            channels.unsubscribe(&subs, self.id);
         }
     }
 
-    fn emit_request(&mut self, request: String) {
-        self.channels.send_logger(self.id, &request);
-        self.channels.send_monitor(self.id, &request);
+    fn emit_request(&mut self, request: String, channels: &mut Channels) {
+        channels.send_logger(self.id, &request);
+        channels.send_monitor(self.id, &request);
     }
 
-    fn emit_reponse(&mut self, respond: String) {
-        self.channels.send_logger(self.id, &respond);
+    fn emit_reponse(&mut self, respond: String, channels: &mut Channels) {
+        channels.send_logger(self.id, &respond);
     }
 }

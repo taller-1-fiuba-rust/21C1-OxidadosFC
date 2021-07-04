@@ -41,23 +41,13 @@ impl Server {
     }
 
     fn new_client(&self, stream: TcpStream, id: u32) -> Client {
-        let database = self.database.clone();
-        let config = self.config.clone();
-        let channels = self.channels.clone();
         let subscriptions = Vec::new();
-        let uptime = self.uptime;
-        let clients = self.clients.clone();
+        let total_clients = self.clients.clone();
+        let mut clients = self.clients.lock().unwrap();
+        *clients += 1;
+        drop(clients);
 
-        Client::new(
-            stream,
-            database,
-            channels,
-            subscriptions,
-            config,
-            id,
-            uptime,
-            clients,
-        )
+        Client::new(stream, subscriptions, id, total_clients)
     }
 
     fn run_logger(&self) -> Sender<String> {
@@ -83,11 +73,12 @@ impl Server {
                 Ok(stream) => {
                     let id = self.get_next_id();
                     let mut client = self.new_client(stream, id);
-                    let mut clients = self.clients.lock().unwrap();
-                    *clients += 1;
-
+                    let database = self.database.clone();
+                    let channels = self.channels.clone();
+                    let uptime = self.uptime;
+                    let config = self.config.clone();
                     thread::spawn(move || {
-                        client.handle_client();
+                        client.handle_client(database, channels, uptime, config);
                     });
                 }
             }
