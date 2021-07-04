@@ -16,7 +16,7 @@ pub struct Client {
     subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
-    logger_ref: Arc<Mutex<Logger>>
+    logger_ref: Arc<Mutex<Logger>>,
 }
 
 impl Client {
@@ -27,7 +27,7 @@ impl Client {
         subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
-        logger_ref: Arc<Mutex<Logger>>
+        logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
         Client {
             stream,
@@ -36,7 +36,7 @@ impl Client {
             subscriptions,
             config,
             id,
-            logger_ref
+            logger_ref,
         }
     }
 
@@ -57,7 +57,7 @@ impl Client {
             let mut logger = self.logger_ref.lock().unwrap();
             logger.set_verbose(self.config.verbose());
             drop(logger);
-            
+
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
@@ -107,7 +107,7 @@ impl Client {
                     if let Reponse::Valid(msg) = &respond {
                         self.emit_reponse(msg.to_string());
                     }
-                    
+
                     respond.respond(&mut self.stream);
                 }
                 Err(error) => {

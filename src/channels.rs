@@ -22,18 +22,14 @@ impl<'a> Clone for Channels {
 
 impl Channels {
     fn new_from_channels(channels: Dictionary) -> Self {
-        Channels {
-            channels,
-        }
+        Channels { channels }
     }
 
     pub fn new() -> Channels {
         let mut hash = HashMap::new();
         hash.insert(MONITOR.to_string(), Vec::new());
         let channels = Arc::new(Mutex::new(hash));
-        Channels {
-            channels
-        }
+        Channels { channels }
     }
 
     pub fn add_to_channel(&mut self, channel: &str, sender: Sender<String>, id: u32) {

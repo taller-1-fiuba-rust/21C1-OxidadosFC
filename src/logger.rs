@@ -1,22 +1,22 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 
 pub struct Logger {
     file_path: String,
-    verbose: Arc<Mutex<bool>>,
+    verbose: Arc<AtomicBool>,
 }
 
 impl Logger {
     pub fn new(file_path: &str, verbose: bool) -> Logger {
         let file_path = file_path.to_string();
-        let verbose = Arc::new(Mutex::new(verbose));
-        Logger { file_path , verbose }
+        let verbose = Arc::new(AtomicBool::new(verbose));
+        Logger { file_path, verbose }
     }
 
     pub fn run(&mut self) -> Sender<String> {
@@ -32,8 +32,7 @@ impl Logger {
                     eprintln!("Couldn't write: {}", e);
                 }
 
-                let verbose = verbose.lock().unwrap();
-                if *verbose {
+                if verbose.load(Ordering::Relaxed) {
                     println!("{}", msg)
                 }
             }
@@ -43,8 +42,7 @@ impl Logger {
     }
 
     pub fn set_verbose(&mut self, new_value: bool) {
-        let mut verbose = self.verbose.lock().unwrap();
-        *verbose = new_value;
+        self.verbose.store(new_value, Ordering::Relaxed);
     }
 }
 
