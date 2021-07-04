@@ -109,7 +109,10 @@ impl Client {
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string(), &mut channels);
+                    if let Reponse::Valid(msg) = &respond {
+                        self.emit_reponse(msg.to_string(), &mut channels);
+                    }
+
                     respond.respond(&mut self.stream);
                 }
                 Err(eof) if eof == "EOF" => {
