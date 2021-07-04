@@ -6,6 +6,7 @@ use crate::matcher::matcher;
 
 pub const MONITOR: &str = "Monitor";
 pub const LOGGER: &str = "Logger";
+pub const SPECIAL_CHANNELS_ID: u32 = 0;
 
 type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
 
@@ -42,7 +43,7 @@ impl Channels {
     }
 
     pub fn add_logger(&mut self, logger_sender: Sender<String>) {
-        self.add_to_channel(LOGGER, logger_sender, 0);
+        self.add_to_channel(LOGGER, logger_sender, SPECIAL_CHANNELS_ID);
     }
 
     pub fn unsubscribe(&mut self, channel: &str, id: u32) {
@@ -83,7 +84,7 @@ impl Channels {
         let mut guard = self.channels.lock().unwrap();
 
         let list = guard.get_mut(MONITOR).unwrap();
-        list.push((0, s));
+        list.push((SPECIAL_CHANNELS_ID, s));
 
         r
     }
@@ -92,7 +93,7 @@ impl Channels {
         let guard = self.channels.lock().unwrap();
         guard
             .keys()
-            .filter(|x| matcher(x, pattern) && *x != MONITOR && *x != LOGGER)
+            .filter(|x| matcher(x, pattern) && *x != MONITOR)
             .map(|item| item.to_string())
             .collect()
     }

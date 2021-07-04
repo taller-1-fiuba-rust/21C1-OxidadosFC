@@ -1,5 +1,6 @@
 use crate::channels::Channels;
 use crate::database::Database;
+use crate::logger::Logger;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
@@ -13,6 +14,7 @@ pub struct Client {
     subscriptions: Vec<String>,
     id: u32,
     total_clients: Arc<Mutex<u64>>,
+    logger_ref: Arc<Mutex<Logger>>,
 }
 
 impl Client {
@@ -21,12 +23,14 @@ impl Client {
         subscriptions: Vec<String>,
         id: u32,
         total_clients: Arc<Mutex<u64>>,
+        logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
         Client {
             stream,
             subscriptions,
             id,
             total_clients,
+            logger_ref,
         }
     }
 
@@ -41,7 +45,7 @@ impl Client {
         let mut subscription_mode = false;
 
         while a_live {
-            let time_out = config.get_time_out();
+            let time_out = config.time_out();
             let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
@@ -49,6 +53,11 @@ impl Client {
             };
 
             self.stream.set_read_timeout(time_out).unwrap();
+
+            let mut logger = self.logger_ref.lock().unwrap();
+            logger.set_verbose(config.verbose());
+            drop(logger);
+
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
