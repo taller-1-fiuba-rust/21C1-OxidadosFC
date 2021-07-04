@@ -4,10 +4,10 @@ use crate::server_conf::{ServerConf, SuccessServerRequest};
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
-use std::{process, thread};
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use std::{process, thread};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
@@ -211,11 +211,16 @@ impl<'a> Display for RequestError {
 pub enum ServerRequest<'a> {
     ConfigGet(&'a str),
     ConfigSet(&'a str, &'a str),
-    Info()
+    Info(),
 }
 
 impl<'a> ServerRequest<'a> {
-    pub fn exec_request(self, conf: &mut ServerConf, uptime: SystemTime, total_clients: Arc<Mutex<u64>>) -> Reponse {
+    pub fn exec_request(
+        self,
+        conf: &mut ServerConf,
+        uptime: SystemTime,
+        total_clients: Arc<Mutex<u64>>,
+    ) -> Reponse {
         let result = match self {
             ServerRequest::ConfigGet(option) => conf.get_config(option),
             ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
@@ -223,8 +228,13 @@ impl<'a> ServerRequest<'a> {
                 let mut r = format!("process_id:{}\r\n", process::id());
                 r.push_str(&format!("tcp_port:{}\r\n", conf.port()));
                 let now = SystemTime::now();
-                let uptime_in_seconds = now.duration_since(uptime).expect("Clock may have gone backwards");
-                r.push_str(&format!("uptime_in_seconds:{}\r\n", uptime_in_seconds.as_secs()));
+                let uptime_in_seconds = now
+                    .duration_since(uptime)
+                    .expect("Clock may have gone backwards");
+                r.push_str(&format!(
+                    "uptime_in_seconds:{}\r\n",
+                    uptime_in_seconds.as_secs()
+                ));
                 let uptime_in_days: u64 = uptime_in_seconds.as_secs() / (60 * 60 * 24);
                 r.push_str(&format!("uptime_in_days:{}\r\n", uptime_in_days));
                 let clients = total_clients.lock().unwrap();
@@ -252,7 +262,7 @@ impl<'a> Display for ServerRequest<'a> {
                 "Config set - Option: {} - NewValue: {}",
                 option, new_value
             ),
-            ServerRequest::Info() => write!(f, "Info")
+            ServerRequest::Info() => write!(f, "Info"),
         }
     }
 }

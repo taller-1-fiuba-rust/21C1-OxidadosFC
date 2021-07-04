@@ -83,7 +83,7 @@ impl ServerConf {
 
         if let Some(value) = conf.get(PORT) {
             if let Ok(v) = value.parse::<u64>() {
-                return v
+                return v;
             }
         }
 

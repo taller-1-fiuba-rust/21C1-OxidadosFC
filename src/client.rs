@@ -16,7 +16,7 @@ pub struct Client {
     config: ServerConf,
     id: u32,
     uptime: SystemTime,
-    total_clients: Arc<Mutex<u64>>
+    total_clients: Arc<Mutex<u64>>,
 }
 
 impl Client {
@@ -28,7 +28,7 @@ impl Client {
         config: ServerConf,
         id: u32,
         uptime: SystemTime,
-        total_clients: Arc<Mutex<u64>>
+        total_clients: Arc<Mutex<u64>>,
     ) -> Client {
         Client {
             stream,
@@ -38,7 +38,7 @@ impl Client {
             config,
             id,
             uptime,
-            total_clients
+            total_clients,
         }
     }
 
@@ -73,7 +73,11 @@ impl Client {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
                                 self.emit_request(request.to_string());
-                                request.exec_request(&mut self.config, self.uptime, self.total_clients.clone())
+                                request.exec_request(
+                                    &mut self.config,
+                                    self.uptime,
+                                    self.total_clients.clone(),
+                                )
                             }
                         }
                         Request::Publisher(request) => {
@@ -98,22 +102,22 @@ impl Client {
                         Request::CloseClient => {
                             a_live = false;
                             let mut clients = self.total_clients.lock().unwrap();
-                            *clients = *clients - 1;
+                            *clients -= 1;
                             Reponse::Valid("OK".to_string())
                         }
                     };
                     self.emit_reponse(respond.to_string());
                     respond.respond(&mut self.stream);
                 }
-                Err(eof) if eof == "EOF"=> {
+                Err(eof) if eof == "EOF" => {
                     a_live = false;
                     let mut clients = self.total_clients.lock().unwrap();
-                    *clients = *clients - 1;
+                    *clients -= 1;
                 }
                 Err(error) => {
                     a_live = false;
                     let mut clients = self.total_clients.lock().unwrap();
-                    *clients = *clients - 1;
+                    *clients -= 1;
                     let response = Reponse::Error(error);
                     response.respond(&mut self.stream);
                 }
