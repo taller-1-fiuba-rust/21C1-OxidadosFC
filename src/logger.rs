@@ -1,42 +1,50 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-type LogSender = Sender<(String, bool)>;
-type LogReceiver = Receiver<(String, bool)>;
-
 pub struct Logger {
     file_path: String,
+    verbose: Arc<Mutex<bool>>,
 }
 
 impl Logger {
-    pub fn new(file_path: &str) -> Logger {
+    pub fn new(file_path: &str, verbose: bool) -> Logger {
         let file_path = file_path.to_string();
-        Logger { file_path }
+        let verbose = Arc::new(Mutex::new(verbose));
+        Logger { file_path , verbose }
     }
 
-    pub fn run(&mut self) -> Sender<(String, bool)> {
-        let (log_sender, log_rec): (LogSender, LogReceiver) = mpsc::channel();
+    pub fn run(&mut self) -> Sender<String> {
+        let (log_sender, log_rec): (Sender<String>, Receiver<String>) = mpsc::channel();
         let path = self.file_path.clone();
+        let verbose = self.verbose.clone();
 
         thread::spawn(move || {
             let mut logger = open_logger(&path).unwrap();
 
             for msg in log_rec.iter() {
-                if let Err(e) = writeln!(logger, "{}", &msg.0) {
+                if let Err(e) = writeln!(logger, "{}", &msg) {
                     eprintln!("Couldn't write: {}", e);
                 }
 
-                if msg.1 {
-                    println!("{}", msg.0)
+                let verbose = verbose.lock().unwrap();
+                if *verbose {
+                    println!("{}", msg)
                 }
             }
         });
 
         log_sender
+    }
+
+    pub fn set_verbose(&mut self, new_value: bool) {
+        let mut verbose = self.verbose.lock().unwrap();
+        *verbose = new_value;
     }
 }
 
@@ -65,10 +73,10 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message() {
-        let mut logger = Logger::new("log_testA.log");
+        let mut logger = Logger::new("log_testA.log", false);
         let sen = logger.run();
 
-        sen.send(("Message".to_owned(), false)).unwrap();
+        sen.send("Message".to_owned()).unwrap();
 
         thread::sleep(time::Duration::from_millis(10));
 
@@ -87,12 +95,12 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_two_message() {
-        let mut logger = Logger::new("log_testB.log");
+        let mut logger = Logger::new("log_testB.log", false);
 
         let sen = logger.run();
 
-        sen.send((MSGA.to_owned(), false)).unwrap();
-        sen.send((MSGB.to_owned(), false)).unwrap();
+        sen.send(MSGA.to_owned()).unwrap();
+        sen.send(MSGB.to_owned()).unwrap();
 
         thread::sleep(time::Duration::from_millis(10));
 
@@ -114,7 +122,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message_from_two_senders() {
-        let mut logger = Logger::new("log_testC.log");
+        let mut logger = Logger::new("log_testC.log", false);
         let sen = logger.run();
 
         let sen1 = sen.clone();
@@ -124,8 +132,8 @@ mod logger_test {
             logger.run();
         });
 
-        sen1.send((MSGA.to_owned(), false)).unwrap();
-        sen2.send((MSGB.to_owned(), false)).unwrap();
+        sen1.send(MSGA.to_owned()).unwrap();
+        sen2.send(MSGB.to_owned()).unwrap();
 
         thread::sleep(time::Duration::from_millis(10));
 

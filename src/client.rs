@@ -1,8 +1,10 @@
 use crate::channels::Channels;
 use crate::database::Database;
+use crate::logger::Logger;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
@@ -14,6 +16,7 @@ pub struct Client {
     subscriptions: Vec<String>,
     config: ServerConf,
     id: u32,
+    logger_ref: Arc<Mutex<Logger>>
 }
 
 impl Client {
@@ -24,6 +27,7 @@ impl Client {
         subscriptions: Vec<String>,
         config: ServerConf,
         id: u32,
+        logger_ref: Arc<Mutex<Logger>>
     ) -> Client {
         Client {
             stream,
@@ -32,6 +36,7 @@ impl Client {
             subscriptions,
             config,
             id,
+            logger_ref
         }
     }
 
@@ -47,8 +52,12 @@ impl Client {
                 None
             };
 
-            let verbose = self.config.verbose();
             self.stream.set_read_timeout(time_out).unwrap();
+
+            let mut logger = self.logger_ref.lock().unwrap();
+            logger.set_verbose(self.config.verbose());
+            drop(logger);
+            
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
@@ -58,7 +67,7 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(query.to_string(), verbose);
+                                self.emit_request(query.to_string());
                                 query.exec_query(&mut self.database)
                             }
                         }
@@ -66,7 +75,7 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string(), verbose);
+                                self.emit_request(request.to_string());
                                 request.exec_request(&mut self.config)
                             }
                         }
@@ -74,12 +83,12 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string(), verbose);
+                                self.emit_request(request.to_string());
                                 request.execute(&mut self.channels)
                             }
                         }
                         Request::Suscriber(request) => {
-                            self.emit_request(request.to_string(), verbose);
+                            self.emit_request(request.to_string());
                             request.execute(
                                 &mut self.stream,
                                 &mut self.channels,
@@ -94,7 +103,11 @@ impl Client {
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string(), verbose);
+
+                    if let Reponse::Valid(msg) = &respond {
+                        self.emit_reponse(msg.to_string());
+                    }
+                    
                     respond.respond(&mut self.stream);
                 }
                 Err(error) => {
@@ -110,12 +123,12 @@ impl Client {
         }
     }
 
-    fn emit_request(&mut self, request: String, verbose: bool) {
-        self.channels.send_logger(self.id, &request, verbose);
+    fn emit_request(&mut self, request: String) {
+        self.channels.send_logger(self.id, &request);
         self.channels.send_monitor(self.id, &request);
     }
 
-    fn emit_reponse(&mut self, respond: String, verbose: bool) {
-        self.channels.send_logger(self.id, &respond, verbose);
+    fn emit_reponse(&mut self, respond: String) {
+        self.channels.send_logger(self.id, &respond);
     }
 }
