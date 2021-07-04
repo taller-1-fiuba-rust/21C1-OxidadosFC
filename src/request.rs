@@ -245,14 +245,14 @@ impl<'a> Display for ServerRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             ServerRequest::ConfigGet(pattern) => {
-                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+                write!(f, "Config get - Pattern: {}", pattern)
             }
             ServerRequest::ConfigSet(option, new_value) => write!(
                 f,
-                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                "Config set - Option: {} - NewValue: {}",
                 option, new_value
             ),
-            ServerRequest::Info() => write!(f, "ServerRequest::Info")
+            ServerRequest::Info() => write!(f, "Info")
         }
     }
 }
