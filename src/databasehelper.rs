@@ -1,8 +1,9 @@
-use core::fmt::{Display, Formatter, Result};
+use core::fmt::{Display, Formatter};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 #[derive(Clone)]
@@ -10,6 +11,10 @@ pub enum StorageValue {
     String(String),
     List(Vec<String>),
     Set(HashSet<String>),
+}
+
+pub enum StorageValueError {
+    NonExisten,
 }
 
 impl StorageValue {
@@ -20,10 +25,35 @@ impl StorageValue {
             StorageValue::Set(_) => "Set".to_owned(),
         }
     }
+
+    pub fn serialize(&self) -> String {
+        match self {
+            StorageValue::String(_) => format!("String {}", self),
+            StorageValue::List(_) => format!("List {}", self),
+            StorageValue::Set(_) => format!("Set {}", self),
+        }
+    }
+
+    pub fn unserialize(value: &str) -> Result<StorageValue, StorageValueError> {
+        let value: Vec<&str> = value.split_whitespace().collect();
+
+        match value[..] {
+            ["String", value] => Ok(StorageValue::String(value.to_owned())),
+            ["List", ..] => {
+                let value: Vec<String> = value[1..].iter().map(|&x| x.to_owned()).collect();
+                Ok(StorageValue::List(value))
+            }
+            ["Set", ..] => {
+                let value: HashSet<String> = value[1..].iter().map(|&x| x.to_owned()).collect();
+                Ok(StorageValue::Set(value))
+            }
+            _ => Err(StorageValueError::NonExisten),
+        }
+    }
 }
 
 impl Display for StorageValue {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             StorageValue::String(string) => write!(f, "{}", string),
             StorageValue::List(list) => {
@@ -117,10 +147,12 @@ pub enum MessageTtl {
     Clear(String),
     Transfer(String, String),
     TTL(String, Sender<RespondTtl>),
+    AllTtL(Sender<RespondTtl>),
 }
 
 pub enum RespondTtl {
     TTL(SystemTime),
+    List(Arc<Mutex<Vec<KeyTtl>>>),
     Persistent,
 }
 

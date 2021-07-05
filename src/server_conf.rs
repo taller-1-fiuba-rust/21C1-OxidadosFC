@@ -15,7 +15,7 @@ const LOGFILE: &str = "logfile";
 const DEFAULT_VERBOSE: u64 = 0;
 const DEFAULT_PORT: &str = "8888";
 const DEFAULT_TIMEOUT: u64 = 0;
-const DEFAULT_DBFILENAME: &str = "dump.rdb";
+const DEFAULT_DBFILENAME: &str = "dump.txt";
 const DEFAULT_LOGFILE: &str = "lf.log";
 const NUMERIC_KEYS: [&str; 3] = [VERBOSE, PORT, TIMEOUT];
 const MIN_PORT: i64 = 1024;
@@ -165,12 +165,13 @@ impl ServerConf {
     //     DEFAULT_TIMEOUT
     // }
 
-    // pub fn dbfilename(&self) -> String {
-    //     match self.conf.get(DBFILENAME) {
-    //         Some(value) => value.to_string(),
-    //         None => DEFAULT_DBFILENAME.to_string(),
-    //     }
-    // }
+    pub fn dbfilename(&self) -> String {
+        let conf = self.conf.lock().unwrap();
+        match conf.get(DBFILENAME) {
+            Some(value) => value.to_string(),
+            None => DEFAULT_DBFILENAME.to_string(),
+        }
+    }
 
     // pub fn verbose(&self) -> u64 {
     //     if let Some(value) = self.conf.get(VERBOSE) {

@@ -2,9 +2,13 @@ use crate::databasehelper::{
     DataBaseError, KeyTtl, MessageTtl, RespondTtl, StorageValue, SuccessQuery,
 };
 use crate::matcher::matcher;
+use core::str;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Formatter};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, Write};
+use std::path::Path;
 use std::sync::mpsc::{self, channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -16,55 +20,152 @@ type TtlVector = Arc<Mutex<Vec<KeyTtl>>>;
 pub struct Database {
     dictionary: Dictionary,
     ttl_msg_sender: Sender<MessageTtl>,
+    db_dump_path: String,
 }
 
-impl<'a> Clone for Database {
-    fn clone(&self) -> Self {
-        Database::new_from_db(self.ttl_msg_sender.clone(), self.dictionary.clone())
+fn open_serializer(path: &str) -> Result<File, String> {
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+    {
+        Err(why) => Err(format!("Couldn't open file: {}", why)),
+        Ok(file) => Ok(file),
     }
 }
 
-fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
-    loop {
-        thread::sleep(Duration::new(1, 0));
-        let keys_ttl = ttl_vector.clone();
-        let mut keys_locked = keys_ttl.lock().unwrap();
-
-        while let Some(ttl) = keys_locked.get(0) {
-            if ttl.expire_time < SystemTime::now() {
-                let ttl_key = keys_locked.remove(0);
-                let mut dic_locked = dictionary.lock().unwrap();
-                dic_locked.remove(&ttl_key.key);
-            } else {
-                break;
-            }
-        }
-
-        if keys_locked.is_empty() {
-            break;
-        }
-    }
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }
 
 impl Database {
-    pub fn new() -> Database {
+    pub fn new(db_dump_path: String) -> Database {
         let (ttl_msg_sender, ttl_rec) = mpsc::channel();
 
         let database = Database {
             dictionary: Arc::new(Mutex::new(HashMap::new())),
             ttl_msg_sender,
+            db_dump_path,
         };
 
         database.ttl_supervisor_run(ttl_rec);
 
+        if let Ok(lines) = read_lines(&database.db_dump_path) {
+            let dic = database.dictionary.clone();
+            let mut expires: Vec<(String, i64)> = Vec::new();
+
+            for line in lines {
+                if let Ok(line) = line {
+                    if &line[0..3] == "TTL" {
+                        let ttl_list: Vec<&str> = line.split_whitespace().collect();
+
+                        if ttl_list.len() > 1 {
+                            let ttl_list: Vec<&str> = ttl_list[1].split(";").collect();
+                            for &key_ttl in ttl_list.iter() {
+                                if !key_ttl.is_empty() {
+                                    let key_ttl: Vec<&str> = key_ttl.split(",").collect();
+                                    //Get Key
+                                    let key: Vec<&str> = key_ttl[0].split(":").collect();
+                                    let key = key[1];
+                                    //Get TTL
+                                    let ttl: Vec<&str> = key_ttl[1].split(":").collect();
+                                    let ttl = ttl[1].parse::<i64>().unwrap();
+
+                                    expires.push((key.to_string(), ttl));
+                                }
+                            }
+                        }
+                    } else {
+                        let key_value: Vec<&str> = line.split(",").collect();
+
+                        let key: Vec<&str> = key_value[0].split(":").collect();
+                        let key = key[1];
+
+                        let value = key_value[1];
+                        if let Ok(value) = StorageValue::unserialize(value) {
+                            let mut hash = dic.lock().unwrap();
+                            hash.insert(key.to_string(), value);
+                        }
+                    }
+                }
+            }
+
+            for (key, ttl) in expires {
+                database.expireat(&key, ttl).unwrap();
+            }
+        }
+
+        let serializer_db = database.clone();
+        serializer_db.run_serializer();
+
         database
     }
 
-    pub fn new_from_db(ttl_msg_sender: Sender<MessageTtl>, dictionary: Dictionary) -> Database {
+    pub fn new_from_db(
+        ttl_msg_sender: Sender<MessageTtl>,
+        dictionary: Dictionary,
+        db_dump_path: String,
+    ) -> Database {
         Database {
             dictionary,
             ttl_msg_sender,
+            db_dump_path,
         }
+    }
+
+    pub fn run_serializer(&self) {
+        let path = self.db_dump_path.clone();
+        let dic = self.dictionary.clone();
+        let ttl_msg_sender = self.ttl_msg_sender.clone();
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(30));
+            let mut serializer = open_serializer(&path).unwrap();
+
+            serializer.set_len(0).unwrap();
+
+            let (sender, reciver) = channel();
+            ttl_msg_sender.send(MessageTtl::AllTtL(sender)).unwrap();
+
+            if let Err(e) = write!(serializer, "TTL ") {
+                eprintln!("Couldn't write: {}", e);
+            }
+
+            if let Ok(RespondTtl::List(list)) = reciver.recv() {
+                let guard = list.lock().unwrap();
+
+                for key_ttl in guard.iter() {
+                    let duration = key_ttl
+                        .expire_time
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap();
+                    if let Err(e) = write!(
+                        serializer,
+                        "Key:{},Ttl:{};",
+                        key_ttl.key,
+                        duration.as_secs()
+                    ) {
+                        eprintln!("Couldn't write: {}", e);
+                    }
+                }
+            }
+
+            if let Err(e) = writeln!(serializer) {
+                eprintln!("Couldn't write: {}", e);
+            }
+
+            let guard = dic.lock().unwrap();
+
+            for (key, value) in guard.iter() {
+                if let Err(e) = writeln!(serializer, "Key:{},{}", key, value.serialize()) {
+                    eprintln!("Couldn't write: {}", e);
+                }
+            }
+        });
     }
 
     pub fn ttl_supervisor_run(&self, reciver: Receiver<MessageTtl>) {
@@ -79,13 +180,19 @@ impl Database {
                         let keys = ttl_keys.clone();
                         let mut keys_locked = keys.lock().unwrap();
 
-                        match keys_locked.binary_search(&new_key_ttl) {
-                            Ok(pos) => {
-                                keys_locked.remove(pos);
-                                keys_locked.insert(pos, new_key_ttl);
-                            }
-                            Err(pos) => {
-                                keys_locked.insert(pos, new_key_ttl);
+                        if let Some(pos) = keys_locked.iter().position(|x| x.key == new_key_ttl.key)
+                        {
+                            let mut value = keys_locked.get_mut(pos).unwrap();
+                            value.expire_time = new_key_ttl.expire_time;
+                        } else {
+                            match keys_locked.binary_search(&new_key_ttl) {
+                                Ok(pos) => {
+                                    keys_locked.remove(pos);
+                                    keys_locked.insert(pos, new_key_ttl);
+                                }
+                                Err(pos) => {
+                                    keys_locked.insert(pos, new_key_ttl);
+                                }
                             }
                         }
 
@@ -128,6 +235,11 @@ impl Database {
                         } else {
                             sender_respond.send(RespondTtl::Persistent).unwrap();
                         }
+                    }
+                    MessageTtl::AllTtL(sender_respond) => {
+                        sender_respond
+                            .send(RespondTtl::List(ttl_keys.clone()))
+                            .unwrap();
                     }
                 };
             }
@@ -214,6 +326,7 @@ impl Database {
                     .send(MessageTtl::Expire(key_ttl))
                     .unwrap();
             }
+
             Ok(SuccessQuery::Boolean(true))
         } else {
             Ok(SuccessQuery::Boolean(false))
@@ -283,6 +396,7 @@ impl Database {
                     Ok(SuccessQuery::Integer(duration.as_secs() as i32))
                 }
                 RespondTtl::Persistent => Ok(SuccessQuery::Integer(-1)),
+                _ => Ok(SuccessQuery::Integer(-1)),
             }
         } else {
             Ok(SuccessQuery::Integer(-2))
@@ -741,6 +855,37 @@ impl Database {
         }
     }
 }
+impl<'a> Clone for Database {
+    fn clone(&self) -> Self {
+        Database::new_from_db(
+            self.ttl_msg_sender.clone(),
+            self.dictionary.clone(),
+            self.db_dump_path.clone(),
+        )
+    }
+}
+
+fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
+    loop {
+        thread::sleep(Duration::new(1, 0));
+        let keys_ttl = ttl_vector.clone();
+        let mut keys_locked = keys_ttl.lock().unwrap();
+
+        while let Some(ttl) = keys_locked.get(0) {
+            if ttl.expire_time < SystemTime::now() {
+                let ttl_key = keys_locked.remove(0);
+                let mut dic_locked = dictionary.lock().unwrap();
+                dic_locked.remove(&ttl_key.key);
+            } else {
+                break;
+            }
+        }
+
+        if keys_locked.is_empty() {
+            break;
+        }
+    }
+}
 
 impl fmt::Display for Database {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -770,11 +915,13 @@ mod ttl_commands {
     const KEY_D: &str = "KEY_D";
     const VALUE_D: &str = "VALUE_D";
 
+    const DB_DUMP: &str = "db_dump_path";
+
     // duration_since
 
     #[test]
     fn ttl_supervisor_run_supervaise_a_key() {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
 
@@ -799,7 +946,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_two_key() {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -843,7 +990,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys() {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -941,7 +1088,7 @@ mod ttl_commands {
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys_one_of_the_key_is_inserted_with_a_lower_expire_time_the_actual_key(
     ) {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -1068,14 +1215,16 @@ mod group_string {
     const KEY: &str = "KEY";
     const VALUE: &str = "VALUE";
 
+    const DB_DUMP: &str = "db_dump_path.txt";
+
     fn create_database_with_string() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db.set(KEY, VALUE).unwrap();
         db
     }
 
     fn create_database() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db
     }
 
@@ -1324,8 +1473,10 @@ mod group_string {
 mod group_keys {
     use super::*;
 
+    const DB_DUMP: &str = "db_dump_path.txt.txt";
+
     fn create_database() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db
     }
 
@@ -1611,10 +1762,11 @@ mod group_list {
     const VALUEC: &str = "ValueC";
     const VALUED: &str = "ValueD";
 
+    const DB_DUMP: &str = "db_dump_path.txt";
     use super::*;
 
     fn create_database() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db
     }
 
@@ -2043,8 +2195,10 @@ mod group_set {
     const ELEMENT_3: &str = "ELEMENT3";
     const OTHER_ELEMENT: &str = "OTHER_ELEMENT";
 
+    const DB_DUMP: &str = "db_dump_path.txt";
+
     fn create_database() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db
     }
 
@@ -2268,8 +2422,10 @@ mod group_server {
     const KEY2: &str = "key2";
     const VALUE2: &str = "value2";
 
+    const DB_DUMP: &str = "db_dump_path.txt";
+
     fn create_database() -> Database {
-        let db = Database::new();
+        let db = Database::new(DB_DUMP.to_string());
         db
     }
 
