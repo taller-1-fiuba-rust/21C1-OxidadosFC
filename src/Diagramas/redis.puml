@@ -19,8 +19,8 @@ Class Client{
     -id: u32
     -emit_request(request: String):()
     -emit_reponse(respond: String):()
-    +new(stream: TcpStream, db: Database, c: Channels, subs: Vec<String>, conf: ServerConf, id: u32): Client
-    +handle_client(): ()
+    +new(stream: TcpStream, id: u32, total_clients: u64, l: &Logger): Client
+    +handle_client(db: Database, c: Channels, uptime: SystemTime, conf: ServerConf): ()
 }
 
 Class Channels{
@@ -57,8 +57,10 @@ Class ServerConf {
 
 Class Logger {
     - file_path: String
+    - verbose: Arc<AtomicBool>
     + new(file_path: &str): Logger
     + run(): Sender<String>
+    + set_verbose(new_value: bool): ()
 }
 
 abstract Class Request {
@@ -83,9 +85,10 @@ Class Error{
 Server *-- Database
 Server *-- ServerConf
 Server *-- Channels
-Server .left.> Logger
+Server .up.> Logger
 Server .right.> Client
 
+Client *-- Logger
 Client .up.> Request
 Client o--ServerConf
 
