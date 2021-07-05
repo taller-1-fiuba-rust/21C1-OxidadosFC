@@ -51,7 +51,20 @@ loop while a_live
             Client -> Request:
         end
 
-        alt 
+        participant Respond as "respond: Response" order 24
+        create Respond
+        Request -> Respond++: new
+        return respond
+        return respond
+
+        alt respond == Response::Valid(msg)
+            participant Channels order 25
+            Client -> Channels++: send_logger(self.id, msg)
+            deactivate Channels
+        end
+
+        Client -> Respond ++: respond(stream)
+        deactivate
     end
 end
 @enduml

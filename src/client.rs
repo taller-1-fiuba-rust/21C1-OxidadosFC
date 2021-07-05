@@ -109,7 +109,7 @@ impl Client {
                         }
                     };
                     if let Reponse::Valid(msg) = &respond {
-                        self.emit_reponse(msg.to_string(), &mut channels);
+                        channels.send_logger(self.id, msg);
                     }
 
                     respond.respond(&mut self.stream);
@@ -134,9 +134,5 @@ impl Client {
     fn emit_request(&mut self, request: String, channels: &mut Channels) {
         channels.send_logger(self.id, &request);
         channels.send_monitor(self.id, &request);
-    }
-
-    fn emit_reponse(&mut self, respond: String, channels: &mut Channels) {
-        channels.send_logger(self.id, &respond);
     }
 }
