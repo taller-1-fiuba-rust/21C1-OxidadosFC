@@ -7,8 +7,6 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
-
 pub struct Client {
     stream: TcpStream,
     subscriptions: Vec<String>,
@@ -60,35 +58,23 @@ impl Client {
 
             match request::parse_request(&mut self.stream) {
                 Ok(request) => {
-                    let request = Request::new(&request);
+                    let request = Request::new(&request, subscription_mode);
                     let respond = match request {
                         Request::DataBase(query) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(query.to_string(), &mut channels);
-                                query.exec_query(&mut database)
-                            }
+                            self.emit_request(query.to_string(), &mut channels);
+                            query.exec_query(&mut database)
                         }
                         Request::Server(request) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(request.to_string(), &mut channels);
-                                request.exec_request(
-                                    &mut config,
-                                    uptime,
-                                    self.total_clients.clone(),
-                                )
-                            }
+                            self.emit_request(request.to_string(), &mut channels);
+                            request.exec_request(
+                                &mut config,
+                                uptime,
+                                self.total_clients.clone(),
+                            )
                         }
                         Request::Publisher(request) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(request.to_string(), &mut channels);
-                                request.execute(&mut channels)
-                            }
+                            self.emit_request(request.to_string(), &mut channels);
+                            request.execute(&mut channels)
                         }
                         Request::Suscriber(request) => {
                             self.emit_request(request.to_string(), &mut channels);

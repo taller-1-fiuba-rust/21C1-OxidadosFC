@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{process, thread};
 
+const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
@@ -19,10 +20,10 @@ pub enum Request<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn new(request_str: &str) -> Request {
+    pub fn new(request_str: &str, subscription_mode: bool) -> Request {
         let request: Vec<&str> = request_str.split_whitespace().collect();
 
-        match request[..] {
+        let request = match request[..] {
             ["expire", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::DataBase(Query::Expire(key, seconds)),
                 Err(_) => Request::Invalid(request_str, RequestError::ParseError),
@@ -182,7 +183,20 @@ impl<'a> Request<'a> {
             ["info"] => Request::Server(ServerRequest::Info()),
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
+        };
+
+        if subscription_mode {
+            match request {
+                Request::Suscriber(SuscriberRequest::Unsubscribe(_)) => request,
+                Request::Suscriber(SuscriberRequest::Subscribe(_)) => request,
+                Request::CloseClient => request,
+                Request::Invalid(_, _) => request,
+                _ => Request::Invalid(request_str, RequestError::InvalidCommandSubscribeMode)
+            }
+        } else {
+            request
         }
+
     }
 }
 
@@ -201,6 +215,7 @@ impl<'a> Display for Request<'a> {
 
 pub enum RequestError {
     ParseError,
+    InvalidCommandSubscribeMode,
     UnknownRequest,
     InvalidNumberOfArguments,
 }
@@ -211,6 +226,7 @@ impl<'a> Display for RequestError {
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
             RequestError::UnknownRequest => write!(f, "Non existent Request"),
+            RequestError::InvalidCommandSubscribeMode => write!(f, "{}", SUBSCRIPTION_MODE_ERROR)
         }
     }
 }

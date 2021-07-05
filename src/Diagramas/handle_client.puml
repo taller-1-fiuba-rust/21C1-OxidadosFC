@@ -35,7 +35,7 @@ loop while a_live
 
     alt result == Ok(request) 
         create Request
-        Client -> Request++: new(request)
+        Client -> Request++: new(request, subscriptions_mode)
         return request: Request
         alt request == Request::DataBase
             Client -> Request++:
