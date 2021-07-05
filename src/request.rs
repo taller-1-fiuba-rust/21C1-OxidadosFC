@@ -648,15 +648,21 @@ impl<'a> Display for Query<'a> {
 
 pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
+    let mut request_str = String::new();
 
-    match stream.read(&mut buf) {
-        Ok(0) => Err("EOF".to_string()),
-        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
-            _ => Ok("".to_string()),
-        },
-        Err(_) => Err("Time Out".to_string()),
+    while request_str.is_empty() {
+        match stream.read(&mut buf) {
+            Ok(0) => return Err("EOF".to_string()),
+            Err(_) => return Err("Time Out".to_string()),
+            Ok(bytes_read) => {
+                if let Ok(value) = std::str::from_utf8(&buf[..bytes_read]) {
+                    request_str = value.trim().to_string();
+                }
+            },
+        }
     }
+
+    Ok(request_str)
 }
 
 pub enum Reponse {

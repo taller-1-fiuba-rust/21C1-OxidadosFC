@@ -20,11 +20,11 @@ pub struct Client {
 impl Client {
     pub fn new(
         stream: TcpStream,
-        subscriptions: Vec<String>,
         id: u32,
         total_clients: Arc<Mutex<u64>>,
         logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
+        let subscriptions = Vec::new();
         Client {
             stream,
             subscriptions,
@@ -59,7 +59,6 @@ impl Client {
             drop(logger);
 
             match request::parse_request(&mut self.stream) {
-                Ok(request) if request.is_empty() => {}
                 Ok(request) => {
                     let request = Request::new(&request);
                     let respond = match request {
@@ -115,17 +114,14 @@ impl Client {
 
                     respond.respond(&mut self.stream);
                 }
-                Err(eof) if eof == "EOF" => {
-                    a_live = false;
-                    let mut clients = self.total_clients.lock().unwrap();
-                    *clients -= 1;
-                }
                 Err(error) => {
                     a_live = false;
                     let mut clients = self.total_clients.lock().unwrap();
                     *clients -= 1;
-                    let response = Reponse::Error(error);
-                    response.respond(&mut self.stream);
+                    if error != "EOF" {
+                        let response = Reponse::Error(error);
+                        response.respond(&mut self.stream);
+                    }
                 }
             }
         }
