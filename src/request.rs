@@ -1,11 +1,13 @@
 use crate::channels::Channels;
 use crate::database::Database;
-use crate::server_conf::ServerConf;
+use crate::server_conf::{ServerConf, SuccessServerRequest};
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::channel;
-use std::thread;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use std::{process, thread};
 
 pub enum Request<'a> {
     DataBase(Query<'a>),
@@ -50,6 +52,44 @@ impl<'a> Request<'a> {
             ["exists", key] => Request::DataBase(Query::Exists(key)),
             ["keys", pattern] => Request::DataBase(Query::Keys(pattern)),
             ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
+            ["sort", key, ..] => {
+                let tail = &request[2..];
+                let mut pos_begin_unwrap = 0;
+                let mut num_elem_unwrap = -1;
+                let mut alpha = 0;
+                let mut desc = 0;
+
+                for elem in tail.iter() {
+                    if elem.contains("alpha") {
+                        alpha = 1;
+                    }
+                    if elem.contains("desc") {
+                        desc = 1;
+                    }
+                    if elem.contains("limit") {
+                        if let (Some(pos_begin), Some(num_elems)) = (
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1),
+                            tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2),
+                        ) {
+                            if let (Ok(num_pos_begin), Ok(num_elems)) =
+                                (pos_begin.parse::<i32>(), num_elems.parse::<i32>())
+                            {
+                                pos_begin_unwrap = num_pos_begin;
+                                num_elem_unwrap = num_elems;
+                                continue;
+                            };
+                            return Request::Invalid(request_str, RequestError::ParseError);
+                        };
+                    }
+                }
+                Request::DataBase(Query::Sort(
+                    key,
+                    pos_begin_unwrap,
+                    num_elem_unwrap,
+                    alpha,
+                    desc,
+                ))
+            }
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
             ["mset", ..] => {
                 let tail = &request[1..];
@@ -71,7 +111,14 @@ impl<'a> Request<'a> {
             },
             ["llen", key] => Request::DataBase(Query::Llen(key)),
             ["lpop", key] => Request::DataBase(Query::Lpop(key)),
-            ["lpush", key, value] => Request::DataBase(Query::Lpush(key, value)),
+            ["lpush", key, ..] => {
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
+                } else {
+                    Request::DataBase(Query::Lpush(key, tail.to_vec()))
+                }
+            }
             ["lpushx", key, value] => Request::DataBase(Query::Lpushx(key, value)),
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
@@ -132,6 +179,7 @@ impl<'a> Request<'a> {
                     tail.to_vec(),
                 )))
             }
+            ["info"] => Request::Server(ServerRequest::Info()),
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         }
@@ -170,13 +218,37 @@ impl<'a> Display for RequestError {
 pub enum ServerRequest<'a> {
     ConfigGet(&'a str),
     ConfigSet(&'a str, &'a str),
+    Info(),
 }
 
 impl<'a> ServerRequest<'a> {
-    pub fn exec_request(self, conf: &mut ServerConf) -> Reponse {
+    pub fn exec_request(
+        self,
+        conf: &mut ServerConf,
+        uptime: SystemTime,
+        total_clients: Arc<Mutex<u64>>,
+    ) -> Reponse {
         let result = match self {
             ServerRequest::ConfigGet(option) => conf.get_config(option),
             ServerRequest::ConfigSet(option, value) => conf.set_config(option, value),
+            ServerRequest::Info() => {
+                let mut r = format!("process_id:{}\r\n", process::id());
+                r.push_str(&format!("tcp_port:{}\r\n", conf.port()));
+                let now = SystemTime::now();
+                let uptime_in_seconds = now
+                    .duration_since(uptime)
+                    .expect("Clock may have gone backwards");
+                r.push_str(&format!(
+                    "uptime_in_seconds:{}\r\n",
+                    uptime_in_seconds.as_secs()
+                ));
+                let uptime_in_days: u64 = uptime_in_seconds.as_secs() / (60 * 60 * 24);
+                r.push_str(&format!("uptime_in_days:{}\r\n", uptime_in_days));
+                let clients = total_clients.lock().unwrap();
+                r.push_str(&format!("clients:{}", clients));
+
+                Ok(SuccessServerRequest::String(r))
+            }
         };
 
         match result {
@@ -190,13 +262,14 @@ impl<'a> Display for ServerRequest<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             ServerRequest::ConfigGet(pattern) => {
-                write!(f, "ServerRequest::ConfigGet - Pattern: {}", pattern)
+                write!(f, "Config get - Pattern: {}", pattern)
             }
             ServerRequest::ConfigSet(option, new_value) => write!(
                 f,
-                "ServerRequest::ConfigSet - Option: {} - NewValue: {}",
+                "Config set - Option: {} - NewValue: {}",
                 option, new_value
             ),
+            ServerRequest::Info() => write!(f, "Info"),
         }
     }
 }
@@ -219,6 +292,7 @@ impl<'a> SuscriberRequest<'a> {
         match self {
             Self::Monitor => {
                 let r = channels.add_monitor();
+                Reponse::Valid("Ok".to_string()).respond(stream);
 
                 for msg in r.iter() {
                     let respons = Reponse::Valid(msg);
@@ -386,17 +460,18 @@ impl<'a> Display for PublisherRequest<'a> {
 pub enum Query<'a> {
     Flushdb(),
     Dbsize(),
-    Expire(&'a str, i64),
-    ExpireAt(&'a str, i64),
-    Persist(&'a str),
-    Ttl(&'a str),
-    Type(&'a str),
-    Get(&'a str),
     Copy(&'a str, &'a str),
     Del(&'a str),
     Exists(&'a str),
+    Expire(&'a str, i64),
+    ExpireAt(&'a str, i64),
     Keys(&'a str),
+    Persist(&'a str),
     Rename(&'a str, &'a str),
+    Sort(&'a str, i32, i32, i32, i32),
+    Ttl(&'a str),
+    Type(&'a str),
+    Get(&'a str),
     Append(&'a str, &'a str),
     Incrby(&'a str, i32),
     Decrby(&'a str, i32),
@@ -409,7 +484,7 @@ pub enum Query<'a> {
     Lindex(&'a str, i32),
     Llen(&'a str),
     Lpop(&'a str),
-    Lpush(&'a str, &'a str),
+    Lpush(&'a str, Vec<&'a str>),
     Lpushx(&'a str, &'a str),
     Lrange(&'a str, i32, i32),
     Lrem(&'a str, i32, &'a str),
@@ -444,13 +519,16 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
+            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc) => {
+                db.sort(&key, &pos_begin_unwrap, &num_elem_unwrap, &alpha, &desc)
+            }
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
             Query::Mget(vec_str) => db.mget(vec_str),
             Query::Lindex(key, indx) => db.lindex(&key, indx),
             Query::Llen(key) => db.llen(&key),
             Query::Lpop(key) => db.lpop(&key),
-            Query::Lpush(key, value) => db.lpush(&key, value),
+            Query::Lpush(key, values) => db.lpush(&key, values),
             Query::Lpushx(key, value) => db.lpushx(&key, value),
             Query::Lrange(key, ini, end) => db.lrange(&key, ini, end),
             Query::Lrem(key, count, value) => db.lrem(&key, count, value),
@@ -512,13 +590,20 @@ impl<'a> Display for Query<'a> {
             Query::Rename(old_key, new_key) => {
                 write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
             }
+            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc) => {
+                write!(
+                    f,
+                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {}",
+                    key, pos_begin, num_elems, alpha, asc_desc
+                )
+            }
             Query::Lindex(key, indx) => {
                 write!(f, "Lindex - Key: {} - Index: {}", key, indx)
             }
             Query::Llen(key) => write!(f, "Llen - Key {}", key),
             Query::Lpop(key) => write!(f, "Lpop - Key {}", key),
-            Query::Lpush(key, value) => {
-                write!(f, "Lpush - Key: {} - Value: {}", key, value)
+            Query::Lpush(key, values) => {
+                write!(f, "Lpush - Key: {} - Value: {}", key, vec_to_string(values))
             }
             Query::Lpushx(key, value) => {
                 write!(f, "Lpushx - Key: {} - Value: {}", key, value)
@@ -565,6 +650,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
 
     match stream.read(&mut buf) {
+        Ok(0) => Err("EOF".to_string()),
         Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
             Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
             _ => Ok("".to_string()),
