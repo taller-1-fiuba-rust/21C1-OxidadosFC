@@ -13,7 +13,7 @@ const TIMEOUT: &str = "timeout";
 const DBFILENAME: &str = "dbfilename";
 const LOGFILE: &str = "logfile";
 const DEFAULT_VERBOSE: u64 = 0;
-const DEFAULT_PORT: &str = "8888";
+const DEFAULT_PORT: u64 = 8888;
 const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.rdb";
 const DEFAULT_LOGFILE: &str = "lf.log";
@@ -78,16 +78,21 @@ impl ServerConf {
         Ok(ServerConf { conf })
     }
 
-    pub fn addr(&self) -> String {
+    pub fn port(&self) -> u64 {
         let conf = self.conf.lock().unwrap();
 
         if let Some(value) = conf.get(PORT) {
             if let Ok(v) = value.parse::<u64>() {
-                return "0.0.0.0:".to_owned() + &v.to_string();
+                return v;
             }
         }
 
-        "0.0.0.0:".to_owned() + DEFAULT_PORT
+        DEFAULT_PORT
+    }
+
+    pub fn addr(&self) -> String {
+        let port = self.port();
+        "0.0.0.0:".to_owned() + &port.to_string()
     }
 
     pub fn logfile(&self) -> String {
@@ -96,15 +101,6 @@ impl ServerConf {
         match conf.get(LOGFILE) {
             Some(value) => value.to_string(),
             None => DEFAULT_LOGFILE.to_string(),
-        }
-    }
-
-    pub fn get_time_out(&self) -> u64 {
-        let conf = self.conf.lock().unwrap();
-
-        match conf.get(TIMEOUT) {
-            Some(value) => value.parse::<u64>().unwrap(),
-            None => 0,
         }
     }
 
@@ -155,15 +151,17 @@ impl ServerConf {
         }
     }
 
-    // pub fn timeout(&self) -> u64 {
-    //     if let Some(value) = self.conf.get(TIMEOUT) {
-    //         if let Ok(v) = value.parse::<u64>() {
-    //             return v;
-    //         }
-    //     }
+    pub fn time_out(&self) -> u64 {
+        let conf = self.conf.lock().unwrap();
 
-    //     DEFAULT_TIMEOUT
-    // }
+        if let Some(value) = conf.get(TIMEOUT) {
+            if let Ok(v) = value.parse::<u64>() {
+                return v;
+            }
+        }
+
+        DEFAULT_TIMEOUT
+    }
 
     // pub fn dbfilename(&self) -> String {
     //     match self.conf.get(DBFILENAME) {
@@ -172,15 +170,15 @@ impl ServerConf {
     //     }
     // }
 
-    // pub fn verbose(&self) -> u64 {
-    //     if let Some(value) = self.conf.get(VERBOSE) {
-    //         if let Ok(v) = value.parse::<u64>() {
-    //             return v;
-    //         }
-    //     }
+    pub fn verbose(&self) -> bool {
+        if let Some(value) = self.conf.lock().unwrap().get(VERBOSE) {
+            if let Ok(v) = value.parse::<u64>() {
+                return v != 0;
+            }
+        }
 
-    //     DEFAULT_VERBOSE
-    // }
+        DEFAULT_VERBOSE != 0
+    }
 }
 
 impl<'a> fmt::Display for SuccessServerRequest {
@@ -242,6 +240,7 @@ mod config_parser_tests {
     use super::*;
     const FILE: &str = "redis.conf";
     const ADDR_VALUE: &str = "0.0.0.0:8888";
+    const DEFAULT_VERBOSE_TO_BOOLEAN: bool = false;
 
     fn create_config_parser() -> ServerConf {
         ServerConf::new(FILE).unwrap()
@@ -260,9 +259,9 @@ mod config_parser_tests {
         fn file_save_correctly() {
             let cp = create_config_parser();
 
-            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
             assert_eq!(cp.addr(), ADDR_VALUE);
-            // assert_eq!(cp.timeout(), DEFAULT_TIMEOUT);
+            assert_eq!(cp.time_out(), DEFAULT_TIMEOUT);
             // assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
             assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
         }
@@ -312,23 +311,23 @@ mod config_parser_tests {
         #[test]
         fn set_verbose_correctly() {
             let mut cp = create_config_parser();
-            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
 
             let r = cp.set_config(VERBOSE, "1").unwrap();
             assert_eq!(r, SuccessServerRequest::Success);
 
-            // assert_eq!(cp.verbose(), 1);
+            assert_eq!(cp.verbose(), true);
         }
 
         #[test]
         fn set_verbose_with_a_non_integer() {
             let mut cp = create_config_parser();
-            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
 
             let r = cp.set_config(VERBOSE, "non-number").unwrap_err();
             assert_eq!(r, ServerError::NotAnInteger);
 
-            // assert_eq!(cp.verbose(), DEFAULT_VERBOSE);
+            assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
         }
 
         #[test]

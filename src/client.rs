@@ -1,46 +1,51 @@
 use crate::channels::Channels;
 use crate::database::Database;
+use crate::logger::Logger;
 use crate::request::{self, Reponse, Request};
 use crate::server_conf::ServerConf;
 use std::net::TcpStream;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
 
 pub struct Client {
     stream: TcpStream,
-    database: Database,
-    channels: Channels,
     subscriptions: Vec<String>,
-    config: ServerConf,
     id: u32,
+    total_clients: Arc<Mutex<u64>>,
+    logger_ref: Arc<Mutex<Logger>>,
 }
 
 impl Client {
     pub fn new(
         stream: TcpStream,
-        database: Database,
-        channels: Channels,
-        config: ServerConf,
+        subscriptions: Vec<String>,
         id: u32,
+        total_clients: Arc<Mutex<u64>>,
+        logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
-        let subscriptions = Vec::new();
         Client {
             stream,
-            database,
-            channels,
             subscriptions,
-            config,
             id,
+            total_clients,
+            logger_ref,
         }
     }
 
-    pub fn handle_client(&mut self) {
+    pub fn handle_client(
+        &mut self,
+        mut database: Database,
+        mut channels: Channels,
+        uptime: SystemTime,
+        mut config: ServerConf,
+    ) {
         let mut a_live = true;
         let mut subscription_mode = false;
 
         while a_live {
-            let time_out = self.config.get_time_out();
+            let time_out = config.time_out();
             let time_out = if time_out > 0 && !subscription_mode {
                 Some(Duration::from_secs(time_out))
             } else {
@@ -48,6 +53,11 @@ impl Client {
             };
 
             self.stream.set_read_timeout(time_out).unwrap();
+
+            let mut logger = self.logger_ref.lock().unwrap();
+            logger.set_verbose(config.verbose());
+            drop(logger);
+
             match request::parse_request(&mut self.stream) {
                 Ok(request) if request.is_empty() => {}
                 Ok(request) => {
@@ -57,31 +67,35 @@ impl Client {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(query.to_string());
-                                query.exec_query(&mut self.database)
+                                self.emit_request(query.to_string(), &mut channels);
+                                query.exec_query(&mut database)
                             }
                         }
                         Request::Server(request) => {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
-                                request.exec_request(&mut self.config)
+                                self.emit_request(request.to_string(), &mut channels);
+                                request.exec_request(
+                                    &mut config,
+                                    uptime,
+                                    self.total_clients.clone(),
+                                )
                             }
                         }
                         Request::Publisher(request) => {
                             if subscription_mode {
                                 Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
                             } else {
-                                self.emit_request(request.to_string());
-                                request.execute(&mut self.channels)
+                                self.emit_request(request.to_string(), &mut channels);
+                                request.execute(&mut channels)
                             }
                         }
                         Request::Suscriber(request) => {
-                            self.emit_request(request.to_string());
+                            self.emit_request(request.to_string(), &mut channels);
                             request.execute(
                                 &mut self.stream,
-                                &mut self.channels,
+                                &mut channels,
                                 &mut self.subscriptions,
                                 self.id,
                                 &mut subscription_mode,
@@ -90,14 +104,26 @@ impl Client {
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),
                         Request::CloseClient => {
                             a_live = false;
+                            let mut clients = self.total_clients.lock().unwrap();
+                            *clients -= 1;
                             Reponse::Valid("OK".to_string())
                         }
                     };
-                    self.emit_reponse(respond.to_string());
+                    if let Reponse::Valid(msg) = &respond {
+                        self.emit_reponse(msg.to_string(), &mut channels);
+                    }
+
                     respond.respond(&mut self.stream);
+                }
+                Err(eof) if eof == "EOF" => {
+                    a_live = false;
+                    let mut clients = self.total_clients.lock().unwrap();
+                    *clients -= 1;
                 }
                 Err(error) => {
                     a_live = false;
+                    let mut clients = self.total_clients.lock().unwrap();
+                    *clients -= 1;
                     let response = Reponse::Error(error);
                     response.respond(&mut self.stream);
                 }
@@ -105,16 +131,16 @@ impl Client {
         }
 
         for subs in self.subscriptions.iter() {
-            self.channels.unsubscribe(&subs, self.id);
+            channels.unsubscribe(&subs, self.id);
         }
     }
 
-    fn emit_request(&mut self, request: String) {
-        self.channels.send_logger(self.id, &request);
-        self.channels.send_monitor(self.id, &request);
+    fn emit_request(&mut self, request: String, channels: &mut Channels) {
+        channels.send_logger(self.id, &request);
+        channels.send_monitor(self.id, &request);
     }
 
-    fn emit_reponse(&mut self, respond: String) {
-        self.channels.send_logger(self.id, &respond);
+    fn emit_reponse(&mut self, respond: String, channels: &mut Channels) {
+        channels.send_logger(self.id, &respond);
     }
 }
