@@ -59,38 +59,36 @@ impl Database {
             let dic = database.dictionary.clone();
             let mut expires: Vec<(String, i64)> = Vec::new();
 
-            for line in lines {
-                if let Ok(line) = line {
-                    if &line[0..3] == "TTL" {
-                        let ttl_list: Vec<&str> = line.split_whitespace().collect();
+            for line in lines.flatten() {
+                if &line[0..3] == "TTL" {
+                    let ttl_list: Vec<&str> = line.split_whitespace().collect();
 
-                        if ttl_list.len() > 1 {
-                            let ttl_list: Vec<&str> = ttl_list[1].split(';').collect();
-                            for &key_ttl in ttl_list.iter() {
-                                if !key_ttl.is_empty() {
-                                    let key_ttl: Vec<&str> = key_ttl.split(',').collect();
-                                    //Get Key
-                                    let key: Vec<&str> = key_ttl[0].split(':').collect();
-                                    let key = key[1];
-                                    //Get TTL
-                                    let ttl: Vec<&str> = key_ttl[1].split(':').collect();
-                                    let ttl = ttl[1].parse::<i64>().unwrap();
+                    if ttl_list.len() > 1 {
+                        let ttl_list: Vec<&str> = ttl_list[1].split(';').collect();
+                        for &key_ttl in ttl_list.iter() {
+                            if !key_ttl.is_empty() {
+                                let key_ttl: Vec<&str> = key_ttl.split(',').collect();
+                                //Get Key
+                                let key: Vec<&str> = key_ttl[0].split(':').collect();
+                                let key = key[1];
+                                //Get TTL
+                                let ttl: Vec<&str> = key_ttl[1].split(':').collect();
+                                let ttl = ttl[1].parse::<i64>().unwrap();
 
-                                    expires.push((key.to_string(), ttl));
-                                }
+                                expires.push((key.to_string(), ttl));
                             }
                         }
-                    } else {
-                        let key_value: Vec<&str> = line.split(',').collect();
+                    }
+                } else {
+                    let key_value: Vec<&str> = line.split(',').collect();
 
-                        let key: Vec<&str> = key_value[0].split(':').collect();
-                        let key = key[1];
+                    let key: Vec<&str> = key_value[0].split(':').collect();
+                    let key = key[1];
 
-                        let value = key_value[1];
-                        if let Ok(value) = StorageValue::unserialize(value) {
-                            let mut hash = dic.lock().unwrap();
-                            hash.insert(key.to_string(), value);
-                        }
+                    let value = key_value[1];
+                    if let Ok(value) = StorageValue::unserialize(value) {
+                        let mut hash = dic.lock().unwrap();
+                        hash.insert(key.to_string(), value);
                     }
                 }
             }
