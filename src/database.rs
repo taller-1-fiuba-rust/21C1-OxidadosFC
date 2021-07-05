@@ -263,6 +263,7 @@ impl Database {
         }
     }
 
+    // pre: elements in to_order are not duplicated and not contains special characters
     pub fn _sort(
         dictionary: &HashMap<String, StorageValue>,
         to_order: &mut Vec<&String>,
@@ -1814,7 +1815,7 @@ mod group_keys {
         const SET: &str = "set";
         const VALUE_1: &str = "1";
         const VALUE_2: &str = "2";
-        const VALUE_NEG_1: &str = "-1";
+        const VALUE_3: &str = "3";
         const VALUE_A: &str = "a";
 
         const ALPHA_ON: i32 = 1;
@@ -1831,18 +1832,18 @@ mod group_keys {
 
         const KEY_WEIGHT_1: &str = "weight_1";
         const KEY_WEIGHT_2: &str = "weight_2";
-        const KEY_WEIGHT_NEG_1: &str = "weight_-1";
+        const KEY_WEIGHT_3: &str = "weight_3";
 
         const VAL_WEIGHT_1: &str = "10";
         const VAL_WEIGHT_2: &str = "30";
-        const VAL_WEIGHT_NEG_1: &str = "20";
+        const VAL_WEIGHT_3: &str = "20";
         const VAL_WEIGHT_2_NOT_NUMBER: &str = "a";
 
         #[test]
         fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_3].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -1857,7 +1858,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2, VALUE_3];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -1889,7 +1890,7 @@ mod group_keys {
         fn test_sort_list_with_alpha_on_return_sorted_list_with_numbers_and_string_values() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_A, VALUE_2, VALUE_NEG_1].to_vec())
+                .lpush(LIST, [VALUE_A, VALUE_2, VALUE_3].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -1904,7 +1905,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_2, VALUE_A];
+                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_3, VALUE_A];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -1917,7 +1918,7 @@ mod group_keys {
         fn test_sort_list_with_desc_on_return_sorted_list_with_numbers_descending() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -1932,7 +1933,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_1, VALUE_NEG_1];
+                let to_compare_list: Vec<&str> = vec![VALUE_3, VALUE_2, VALUE_1];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -1945,7 +1946,7 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_count_0_return_empty_list() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -1968,7 +1969,7 @@ mod group_keys {
         ) {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -1983,7 +1984,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -1997,7 +1998,7 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_count_negative_return_sorted_list_with_all_elements() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2012,7 +2013,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2, VALUE_3];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2026,7 +2027,7 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_neg_count_0_return_emptylist() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2048,7 +2049,7 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_out_of_range_of_list_count_return_empty_list() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2071,7 +2072,7 @@ mod group_keys {
         ) {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2079,7 +2080,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2, VALUE_3];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2093,7 +2094,7 @@ mod group_keys {
         fn test_sort_list_with_limit_offset_in_range_count_2_return_sorted_sublist_of_2_elements() {
             let database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2101,7 +2102,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_3];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2115,12 +2116,12 @@ mod group_keys {
         fn test_sort_set_by_weight_return_list_ordered_by_weight() {
             let database = create_database();
 
-            database.set(KEY_WEIGHT_NEG_1, VAL_WEIGHT_NEG_1).unwrap();
+            database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
             database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_NEG_1).unwrap();
+            database.sadd(SET, VALUE_3).unwrap();
             database.sadd(SET, VALUE_2).unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2135,7 +2136,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_NEG_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_3, VALUE_2];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2149,12 +2150,12 @@ mod group_keys {
         fn test_sort_list_by_weight_with_pattern_that_no_match_return_list_unordered() {
             let database = create_database();
 
-            database.set(KEY_WEIGHT_NEG_1, VAL_WEIGHT_NEG_1).unwrap();
+            database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
             database.rpush(LIST, VALUE_1).unwrap();
-            database.rpush(LIST, VALUE_NEG_1).unwrap();
+            database.rpush(LIST, VALUE_3).unwrap();
             database.rpush(LIST, VALUE_2).unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2169,7 +2170,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_NEG_1, VALUE_2];
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_3, VALUE_2];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2184,12 +2185,12 @@ mod group_keys {
         ) {
             let database = create_database();
 
-            database.set(KEY_WEIGHT_NEG_1, VAL_WEIGHT_NEG_1).unwrap();
+            database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             // Weight of VALUE_2 is zero.
 
             database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_NEG_1).unwrap();
+            database.sadd(SET, VALUE_3).unwrap();
             database.sadd(SET, VALUE_2).unwrap();
 
             if let SuccessQuery::List(list) = database
@@ -2204,7 +2205,7 @@ mod group_keys {
                 .unwrap()
             {
                 let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
-                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_1, VALUE_NEG_1];
+                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_1, VALUE_3];
                 let pair_list: Vec<(&String, &str)> =
                     list_result.iter().zip(to_compare_list).collect();
                 pair_list.iter().for_each(|x| {
@@ -2218,12 +2219,12 @@ mod group_keys {
         fn test_sort_set_by_weight_and_only_weight_isnt_a_number_return_err() {
             let database = create_database();
 
-            database.set(KEY_WEIGHT_NEG_1, VAL_WEIGHT_NEG_1).unwrap();
+            database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2_NOT_NUMBER).unwrap();
 
             database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_NEG_1).unwrap();
+            database.sadd(SET, VALUE_3).unwrap();
             database.sadd(SET, VALUE_2).unwrap();
 
             let result = database.sort(
