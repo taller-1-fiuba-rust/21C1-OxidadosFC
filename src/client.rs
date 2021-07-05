@@ -66,11 +66,7 @@ impl Client {
                         }
                         Request::Server(request) => {
                             self.emit_request(request.to_string(), &mut channels);
-                            request.exec_request(
-                                &mut config,
-                                uptime,
-                                self.total_clients.clone(),
-                            )
+                            request.exec_request(&mut config, uptime, self.total_clients.clone())
                         }
                         Request::Publisher(request) => {
                             self.emit_request(request.to_string(), &mut channels);

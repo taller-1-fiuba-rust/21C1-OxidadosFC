@@ -191,12 +191,11 @@ impl<'a> Request<'a> {
                 Request::Suscriber(SuscriberRequest::Subscribe(_)) => request,
                 Request::CloseClient => request,
                 Request::Invalid(_, _) => request,
-                _ => Request::Invalid(request_str, RequestError::InvalidCommandSubscribeMode)
+                _ => Request::Invalid(request_str, RequestError::InvalidCommandSubscribeMode),
             }
         } else {
             request
         }
-
     }
 }
 
@@ -226,7 +225,7 @@ impl<'a> Display for RequestError {
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
             RequestError::UnknownRequest => write!(f, "Non existent Request"),
-            RequestError::InvalidCommandSubscribeMode => write!(f, "{}", SUBSCRIPTION_MODE_ERROR)
+            RequestError::InvalidCommandSubscribeMode => write!(f, "{}", SUBSCRIPTION_MODE_ERROR),
         }
     }
 }
@@ -674,7 +673,7 @@ pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
                 if let Ok(value) = std::str::from_utf8(&buf[..bytes_read]) {
                     request_str = value.trim().to_string();
                 }
-            },
+            }
         }
     }
 
