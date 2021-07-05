@@ -18,11 +18,11 @@ pub struct Client {
 impl Client {
     pub fn new(
         stream: TcpStream,
-        subscriptions: Vec<String>,
         id: u32,
         total_clients: Arc<Mutex<u64>>,
         logger_ref: Arc<Mutex<Logger>>,
     ) -> Client {
+        let subscriptions = Vec::new();
         Client {
             stream,
             subscriptions,
