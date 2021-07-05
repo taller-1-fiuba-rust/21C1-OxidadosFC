@@ -68,10 +68,11 @@ mod logger_test {
 
     const MSGA: &str = "MessageA";
     const MSGB: &str = "MessageB";
+    const VERBOSE: bool = false;
 
     #[test]
     fn test_logger_recive_message() {
-        let mut logger = Logger::new("log_testA.log", false);
+        let mut logger = Logger::new("log_testA.log", VERBOSE);
         let sen = logger.run();
 
         sen.send("Message".to_owned()).unwrap();
@@ -93,7 +94,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_two_message() {
-        let mut logger = Logger::new("log_testB.log", false);
+        let mut logger = Logger::new("log_testB.log", VERBOSE);
 
         let sen = logger.run();
 
@@ -120,7 +121,7 @@ mod logger_test {
 
     #[test]
     fn test_logger_recive_message_from_two_senders() {
-        let mut logger = Logger::new("log_testC.log", false);
+        let mut logger = Logger::new("log_testC.log", VERBOSE);
         let sen = logger.run();
 
         let sen1 = sen.clone();
@@ -133,7 +134,7 @@ mod logger_test {
         sen1.send(MSGA.to_owned()).unwrap();
         sen2.send(MSGB.to_owned()).unwrap();
 
-        thread::sleep(time::Duration::from_millis(10));
+        thread::sleep(time::Duration::from_millis(20));
 
         let mut log_file = open_logger("log_testC.log").unwrap();
         let mut data = String::new();
