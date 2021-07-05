@@ -49,11 +49,6 @@ impl Server {
         Client::new(stream, subscriptions, id, total_clients, logger_ref)
     }
 
-    // fn run_logger(&self) -> Sender<(String, bool)> {
-    //     let mut logger = Logger::new(&self.config.logfile(), self.config.verbose());
-    //     logger.run()
-    // }
-
     fn get_next_id(&self) -> u32 {
         let next_id = self.next_id.clone();
         let mut guard = next_id.lock().unwrap();

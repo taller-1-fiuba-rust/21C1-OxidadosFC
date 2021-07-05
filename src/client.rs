@@ -7,8 +7,6 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
-
 pub struct Client {
     stream: TcpStream,
     subscriptions: Vec<String>,
@@ -59,37 +57,24 @@ impl Client {
             drop(logger);
 
             match request::parse_request(&mut self.stream) {
-                Ok(request) if request.is_empty() => {}
                 Ok(request) => {
-                    let request = Request::new(&request);
+                    let request = Request::new(&request, subscription_mode);
                     let respond = match request {
                         Request::DataBase(query) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(query.to_string(), &mut channels);
-                                query.exec_query(&mut database)
-                            }
+                            self.emit_request(query.to_string(), &mut channels);
+                            query.exec_query(&mut database)
                         }
                         Request::Server(request) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(request.to_string(), &mut channels);
-                                request.exec_request(
-                                    &mut config,
-                                    uptime,
-                                    self.total_clients.clone(),
-                                )
-                            }
+                            self.emit_request(request.to_string(), &mut channels);
+                            request.exec_request(
+                                &mut config,
+                                uptime,
+                                self.total_clients.clone(),
+                            )
                         }
                         Request::Publisher(request) => {
-                            if subscription_mode {
-                                Reponse::Error(SUBSCRIPTION_MODE_ERROR.to_string())
-                            } else {
-                                self.emit_request(request.to_string(), &mut channels);
-                                request.execute(&mut channels)
-                            }
+                            self.emit_request(request.to_string(), &mut channels);
+                            request.execute(&mut channels)
                         }
                         Request::Suscriber(request) => {
                             self.emit_request(request.to_string(), &mut channels);
@@ -110,22 +95,19 @@ impl Client {
                         }
                     };
                     if let Reponse::Valid(msg) = &respond {
-                        self.emit_reponse(msg.to_string(), &mut channels);
+                        channels.send_logger(self.id, msg);
                     }
 
                     respond.respond(&mut self.stream);
-                }
-                Err(eof) if eof == "EOF" => {
-                    a_live = false;
-                    let mut clients = self.total_clients.lock().unwrap();
-                    *clients -= 1;
                 }
                 Err(error) => {
                     a_live = false;
                     let mut clients = self.total_clients.lock().unwrap();
                     *clients -= 1;
-                    let response = Reponse::Error(error);
-                    response.respond(&mut self.stream);
+                    if error != "EOF" {
+                        let response = Reponse::Error(error);
+                        response.respond(&mut self.stream);
+                    }
                 }
             }
         }
@@ -138,9 +120,5 @@ impl Client {
     fn emit_request(&mut self, request: String, channels: &mut Channels) {
         channels.send_logger(self.id, &request);
         channels.send_monitor(self.id, &request);
-    }
-
-    fn emit_reponse(&mut self, respond: String, channels: &mut Channels) {
-        channels.send_logger(self.id, &respond);
     }
 }

@@ -1,11 +1,16 @@
 @startuml handle_client
 hide footbox
 activate Database
-Database -> Client++: handle_client()
+
+participant Database order 0
+participant Client order 10
+participant Request order 20
+
+Database -> Client++: handle_client(\n\tdb, channels,\n\tuptime, config\n)
 Client -> Client: a_live = true\nsubscription_mode = false
 loop while a_live
-    participant Config as "config: ServerConfig"
-    Client -> Config ++: get_time_out()
+    participant Config as "config: ServerConfig" order 30
+    Client -> Config ++: time_out()
     return time_out
 
     alt time_out > 0 && !subscription_mode
@@ -14,16 +19,64 @@ loop while a_live
         Client -> Client: time_out = None
     end
 
-    participant Stream as "stream: TcpStream"
+    participant Stream as "stream: TcpStream" order 40
     Client -> Stream++: set_read_timeout(time_out).unwrap()
     deactivate Stream
+
+    Client -> Config++: verbose()
+    return verbose_value
+
+    participant Logger as "logger: Logger" order 50
+    Client -> Logger++: set_verbose(verbose_value)
+    deactivate Logger
 
     Client -> Request++: parse_request(&mut self.stream: TcpStream)
     return result
 
-    
+    alt result == Ok(request) 
+        create Request
+        Client -> Request++: new(request, subscriptions_mode)
+        return request: Request
+        alt request == Request::DataBase
+            Client -> Request++:
+        else Request::Server
+            Client -> Request:
+        else Request::Publisher
+            Client -> Request:
+        else Request::Suscriber
+            Client -> Request:
+        else Request::CloseClient
+            Client -> Request:
+        else Request::Invalid
+            Client -> Request:
+        end
 
-    
+        participant Respond as "respond: Response" order 24
+        create Respond
+        Request -> Respond++: new
+        return respond
+        return respond
 
+        alt respond == Response::Valid(msg)
+            participant Channels order 25
+            Client -> Channels++: send_logger(self.id, msg)
+            deactivate Channels
+        end
+
+        Client -> Respond ++: respond(stream)
+        deactivate
+    else result == Error(error)
+        Client -> Client: a_live = false\nclients-=1
+        alt error != "EOF"
+            create Respond
+            Client -> Respond++: Response::Error(error)
+            deactivate Respond
+        end
+    end
+end
+
+loop for subs in self.subscriptions
+    Client -> Channels++: unsubscribe(subs, self.id)
+    deactivate Channels
 end
 @enduml
