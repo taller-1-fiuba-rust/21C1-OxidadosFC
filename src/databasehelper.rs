@@ -126,6 +126,7 @@ pub enum DataBaseError {
     NotASet,
     NotAList,
     IndexOutOfRange,
+    SortParseError,
 }
 
 impl fmt::Display for DataBaseError {
@@ -138,6 +139,9 @@ impl fmt::Display for DataBaseError {
             DataBaseError::NotASet => write!(f, "element of key isn't a Set"),
             DataBaseError::IndexOutOfRange => write!(f, "index out of range"),
             DataBaseError::NotAList => write!(f, "Value isn't a List"),
+            DataBaseError::SortParseError => {
+                write!(f, "One or more elements in list/set are not numeric type")
+            }
         }
     }
 }
@@ -146,14 +150,14 @@ pub enum MessageTtl {
     Expire(KeyTtl),
     Clear(String),
     Transfer(String, String),
-    TTL(String, Sender<RespondTtl>),
+    Ttl(String, Sender<RespondTtl>),
     AllTtL(Sender<RespondTtl>),
 }
 
 pub enum RespondTtl {
-    TTL(SystemTime),
-    List(Arc<Mutex<Vec<KeyTtl>>>),
+    Ttl(SystemTime),
     Persistent,
+    List(Arc<Mutex<Vec<KeyTtl>>>),
 }
 
 #[derive(Eq, Clone, Debug)]

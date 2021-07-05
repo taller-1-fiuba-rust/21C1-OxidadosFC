@@ -223,14 +223,14 @@ impl Database {
                             ttl.key = to_key;
                         }
                     }
-                    MessageTtl::TTL(key, sender_respond) => {
+                    MessageTtl::Ttl(key, sender_respond) => {
                         let keys = ttl_keys.clone();
                         let keys_locked = keys.lock().unwrap();
 
                         if let Some(pos) = keys_locked.iter().position(|x| x.key == key) {
                             let ttl = keys_locked.get(pos).unwrap();
                             sender_respond
-                                .send(RespondTtl::TTL(ttl.expire_time))
+                                .send(RespondTtl::Ttl(ttl.expire_time))
                                 .unwrap();
                         } else {
                             sender_respond.send(RespondTtl::Persistent).unwrap();
@@ -376,8 +376,111 @@ impl Database {
         }
     }
 
-    //sort
+    pub fn _sort(
+        to_order: &mut Vec<&String>,
+        pos_begin: &i32,
+        num_elems: &i32,
+        alpha: &i32,
+        desc: &i32,
+    ) -> Result<Vec<SuccessQuery>, DataBaseError> {
+        let mut result_list: Vec<SuccessQuery> = Vec::new();
+        let mut range_elem = to_order.len() as i32;
+        let mut pos_begin = pos_begin;
+        match alpha {
+            0 => {
+                let mut parse_error = false;
+                let mut to_order: Vec<_> = to_order
+                    .iter()
+                    .map(|x| match x.parse::<i32>() {
+                        Ok(val) => val,
+                        Err(_) => {
+                            parse_error = true;
+                            -1
+                        }
+                    })
+                    .collect();
+                to_order.sort_unstable();
 
+                if parse_error {
+                    return Err(DataBaseError::SortParseError);
+                }
+                if desc == &1 {
+                    to_order.sort_by(|a, b| b.cmp(&a));
+                }
+                if *pos_begin >= to_order.len() as i32 {
+                    return Ok(result_list);
+                }
+                if *num_elems == 0 {
+                    return Ok(result_list);
+                }
+                if *pos_begin < 0 {
+                    pos_begin = &0;
+                }
+                if *num_elems > 0 && *num_elems <= to_order.len() as i32 {
+                    range_elem = *num_elems;
+                }
+                for i in *pos_begin..(pos_begin + range_elem) {
+                    result_list.push(SuccessQuery::String((&to_order[i as usize]).to_string()));
+                }
+                Ok(result_list)
+            }
+            1 => {
+                to_order.sort();
+
+                //ver como evitar repetir codigo.
+                if desc == &1 {
+                    to_order.sort_by(|a, b| b.cmp(&a));
+                }
+                if *pos_begin >= to_order.len() as i32 {
+                    return Ok(result_list);
+                }
+                if *num_elems == 0 {
+                    return Ok(result_list);
+                }
+                if *pos_begin < 0 {
+                    pos_begin = &0;
+                }
+                if *num_elems > 0 && *num_elems <= to_order.len() as i32 {
+                    range_elem = *num_elems;
+                }
+                for i in *pos_begin..(pos_begin + range_elem) {
+                    result_list.push(SuccessQuery::String((&to_order[i as usize]).to_string()));
+                }
+                Ok(result_list)
+            }
+            _ => Err(DataBaseError::NotAString),
+        }
+    }
+
+    //sort
+    pub fn sort(
+        &self,
+        key: &str,
+        pos_begin: &i32,
+        num_elems: &i32,
+        alpha: &i32,
+        desc: &i32,
+    ) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.lock().unwrap();
+        match dictionary.get(key) {
+            Some(StorageValue::Set(hash_set)) => {
+                let mut to_order: Vec<&String> = hash_set.iter().collect();
+                match Database::_sort(&mut to_order, pos_begin, num_elems, alpha, desc) {
+                    Ok(result_list) => Ok(SuccessQuery::List(result_list)),
+                    Err(e) => Err(e),
+                }
+            }
+            Some(StorageValue::List(list)) => {
+                let mut to_order: Vec<&String> = list.iter().collect();
+                match Database::_sort(&mut to_order, pos_begin, num_elems, alpha, desc) {
+                    Ok(result_list) => Ok(SuccessQuery::List(result_list)),
+                    Err(e) => Err(e),
+                }
+            }
+            Some(_) => Err(DataBaseError::NotAList),
+            None => Ok(SuccessQuery::List(Vec::new())),
+        }
+    }
     //touch
 
     //ttl
@@ -387,11 +490,11 @@ impl Database {
 
         if dictionary.contains_key(key) {
             self.ttl_msg_sender
-                .send(MessageTtl::TTL(key.to_owned(), respond_sender))
+                .send(MessageTtl::Ttl(key.to_owned(), respond_sender))
                 .unwrap();
 
             match respond_reciver.recv().unwrap() {
-                RespondTtl::TTL(time) => {
+                RespondTtl::Ttl(time) => {
                     let duration = time.duration_since(SystemTime::now()).unwrap();
                     Ok(SuccessQuery::Integer(duration.as_secs() as i32))
                 }
@@ -599,7 +702,7 @@ impl Database {
         }
     }
 
-    pub fn lpush(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    fn lpush_one(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
         match dictionary.get_mut(key) {
@@ -615,6 +718,15 @@ impl Database {
                 Ok(SuccessQuery::Integer(len as i32))
             }
         }
+    }
+
+    pub fn lpush(&self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+        let mut result = self.lpush_one(key, values[0]);
+        for item in values.iter().skip(1) {
+            result = self.lpush_one(key, item)
+        }
+
+        result
     }
 
     pub fn lpushx(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
@@ -1450,7 +1562,6 @@ mod group_string {
         }
 
         #[test]
-
         fn test_mget_returns_nil_for_some_key_that_no_exists_in_database() {
             let database = create_database();
 
@@ -1749,6 +1860,261 @@ mod group_keys {
             assert_eq!(result, DataBaseError::NonExistentKey);
         }
     }
+
+    mod sort_test {
+        use super::*;
+        const LIST: &str = "list";
+        const VALUE_1: &str = "1";
+        const VALUE_2: &str = "2";
+        const VALUE_NEG_1: &str = "-1";
+        const VALUE_A: &str = "a";
+
+        const ALPHA_ON: i32 = 1;
+        const ALPHA_OFF: i32 = 0;
+        const DESC_ON: i32 = 1;
+        const DESC_OFF: i32 = 0;
+        const LIMIT_OFFSET_OFF: i32 = 0;
+        const LIMIT_NUM_ELEMS_OFF: i32 = 0;
+
+        #[test]
+        fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(
+                    LIST,
+                    &LIMIT_OFFSET_OFF,
+                    &LIMIT_NUM_ELEMS_OFF,
+                    &ALPHA_OFF,
+                    &DESC_OFF,
+                )
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+            }
+        }
+
+        #[test]
+        fn test_sort_list_without_flags_return_err_if_elem_in_list_are_not_numbers() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_A].to_vec())
+                .unwrap();
+
+            let result = database.sort(
+                LIST,
+                &LIMIT_OFFSET_OFF,
+                &LIMIT_NUM_ELEMS_OFF,
+                &ALPHA_OFF,
+                &DESC_OFF,
+            );
+
+            assert_eq!(result.unwrap_err(), DataBaseError::SortParseError);
+        }
+
+        #[test]
+        fn test_sort_list_with_alpha_on_return_sorted_list_with_numbers_and_string_values() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_NEG_1].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(
+                    LIST,
+                    &LIMIT_OFFSET_OFF,
+                    &LIMIT_NUM_ELEMS_OFF,
+                    &ALPHA_ON,
+                    &DESC_OFF,
+                )
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_2, VALUE_A];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_desc_on_return_sorted_list_with_numbers_descending() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(
+                    LIST,
+                    &LIMIT_OFFSET_OFF,
+                    &LIMIT_NUM_ELEMS_OFF,
+                    &ALPHA_OFF,
+                    &DESC_ON,
+                )
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_2, VALUE_1, VALUE_NEG_1];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_count_0_return_empty_list() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(
+                    LIST,
+                    &LIMIT_OFFSET_OFF,
+                    &LIMIT_NUM_ELEMS_OFF,
+                    &ALPHA_OFF,
+                    &DESC_ON,
+                )
+                .unwrap()
+            {
+                assert!(list.is_empty());
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_count_in_range_of_list_return_sorted_list_with_count_elem(
+        ) {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(LIST, &LIMIT_OFFSET_OFF, &2, &ALPHA_OFF, &DESC_OFF)
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 2);
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_count_negative_return_sorted_list_with_all_elements() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(LIST, &LIMIT_OFFSET_OFF, &-1, &ALPHA_OFF, &DESC_OFF)
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 3);
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_neg_count_0_return_emptylist() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(LIST, &-2, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF)
+                .unwrap()
+            {
+                assert!(list.is_empty());
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_out_of_range_of_list_count_return_empty_list() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(LIST, &4, &LIMIT_NUM_ELEMS_OFF, &ALPHA_OFF, &DESC_OFF)
+                .unwrap()
+            {
+                assert!(list.is_empty());
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_negative_count_negative_return_sorted_list_with_all_elements(
+        ) {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) = database
+                .sort(LIST, &-2, &-2, &ALPHA_OFF, &DESC_OFF)
+                .unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_NEG_1, VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 3);
+            }
+        }
+
+        #[test]
+        fn test_sort_list_with_limit_offset_in_range_count_2_return_sorted_sublist_of_2_elements() {
+            let database = create_database();
+            database
+                .lpush(LIST, [VALUE_1, VALUE_NEG_1, VALUE_2].to_vec())
+                .unwrap();
+
+            if let SuccessQuery::List(list) =
+                database.sort(LIST, &1, &2, &ALPHA_OFF, &DESC_OFF).unwrap()
+            {
+                let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+                let to_compare_list: Vec<&str> = vec![VALUE_1, VALUE_2];
+                let pair_list: Vec<(&String, &str)> =
+                    list_result.iter().zip(to_compare_list).collect();
+                pair_list.iter().for_each(|x| {
+                    assert_eq!(x.0, x.1);
+                });
+                assert_eq!(list.len(), 2);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1773,10 +2139,10 @@ mod group_list {
     fn database_with_a_list() -> Database {
         let database = create_database();
 
-        database.lpush(KEY, VALUEA).unwrap();
-        database.lpush(KEY, VALUEB).unwrap();
-        database.lpush(KEY, VALUEC).unwrap();
-        database.lpush(KEY, VALUED).unwrap();
+        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+        database.lpush(KEY, [VALUEB].to_vec()).unwrap();
+        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
+        database.lpush(KEY, [VALUED].to_vec()).unwrap();
 
         database
     }
@@ -1784,10 +2150,10 @@ mod group_list {
     fn database_with_a_three_repeated_values() -> Database {
         let database = create_database();
 
-        database.lpush(KEY, VALUEA).unwrap();
-        database.lpush(KEY, VALUEA).unwrap();
-        database.lpush(KEY, VALUEC).unwrap();
-        database.lpush(KEY, VALUEA).unwrap();
+        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
+        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
 
         database
     }
@@ -1817,7 +2183,7 @@ mod group_list {
         fn test_llen_on_a_list_with_one_value() {
             let database = create_database();
 
-            database.lpush(KEY, VALUE).unwrap();
+            database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
             let result = database.llen(KEY);
 
@@ -1859,7 +2225,7 @@ mod group_list {
         fn test_lindex_with_a_list_with_one_value_on_idex_zero() {
             let database = create_database();
 
-            database.lpush(KEY, VALUE).unwrap();
+            database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
             if let SuccessQuery::String(value) = database.lindex(KEY, 0).unwrap() {
                 assert_eq!(value, VALUE);
@@ -1919,7 +2285,7 @@ mod group_list {
         fn test_lpop_with_a_list_with_one_value_on_idex_zero() {
             let database = create_database();
 
-            database.lpush(KEY, VALUE).unwrap();
+            database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
                 assert_eq!(val.to_string(), VALUE);
@@ -1947,7 +2313,7 @@ mod group_list {
         fn test_lpop_on_an_empty_list() {
             let database = create_database();
 
-            database.lpush(KEY, VALUE).unwrap();
+            database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
                 assert_eq!(val.to_string(), VALUE);
@@ -1972,7 +2338,7 @@ mod group_list {
         fn test_lpush_on_a_non_existent_key_creates_a_list_with_new_value() {
             let database = create_database();
 
-            let result = database.lpush(KEY, VALUE).unwrap();
+            let result = database.lpush(KEY, [VALUE].to_vec()).unwrap();
             assert_eq!(result, SuccessQuery::Integer(1));
 
             let dictionary = database.dictionary.lock().unwrap();
@@ -1987,9 +2353,9 @@ mod group_list {
         fn test_lpush_on_an_existent_key_is_valid() {
             let database = create_database();
 
-            database.lpush(KEY, VALUEA).unwrap();
+            database.lpush(KEY, [VALUEA].to_vec()).unwrap();
 
-            let result = database.lpush(KEY, VALUEB).unwrap();
+            let result = database.lpush(KEY, [VALUEB].to_vec()).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(2));
 
@@ -2008,9 +2374,48 @@ mod group_list {
 
             database.append(KEY, VALUE).unwrap();
 
-            let result = database.lpush(KEY, VALUE).unwrap_err();
+            let result = database.lpush(KEY, [VALUE].to_vec()).unwrap_err();
 
             assert_eq!(result, DataBaseError::NotAList);
+        }
+
+        #[test]
+        fn test_lpush_more_than_one_value_with_a_key_non_existent() {
+            let database = create_database();
+
+            let result = database
+                .lpush(KEY, [VALUEA, VALUEB, VALUEC].to_vec())
+                .unwrap();
+
+            assert_eq!(result, SuccessQuery::Integer(3));
+
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
+                assert_eq!(list.len(), 3);
+                assert_eq!(list[2], VALUEA);
+                assert_eq!(list[1], VALUEB);
+                assert_eq!(list[0], VALUEC);
+            }
+        }
+
+        #[test]
+        fn test_lpush_more_than_one_value_with_a_key_with_list() {
+            let database = create_database();
+
+            database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+            let result = database.lpush(KEY, [VALUEB, VALUEC].to_vec()).unwrap();
+
+            assert_eq!(result, SuccessQuery::Integer(3));
+
+            let dictionary = database.dictionary.lock().unwrap();
+
+            if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
+                assert_eq!(list.len(), 3);
+                assert_eq!(list[2], VALUEA);
+                assert_eq!(list[1], VALUEB);
+                assert_eq!(list[0], VALUEC);
+            }
         }
     }
 
@@ -2021,7 +2426,7 @@ mod group_list {
         fn test_lrange_on_zero_zero_range() {
             let database = create_database();
 
-            database.lpush(KEY, VALUE).unwrap();
+            database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
             if let SuccessQuery::List(list) = database.lrange(KEY, 0, 0).unwrap() {
                 assert_eq!(list[0].to_string(), VALUE);
