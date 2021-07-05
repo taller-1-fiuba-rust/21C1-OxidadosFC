@@ -38,7 +38,7 @@ loop while a_live
         Client -> Request++: new(request)
         return request: Request
         alt request == Request::DataBase
-            Client -> Request++: exec()
+            Client -> Request++:
         else Request::Server
             Client -> Request:
         else Request::Publisher
@@ -65,6 +65,18 @@ loop while a_live
 
         Client -> Respond ++: respond(stream)
         deactivate
+    else result == Error(error)
+        Client -> Client: a_live = false\nclients-=1
+        alt error != "EOF"
+            create Respond
+            Client -> Respond++: Response::Error(error)
+            deactivate Respond
+        end
     end
+end
+
+loop for subs in self.subscriptions
+    Client -> Channels++: unsubscribe(subs, self.id)
+    deactivate Channels
 end
 @enduml
