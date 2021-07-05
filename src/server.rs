@@ -22,7 +22,7 @@ impl Server {
     pub fn new(config_file: &str) -> Result<Server, String> {
         let config = ServerConf::new(config_file)?;
         let listener = TcpListener::bind(config.addr()).expect("Could not bind");
-        let database = Database::new();
+        let database = Database::new(config.dbfilename());
         let next_id = Arc::new(Mutex::new(1));
         let channels = Channels::new();
         let uptime = SystemTime::now();
