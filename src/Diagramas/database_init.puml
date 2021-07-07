@@ -5,7 +5,7 @@ participant Server order 10
 participant Database order 20
 
 Create Database
-Server -> Database++: new()
+Server -> Database++: new(dbfilename)
 
 Database -> Database: ttl_sender: Sender<MessageTtl>,\n ttl_rec: Receiver<MessageTtl>
 

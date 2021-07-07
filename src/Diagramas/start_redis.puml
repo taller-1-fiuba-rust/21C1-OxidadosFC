@@ -9,7 +9,7 @@ participant Channels order 50
 create Server
 User -> Server: new(config_file: &str)
 User -> Server ++: run()
-note right: Initialize server:\nconfig = ServerConf::new(config_file)\nlistener = TcpListener::bind(config.addr())\ndatabase = Database::new()\nnext_id = 1\nuptime = SystemNow()\nchannels = Channels::new()\nclients = 0
+note right: Initialize server:\nconfig = ServerConf::new(config_file)\nlistener = TcpListener::bind(config.addr())\ndatabase = Database::new(config.dbfilename)\nnext_id = 1\nuptime = SystemNow()\nchannels = Channels::new()\nclients = 0
 
 create Logger
 Server -> Logger : new(config.log_file(), config.verbose())
