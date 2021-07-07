@@ -38,7 +38,7 @@ pub enum ServerError {
     NonExistentConfigOption,
     NotAnInteger,
     InvalidPortValue,
-    NoSeteableOption(String)
+    NoSeteableOption(String),
 }
 
 impl Clone for ServerConf {
@@ -136,7 +136,7 @@ impl ServerConf {
         }
 
         if INVALID_SETEABLE.contains(&option) {
-            return Err(ServerError::NoSeteableOption(option.to_string()))
+            return Err(ServerError::NoSeteableOption(option.to_string()));
         }
 
         if conf.contains_key(option) {
@@ -221,7 +221,9 @@ impl fmt::Display for ServerError {
                 "Port mus be a value betwen {} and {}",
                 MIN_PORT, MAX_PORT
             ),
-            ServerError::NoSeteableOption(option) => write!(f, "ERR Unsupported CONFIG parameter: {}", option)
+            ServerError::NoSeteableOption(option) => {
+                write!(f, "ERR Unsupported CONFIG parameter: {}", option)
+            }
         }
     }
 }
@@ -336,17 +338,6 @@ mod config_parser_tests {
             assert_eq!(r, ServerError::NotAnInteger);
 
             assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
-        }
-
-        #[test]
-        fn set_port_correctly() {
-            let mut cp = create_config_parser();
-            assert_eq!(cp.addr(), ADDR_VALUE);
-
-            let r = cp.set_config(PORT, "6379").unwrap();
-            assert_eq!(r, SuccessServerRequest::Success);
-
-            assert_eq!(cp.addr(), "0.0.0.0:6379");
         }
 
         #[test]
