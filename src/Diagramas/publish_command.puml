@@ -1,0 +1,34 @@
+@startuml publish command
+hide footbox
+activate Client
+participant Client order 10
+participant Request order 23
+
+    alt request == Request::Database
+        Client -> Request++:
+    else Request::Server
+        Client -> Request:
+    else Request::Publisher
+        Client -> Request: get()
+        participant Publish as "PublisherRequest::Publish"
+        Request -> Publish++:
+        return request: PublisherRequest::Publish
+    else Request::Suscriber
+        Client -> Request:
+    else Request::CloseClient
+        Client -> Request:
+    else Request::Invalid
+        Client -> Request:
+    end
+    
+    return request: PublisherRequest::Publish
+
+    Client -> Publish++: execute(channels)
+
+    alt PublisherRequest::Publish(channel, msg)
+        Publish -> Publish:  message = format("{} {}", channel, msg)
+        Publish -> Channels++: send(chanel, &message)
+        return subscribers: i32
+    end
+    return respond: Response::Valid(subscribers)
+@enduml

@@ -2,10 +2,9 @@
 hide footbox
 activate Client
 participant Client order 10
-participant Database order 30
-participant Request order 20
+participant Request order 23
 
-    alt request == Request::Subscribe
+    alt request == Request::Database
         Client -> Request++:
     else Request::Server
         Client -> Request:
@@ -26,32 +25,42 @@ participant Request order 20
 
     Client -> Subscribe++: execute(\n\tstream, channels, subscriptions,\n\tid, subscription_mode\n)
 
-    alt Subscribe::Expire(key, seconds)
-        Subscribe -> Database++: expire(key, seconds)
-        participant Dictionary as "dictionary: HashMap" order 35
-        Database -> Dictionary ++: contains_key(key)
-        return contains: bool
-        alt contains == true
-            alt seconds < 0
-                Database -> Dictionary++: remove(key)
-                deactivate Dictionary
-            else else
-                Database -> Database: expire_time = SystemTimeNow + seconds
-                participant msg_sender as "ttl_msg_sender: Sender<MessageTtl>" order 34
-                Database -> msg_sender++: send(MessageTtl::Expire(KeyTtl(key, expire_time)))
-                deactivate msg_sender
+    alt SubscriberRequest::Subscribe(channels_to_add)
+        Subscribe -> Subscribe:  s: Sender<String>,\nr: Receiver<String>
+        participant result as "result: String" order 24
+        create result
+        Subscribe -> result: new()
+        loop for channel in channels_to_add
+            participant subscriptions as "subscriptions: Vec<String>" order 40
+            Subscribe -> subscriptions++: contains(channel)
+            return contains
+            alt !contains
+                Subscribe -> subscriptions++: push(channel)
+                deactivate subscriptions
+                participant Channels order 25
+                Subscribe -> Channels++: add_to_channel(channel, s.clone(), id)
+                deactivate Channels
             end
-            Database -> Subscribe: Ok(SuccessQuery::Boolean(true))
-        else else
-            return Ok(SuccessQuery::Boolean(false))
-        end
-    end
 
-    alt result_query == Ok(succes)
-        participant Respond as "respond: Response::Valid" order 31
-        create Respond
-        Subscribe -> Respond++: Response::Valid(succes_msg: &str)
-        return respond
+            Subscribe -> subscriptions ++: len()
+            return len
+            Subscribe -> Subscribe: subscription = "subscribe " + channel + len
+            
+            Subscribe -> result++: push(subscription)
+            deactivate result
+        end
+
+        group thread
+            loop for msg in r.iter()
+                participant Respond order 21
+                create Respond
+                Subscribe -> Respond: Response::Valid(msg)
+                Subscribe -> Respond++: respond(stream)
+                deactivate Respond
+            end
+        end
+
+        Subscribe -> Subscribe: subscription_mode = true;
     end
-    return respond
+    return respond: Response::Valid(result)
 @enduml
