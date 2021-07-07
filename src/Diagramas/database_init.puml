@@ -1,4 +1,4 @@
-@startuml database init
+@startuml database init expire case
 hide footbox
 
 participant Server order 10
@@ -50,7 +50,7 @@ group Thread
                                         participant dictionary order 15
                                         Database -> dictionary++: remove(key_ttl.key)
                                         deactivate dictionary
-                                    else option == None
+                                    else else
                                         Database -> Database: break
                                     end
                                 end
