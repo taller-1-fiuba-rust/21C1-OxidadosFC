@@ -6,41 +6,41 @@ abstract Response
 abstract Request
 
 abstract Class Request {
-    +{abstract}new(request: &str): Request
+    +{abstract}build(request: &str): Request
 }
 
 Class Req_Database{
     -query: Query
-    +new(query: Query): Request
+    +build(query: Query): Request
     +exec_query(db: &mut Database) -> Response
 }
 
 Class Req_Server{
     -server_request: ServerRequest
-    +new(server_request: ServerRequest): Request
-    +exec_request(conf: &mut ServerConf) -> Response
+    +build(server_request: ServerRequest): Request
+    +exec_request(conf: &mut ServerConf, uptime: SystemTime, total_clients: Arc<Mutex<u64>>) -> Response
 }
 
 Class Req_Suscriber{
     -suscriber_request: SuscriberRequest
-    +new(request: &str): Request
+    +build(request: &str): Request
     +execute(stream: &mut TcpStream, channels: &mut Channels, subscriptions: &mut Vec<String>, id: u32, subs_mode: &mut bool): Response
 }
 
 Class Req_Publiher{
     -publisher_request: PublisherRequest 
-    +new(request: &str): Request
+    +build(request: &str): Request
     +execute(channels: &mut Channels): Response
 }
 
 Class CloseClient{
-    +new(): Request
+    +build(): Request
 }
 
 Class Invalid{
     -request: &str 
     -request_error: RequestError
-    +new(): Request
+    +build(): Request
 }
 
 abstract Class Response {
