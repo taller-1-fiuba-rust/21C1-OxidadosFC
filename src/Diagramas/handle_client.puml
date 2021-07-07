@@ -1,12 +1,12 @@
 @startuml handle_client
 hide footbox
-activate Database
+activate Server
 
-participant Database order 0
+participant Server order 0
 participant Client order 10
 participant Request order 20
 
-Database -> Client++: handle_client(\n\tdb, channels,\n\tuptime, config\n)
+Server -> Client++: handle_client(\n\tdb, channels,\n\tuptime, config\n)
 Client -> Client: a_live = true\nsubscription_mode = false
 loop while a_live
     participant Config as "config: ServerConfig" order 30
