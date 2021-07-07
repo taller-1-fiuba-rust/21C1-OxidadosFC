@@ -38,6 +38,12 @@ loop while a_live
         Client -> Request++: new(request, subscriptions_mode)
         return request: Request
         alt request == Request::DataBase
+            Client -> Client++: emit_request(request, channels)
+            Client -> Channels++: send_logger(self.id, request)
+            deactivate Channels
+            Client -> Channels++: send_monitor(self.id, request)
+            deactivate Channels
+            deactivate Client
             Client -> Request++:
         else Request::Server
             Client -> Request:
@@ -75,8 +81,8 @@ loop while a_live
     end
 end
 
-loop for subs in self.subscriptions
-    Client -> Channels++: unsubscribe(subs, self.id)
+loop for sub in self.subscriptions
+    Client -> Channels++: unsubscribe(sub, self.id)
     deactivate Channels
 end
 @enduml
