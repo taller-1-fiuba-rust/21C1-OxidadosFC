@@ -93,7 +93,7 @@ impl Channels {
         let guard = self.channels.lock().unwrap();
         guard
             .keys()
-            .filter(|x| matcher(x, pattern) && *x != MONITOR)
+            .filter(|x| matcher(x, pattern) && *x != MONITOR && *x != LOGGER)
             .map(|item| item.to_string())
             .collect()
     }
