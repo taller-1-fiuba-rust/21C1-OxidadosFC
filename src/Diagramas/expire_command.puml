@@ -7,6 +7,7 @@ participant Request order 20
 
     alt request == Request::DataBase
         Client -> Request++:
+        participant Query as "Query::Expire"
         create Query
         Request -> Query++:
         return query:Query
@@ -22,7 +23,7 @@ participant Request order 20
         Client -> Request:
     end
     
-    return query:Query
+    return query: Query::Expire
 
     Client -> Query++: exec_query(db: Database): Response
 

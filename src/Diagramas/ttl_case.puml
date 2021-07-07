@@ -3,8 +3,7 @@ hide footbox
 
 activate Database
 alt MessageTtl::TTL(key: String, sender_respond: Sender<RespondTtl>)
-    Database -> ttl_keys++: lock()
-    Database -> ttl_keys: iter().position(|x| x.key == key)
+    Database -> ttl_keys++: iter().position(|x| x.key == key)
     return Option
 
     alt Option == Some(pos)
