@@ -6,6 +6,9 @@ activate Client
 participant Client order 10
 participant Database order 100
 participant Request order 20
+participant Dictionary as "dictionary:HashMap" order 120
+participant Value as "val:String" order 200
+participant Query order 80
 
     Client -> Request++: parse_request(&mut self.stream: TcpStream)
     return result
@@ -36,33 +39,30 @@ participant Request order 20
 
     Client -> Query++: exec_query(db: Database): Response
 
-        alt query == Query::Append
-            Query -> Database++: append(key: &str, val: &str): Result<SuccessQuery, DataBaseError>
-        else Query::Set
-            Query -> Database:
-        else Query::Get
-            Query -> Database:
-        else Query::DecrBy
-            Query -> Database:
-        else Query::IncrBy
-            Query -> Database:
-        else Query::...
-            Query -> Database:
-        end
-
+        alt query == Query::Append(key: &str, value: &str)
+            Query -> Database++: append(key: &str, value: &str): Result<SuccessQuery, DataBaseError>
+                Database -> Dictionary++: contains_key(key: &str): bool
+                return value_bool
+                alt value_bool == true
+                    alt Some(StorageValue::String(val)) = dictionary.get_mut(key)
+                        Database -> Value++: push_str(value: &str)
+                        deactivate Value
+                        Database -> Query: Ok(SuccessQuery::Integer(val.lenght()))
+                    else Some(_)
+                        Database -> Query: Err(DataBaseError::NotAString)
+                    end 
+                else false
+                    Database -> Dictionary++: insert(key: &str, value: &str)
+                    deactivate Dictionary
+                    Database -> Query: Ok(SuccessQuery::Integer(value.lenght()))
+                end     
             return result_query: Result< SuccessQuery, DataBaseError>
-
+        end
     alt result_query == Ok(succes)
         participant Respond as "respond: Response" order 140
         create Respond
         Query -> Respond++: new(succes_msg: &str)
         return respond::Valid
-    else Error(err)
-        create Respond
-        Query -> Respond++: new(err_msg: &str)
-        return respond::Invalid
     end
     return respond
-    Client -> Respond++ : respond(stream: TcpStream)
-        return
 @enduml
