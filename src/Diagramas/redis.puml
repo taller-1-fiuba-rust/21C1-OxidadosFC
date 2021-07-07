@@ -1,0 +1,106 @@
+@startuml redis
+skinparam ClassAttributeIconSize 0
+hide interface fields
+
+abstract Response
+abstract Request
+
+Class Server {
+    - listener: TcpListener
+    - next_id: Arc<Mutex<u32>>
+    - uptime: SystemTime
+    - clients: Arc<Mutex<u64>>
+    - new_client(stream: TcpStream, id: u32, logger_ref: Arc<Mutex<Logger>>) -> Client
+    + new(config_file: &str): Result<Server, String>
+    + run(): ()
+}
+
+Class Client{
+    - stream: TcpStream
+    - subscriptions: Vec<String>
+    - id: u32
+    - total_clients: Arc<Mutex<u64>>
+    - emit_request(request: String, channels: &mut Channels): ()
+    + new(stream: TcpStream, subscriptions: Vec<String>, id: u32, total_clients: Arc<Mutex<u64>>, logger_ref: Arc<Mutex<Logger>>): Client
+    + handle_client(mut db: Database,mut c: Channels, uptime: SystemTime,mut conf: ServerConf): ()
+}
+
+Class Channels{
+    - channels: Dictionary
+    + new(): Channels
+    + add_to_channel( channel: &str, sender: Sender<String>, id: u32) : ()
+    + add_logger( logger_sender: Sender<String>): ()
+    + add_monitor(): Receiver<String>
+    + send( channel: &str, msg: &str): i32
+    + send_logger( id: u32, msg: &str): ()
+    + send_monitor( id: u32, msg: &str): ()
+    + unsubscribe( channel: &str, id: u32): ()
+    + get_channels( pattern: &str) -> Vec<String>
+    + subcriptors_number( channel: &str) -> usize
+}
+
+Class Database {
+    - dictionary: HashMap<String, StorageValue>
+    - ttl_msg_sender: Sender<MessageTtl>
+    + new(): Database
+    + flushdb(): Result<SuccessQuery, DataBaseError>
+    + dbsize(): Result<SuccessQuery, DataBaseError>
+    + copy(key: &str, to_key: &str): Result<SuccessQuery, DataBaseError>
+}
+
+Class ServerConf {
+    - conf: HashMap<String, String>
+    + new(config_file: &str) -> Result<ServerConf, String>
+    + port() -> u64
+    + addr(): String
+    + logfile(): String
+    + get_config(pattern: &str): Result<SuccessServerRequest, ServerError>
+    + set_config(option: &str, new_value: &str,): Result<SuccessServerRequest, ServerError>
+    + time_out(): u64
+    + verbose() -> bool
+}
+
+Class Logger {
+    - file_path: String
+    - verbose: Arc<AtomicBool>
+    + new(file_path: &str, verbose: bool): Logger
+    + run(): Sender<String>
+    + set_verbose(new_value: bool): ()
+}
+
+abstract Class Request {
+    +{abstract}new(request: &str, subscription_mode: bool): Request
+    +parse_request(stream: &mut TcpStream) -> Result<String, String>
+}
+
+abstract Class Response {
+    -msg: &str
+    +{abstract}respond(stream: &TcpStream)
+}
+
+Class Valid{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Class Error{
+    +respond(stream: &mut TcpStream): ()
+}
+
+
+Server *-- Database
+Server *-- ServerConf
+Server *-- Channels
+Server .up.> Logger
+Server .right.> Client
+
+Client o-- Logger
+Client .up.> Request
+Client o--ServerConf
+
+Request .right.> Response
+
+Response <|-- Valid
+Response <|-- Error
+
+
+@enduml

@@ -40,19 +40,13 @@ impl Server {
     }
 
     fn new_client(&self, stream: TcpStream, id: u32, logger_ref: Arc<Mutex<Logger>>) -> Client {
-        let subscriptions = Vec::new();
         let total_clients = self.clients.clone();
         let mut clients = self.clients.lock().unwrap();
         *clients += 1;
         drop(clients);
 
-        Client::new(stream, subscriptions, id, total_clients, logger_ref)
+        Client::new(stream, id, total_clients, logger_ref)
     }
-
-    // fn run_logger(&self) -> Sender<(String, bool)> {
-    //     let mut logger = Logger::new(&self.config.logfile(), self.config.verbose());
-    //     logger.run()
-    // }
 
     fn get_next_id(&self) -> u32 {
         let next_id = self.next_id.clone();

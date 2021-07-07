@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{process, thread};
 
+const SUBSCRIPTION_MODE_ERROR: &str = "Subscription mode doesn't support other commands";
 pub enum Request<'a> {
     DataBase(Query<'a>),
     Server(ServerRequest<'a>),
@@ -19,10 +20,10 @@ pub enum Request<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn new(request_str: &str) -> Request {
+    pub fn new(request_str: &str, subscription_mode: bool) -> Request {
         let request: Vec<&str> = request_str.split_whitespace().collect();
 
-        match request[..] {
+        let request = match request[..] {
             ["expire", key, seconds] => match seconds.parse::<i64>() {
                 Ok(seconds) => Request::DataBase(Query::Expire(key, seconds)),
                 Err(_) => Request::Invalid(request_str, RequestError::ParseError),
@@ -193,6 +194,18 @@ impl<'a> Request<'a> {
             ["info"] => Request::Server(ServerRequest::Info()),
             ["close"] => Request::CloseClient,
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
+        };
+
+        if subscription_mode {
+            match request {
+                Request::Suscriber(SuscriberRequest::Unsubscribe(_)) => request,
+                Request::Suscriber(SuscriberRequest::Subscribe(_)) => request,
+                Request::CloseClient => request,
+                Request::Invalid(_, _) => request,
+                _ => Request::Invalid(request_str, RequestError::InvalidCommandSubscribeMode),
+            }
+        } else {
+            request
         }
     }
 }
@@ -212,6 +225,7 @@ impl<'a> Display for Request<'a> {
 
 pub enum RequestError {
     ParseError,
+    InvalidCommandSubscribeMode,
     UnknownRequest,
     InvalidNumberOfArguments,
 }
@@ -222,6 +236,7 @@ impl<'a> Display for RequestError {
             RequestError::ParseError => write!(f, "Couldn't Parse number input"),
             RequestError::InvalidNumberOfArguments => write!(f, "Invalid Number of Arguments"),
             RequestError::UnknownRequest => write!(f, "Non existent Request"),
+            RequestError::InvalidCommandSubscribeMode => write!(f, "{}", SUBSCRIPTION_MODE_ERROR),
         }
     }
 }
@@ -669,15 +684,21 @@ impl<'a> Display for Query<'a> {
 
 pub fn parse_request(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = [0; 512];
+    let mut request_str = String::new();
 
-    match stream.read(&mut buf) {
-        Ok(0) => Err("EOF".to_string()),
-        Ok(bytes_read) => match std::str::from_utf8(&buf[..bytes_read]) {
-            Ok(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
-            _ => Ok("".to_string()),
-        },
-        Err(_) => Err("Time Out".to_string()),
+    while request_str.is_empty() {
+        match stream.read(&mut buf) {
+            Ok(0) => return Err("EOF".to_string()),
+            Err(_) => return Err("Time Out".to_string()),
+            Ok(bytes_read) => {
+                if let Ok(value) = std::str::from_utf8(&buf[..bytes_read]) {
+                    request_str = value.trim().to_string();
+                }
+            }
+        }
     }
+
+    Ok(request_str)
 }
 
 pub enum Reponse {

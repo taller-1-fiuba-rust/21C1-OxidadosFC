@@ -1,0 +1,19 @@
+@startuml ttl case
+hide footbox
+
+activate Database
+alt MessageTtl::TTL(key: String, sender_respond: Sender<RespondTtl>)
+    Database -> ttl_keys++: iter().position(|x| x.key == key)
+    return Option
+
+    alt Option == Some(pos)
+        Database -> ttl_keys ++: get(pos)
+        return keyttl
+        Database -> sender_respond ++: send(RespondTtl::TTL(keyttl.expire_time))
+        deactivate sender_respond
+    else Option == None
+        Database -> sender_respond ++: sender_respond.send(RespondTtl::Persistent).unwrap();
+        deactivate sender_respond
+    end
+end
+@enduml

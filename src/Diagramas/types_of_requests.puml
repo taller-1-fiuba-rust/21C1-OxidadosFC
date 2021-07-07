@@ -1,0 +1,72 @@
+@startuml redis
+skinparam ClassAttributeIconSize 0
+hide interface fields
+
+abstract Response
+abstract Request
+
+abstract Class Request {
+    +{abstract}build(request: &str): Request
+}
+
+Class Req_Database{
+    -query: Query
+    +build(query: Query): Request
+    +exec_query(db: &mut Database) -> Response
+}
+
+Class Req_Server{
+    -server_request: ServerRequest
+    +build(server_request: ServerRequest): Request
+    +exec_request(conf: &mut ServerConf, uptime: SystemTime, total_clients: Arc<Mutex<u64>>) -> Response
+}
+
+Class Req_Suscriber{
+    -suscriber_request: SuscriberRequest
+    +build(request: &str): Request
+    +execute(stream: &mut TcpStream, channels: &mut Channels, subscriptions: &mut Vec<String>, id: u32, subs_mode: &mut bool): Response
+}
+
+Class Req_Publiher{
+    -publisher_request: PublisherRequest 
+    +build(request: &str): Request
+    +execute(channels: &mut Channels): Response
+}
+
+Class CloseClient{
+    +build(): Request
+}
+
+Class Invalid{
+    -request: &str 
+    -request_error: RequestError
+    +build(): Request
+}
+
+abstract Class Response {
+    -msg: &str
+    +{abstract}respond(stream: &TcpStream)
+}
+
+Class Valid{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Class Error{
+    +respond(stream: &mut TcpStream): ()
+}
+
+Request .left.> Response
+
+Request -.right-> Req_Database
+Request -.-> Req_Server
+Request -.-> Req_Suscriber
+Request -.-> Req_Publiher
+Request -.-> CloseClient
+Request -.-> Invalid
+
+Response <|-- Valid
+Response <|-- Error
+
+
+@enduml

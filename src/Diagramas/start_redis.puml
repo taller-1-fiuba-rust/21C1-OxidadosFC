@@ -1,0 +1,31 @@
+@startuml start_redis
+hide footbox
+participant User order 10
+participant Server order 20
+participant Client order 30
+participant Logger order 40
+participant Channels order 50
+
+create Server
+User -> Server: new(config_file: &str)
+User -> Server ++: run()
+note right: Initialize server:\nconfig = ServerConf::new(config_file)\nlistener = TcpListener::bind(config.addr())\ndatabase = Database::new()\nnext_id = 1\nuptime = SystemNow()\nchannels = Channels::new()\nclients = 0
+
+create Logger
+Server -> Logger : new(config.log_file(), config.verbose())
+Server -> Logger ++: run()
+Logger --> Server: log_sender = Sender<String>
+
+Server -> Channels ++: add_logger(log_sender)
+    loop for stream in listener.incoming()
+        Server -> Server: id = get_next_id()
+        Server -> Server ++: client = new_client(stream, id, logger_ref)
+        create Client
+        Server -> Client : new(stream, id, total_clients, logger_ref)
+        deactivate Server
+        group Thread:
+            Server -> Client ++: handle_client(database, channels, uptime, config);
+        end
+    end
+
+@enduml

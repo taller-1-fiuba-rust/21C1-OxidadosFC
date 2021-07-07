@@ -1,0 +1,57 @@
+@startuml subscribe command
+hide footbox
+activate Client
+participant Client order 10
+participant Database order 30
+participant Request order 20
+
+    alt request == Request::Subscribe
+        Client -> Request++:
+    else Request::Server
+        Client -> Request:
+    else Request::Publisher
+        Client -> Request:
+    else Request::Suscriber
+        Client -> Request: get()
+        participant Subscribe as "SubscriberRequest::Subscribe"
+        Request -> Subscribe++:
+        return request: SubscriberRequest::Subscribe
+    else Request::CloseClient
+        Client -> Request:
+    else Request::Invalid
+        Client -> Request:
+    end
+    
+    return request: SubscriberRequest::Subscribe
+
+    Client -> Subscribe++: execute(\n\tstream, channels, subscriptions,\n\tid, subscription_mode\n)
+
+    alt Subscribe::Expire(key, seconds)
+        Subscribe -> Database++: expire(key, seconds)
+        participant Dictionary as "dictionary: HashMap" order 35
+        Database -> Dictionary ++: contains_key(key)
+        return contains: bool
+        alt contains == true
+            alt seconds < 0
+                Database -> Dictionary++: remove(key)
+                deactivate Dictionary
+            else else
+                Database -> Database: expire_time = SystemTimeNow + seconds
+                participant msg_sender as "ttl_msg_sender: Sender<MessageTtl>" order 34
+                Database -> msg_sender++: send(MessageTtl::Expire(KeyTtl(key, expire_time)))
+                deactivate msg_sender
+            end
+            Database -> Subscribe: Ok(SuccessQuery::Boolean(true))
+        else else
+            return Ok(SuccessQuery::Boolean(false))
+        end
+    end
+
+    alt result_query == Ok(succes)
+        participant Respond as "respond: Response::Valid" order 31
+        create Respond
+        Subscribe -> Respond++: Response::Valid(succes_msg: &str)
+        return respond
+    end
+    return respond
+@enduml

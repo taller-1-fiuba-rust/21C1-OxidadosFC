@@ -1,0 +1,72 @@
+@startuml database init expire case
+hide footbox
+
+participant Server order 10
+participant Database order 20
+
+Create Database
+Server -> Database++: new()
+
+Database -> Database: ttl_sender: Sender<MessageTtl>,\n ttl_rec: Receiver<MessageTtl>
+
+Database -> Database: Database {\n\tdictionary: Arc<Mutex<HashMap>>,\n\tttl_sender\n}
+Database -> Database ++: ttl_supervisor_run(ttl_rec)
+
+group Thread
+    participant ttl_keys as "ttl_keys: Vec<KeyTtl>" order 25
+    create ttl_keys
+    Database -> ttl_keys: new()
+    loop for message in ttl_rec
+        alt MessageTtl::Expire(new_key_ttl: Key_ttl)
+            Database -> ttl_keys++: binary_search(&new_key_ttl)
+            return result
+
+            alt result == Ok(pos)
+                Database -> ttl_keys ++: remove(pos)
+                deactivate
+                Database -> ttl_keys ++: insert(pos, new_key_ttl)
+                deactivate
+            else result == Err(pos)
+                Database -> ttl_keys ++: insert(pos, new_key_ttl)
+                deactivate
+            end
+
+            Database -> ttl_keys ++: len()
+            return len
+
+            alt len == 1
+                group thread
+                    group executor(dictionary, ttl_keys)
+                        loop 
+                            Database -> Database: sleep(1)
+                            ...1 second later...
+                            loop
+                                Database -> ttl_keys++ : get(0)
+                                return option
+                                alt option == Some(key_ttl)
+                                    alt key_ttl.expire_time < SystemTime::now() 
+                                        Database -> ttl_keys ++: remove(0)
+                                        return key_ttl
+                                        participant dictionary order 15
+                                        Database -> dictionary++: remove(key_ttl.key)
+                                        deactivate dictionary
+                                    else else
+                                        Database -> Database: break
+                                    end
+                                end
+                                Database -> ttl_keys ++: is_empty()
+                                return is_empty
+                                alt is_empty == true
+                                    Database -> Database: break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        else other message type
+        end
+    end
+end
+
+@enduml
