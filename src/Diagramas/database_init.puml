@@ -13,13 +13,12 @@ Database -> Database: Database {\n\tdictionary: Arc<Mutex<HashMap>>,\n\tttl_send
 Database -> Database ++: ttl_supervisor_run(ttl_rec)
 
 group Thread
-    participant ttl_keys as "ttl_keys: Arc<Mutex<Vec<KeyTtl>>>" order 25
+    participant ttl_keys as "ttl_keys: Vec<KeyTtl>" order 25
     create ttl_keys
     Database -> ttl_keys: new()
     loop for message in ttl_rec
         alt MessageTtl::Expire(new_key_ttl: Key_ttl)
-            Database -> ttl_keys++: lock()
-            Database -> ttl_keys: binary_search(&new_key_ttl)
+            Database -> ttl_keys++: binary_search(&new_key_ttl)
             return result
 
             alt result == Ok(pos)
@@ -41,16 +40,16 @@ group Thread
                         loop 
                             Database -> Database: sleep(1)
                             ...1 second later...
-                            Database -> ttl_keys ++: lock()
                             loop
-                                Database -> ttl_keys : get(0)
+                                Database -> ttl_keys++ : get(0)
                                 return option
                                 alt option == Some(key_ttl)
                                     alt key_ttl.expire_time < SystemTime::now() 
                                         Database -> ttl_keys ++: remove(0)
                                         return key_ttl
-                                        Database -> dictionary ++: lock()
-                                        Database -> dictionary: remove(key_ttl.key)
+                                        participant dictionary order 15
+                                        Database -> dictionary++: remove(key_ttl.key)
+                                        deactivate dictionary
                                     else option == None
                                         Database -> Database: break
                                     end
