@@ -1,33 +1,33 @@
-@startuml expire command
+@startuml subscribe command
 hide footbox
 activate Client
 participant Client order 10
 participant Database order 30
 participant Request order 20
 
-    alt request == Request::DataBase
-        Client -> Request++: get()
-        participant Query as "Query::Expire"
-        Request -> Query++:
-        return query:Query
+    alt request == Request::Subscribe
+        Client -> Request++:
     else Request::Server
         Client -> Request:
     else Request::Publisher
         Client -> Request:
     else Request::Suscriber
-        Client -> Request:
+        Client -> Request: get()
+        participant Subscribe as "SubscriberRequest::Subscribe"
+        Request -> Subscribe++:
+        return request: SubscriberRequest::Subscribe
     else Request::CloseClient
         Client -> Request:
     else Request::Invalid
         Client -> Request:
     end
     
-    return query: Query::Expire
+    return request: SubscriberRequest::Subscribe
 
-    Client -> Query++: exec_query(db: Database)
+    Client -> Subscribe++: execute(\n\tstream, channels, subscriptions,\n\tid, subscription_mode\n)
 
-    alt Query::Expire(key, seconds)
-        Query -> Database++: expire(key, seconds)
+    alt Subscribe::Expire(key, seconds)
+        Subscribe -> Database++: expire(key, seconds)
         participant Dictionary as "dictionary: HashMap" order 35
         Database -> Dictionary ++: contains_key(key)
         return contains: bool
@@ -41,7 +41,7 @@ participant Request order 20
                 Database -> msg_sender++: send(MessageTtl::Expire(KeyTtl(key, expire_time)))
                 deactivate msg_sender
             end
-            Database -> Query: Ok(SuccessQuery::Boolean(true))
+            Database -> Subscribe: Ok(SuccessQuery::Boolean(true))
         else else
             return Ok(SuccessQuery::Boolean(false))
         end
@@ -50,7 +50,7 @@ participant Request order 20
     alt result_query == Ok(succes)
         participant Respond as "respond: Response::Valid" order 31
         create Respond
-        Query -> Respond++: Response::Valid(succes_msg: &str)
+        Subscribe -> Respond++: Response::Valid(succes_msg: &str)
         return respond
     end
     return respond
