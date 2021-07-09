@@ -1006,16 +1006,16 @@ impl Database {
         }
     }
 
-    pub fn sadd(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn sadd_one(&self, key: &str, value: &str) -> Result< SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
                 if hash_set.contains(value) {
-                    Ok(SuccessQuery::Boolean(false))
+                    Ok(SuccessQuery::Integer(0))
                 } else {
                     hash_set.insert(value.to_owned());
-                    Ok(SuccessQuery::Boolean(true))
+                    Ok(SuccessQuery::Integer(1))
                 }
             }
             Some(_) => Err(DataBaseError::NotASet),
@@ -1023,8 +1023,27 @@ impl Database {
                 let mut set: HashSet<String> = HashSet::new();
                 set.insert(value.to_owned());
                 dictionary.insert(key.to_owned(), StorageValue::Set(set));
-                Ok(SuccessQuery::Boolean(true))
+                Ok(SuccessQuery::Integer(1))
             }
+        }
+    }
+
+    pub fn sadd(&self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError>{
+        let mut elems_added = 0;
+        let mut result = self.sadd_one(key, values[0]);
+        if let Ok(SuccessQuery::Integer(val)) = result{
+            elems_added += val;
+        }
+        for item in values.iter().skip(1) {
+            result = self.sadd_one(key, item);
+            if let Ok(SuccessQuery::Integer(val)) = result{
+                elems_added += val;
+            }
+        }
+        match result{
+            Ok(SuccessQuery::Integer(_val)) => Ok(SuccessQuery::Integer(elems_added)),
+            Err(err)=> Err(err),
+            _ => Err(DataBaseError::NotASet),
         }
     }
 
@@ -2269,9 +2288,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
-            database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_3).unwrap();
-            database.sadd(SET, VALUE_2).unwrap();
+            database.sadd(SET, [VALUE_1].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_3].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_2].to_vec()).unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -2338,9 +2357,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             // Weight of VALUE_2 is zero.
 
-            database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_3).unwrap();
-            database.sadd(SET, VALUE_2).unwrap();
+            database.sadd(SET, [VALUE_1].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_3].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_2].to_vec()).unwrap();
 
             if let SuccessQuery::List(list) = database
                 .sort(
@@ -2372,9 +2391,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2_NOT_NUMBER).unwrap();
 
-            database.sadd(SET, VALUE_1).unwrap();
-            database.sadd(SET, VALUE_3).unwrap();
-            database.sadd(SET, VALUE_2).unwrap();
+            database.sadd(SET, [VALUE_1].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_3].to_vec()).unwrap();
+            database.sadd(SET, [VALUE_2].to_vec()).unwrap();
 
             let result = database.sort(
                 SET,
@@ -2886,8 +2905,8 @@ mod group_set {
         fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
             let database = create_database();
 
-            let result = database.sadd(KEY, ELEMENT).unwrap();
-            assert_eq!(result, SuccessQuery::Boolean(true));
+            let result = database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(1));
             let is_member = database.sismember(KEY, ELEMENT).unwrap();
             assert_eq!(is_member, SuccessQuery::Boolean(true));
         }
@@ -2896,10 +2915,10 @@ mod group_set {
         fn test_sadd_create_set_with_repeating_elements_returns_0() {
             let database = create_database();
 
-            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
-            let result = database.sadd(KEY, ELEMENT).unwrap();
-            assert_eq!(result, SuccessQuery::Boolean(false));
+            let result = database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(0));
             let len_set = database.scard(KEY).unwrap();
             assert_eq!(len_set, SuccessQuery::Integer(1));
         }
@@ -2909,20 +2928,45 @@ mod group_set {
             let database = create_database();
             database.set(KEY, ELEMENT).unwrap();
 
-            let result = database.sadd(KEY, ELEMENT).unwrap_err();
+            let result = database.sadd(KEY, [ELEMENT].to_vec()).unwrap_err();
             assert_eq!(result, DataBaseError::NotASet);
         }
 
         #[test]
         fn test_sadd_add_element_with_set_created_returns_1() {
             let database = create_database();
-            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
-            let result = database.sadd(KEY, OTHER_ELEMENT).unwrap();
-            assert_eq!(result, SuccessQuery::Boolean(true));
+            let result = database.sadd(KEY, [OTHER_ELEMENT].to_vec()).unwrap();
+            assert_eq!(result, SuccessQuery::Integer(1));
             let len_set = database.scard(KEY).unwrap();
             assert_eq!(len_set, SuccessQuery::Integer(2));
         }
+
+        #[test]
+        fn test_sadd_add_multiple_elem_in_set_returns_lenght_of_correctly_added_set() {
+            let database = create_database();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
+
+            let result = database.sadd(KEY, [ELEMENT, ELEMENT_2, ELEMENT_3].to_vec()).unwrap();
+
+            assert_eq!(result, SuccessQuery::Integer(2));
+            let len_set = database.scard(KEY).unwrap();
+            assert_eq!(len_set, SuccessQuery::Integer(3));
+        }
+
+        #[test]
+        fn test_sadd_add_multiple_elem_in_key_that_not_contains_set_return_err() {
+            let database = create_database();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
+            database.set(KEY, ELEMENT).unwrap();
+
+            let result = database.sadd(KEY, [ELEMENT, ELEMENT_2, ELEMENT_3].to_vec()).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotASet);
+        }
+
+
     }
 
     mod sismember_test {
@@ -2931,7 +2975,7 @@ mod group_set {
         #[test]
         fn test_sismember_set_with_element_returns_1() {
             let database = create_database();
-            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let is_member = database.sismember(KEY, ELEMENT).unwrap();
 
@@ -2941,7 +2985,7 @@ mod group_set {
         #[test]
         fn test_sismember_set_without_element_returns_0() {
             let database = create_database();
-            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let result = database.sismember(KEY, OTHER_ELEMENT).unwrap();
 
@@ -2973,7 +3017,7 @@ mod group_set {
         fn test_srem_one_member_in_set_returns_1_if_set_contains_member() {
             let members = vec![ELEMENT];
             let mut database = create_database();
-            database.sadd(KEY, ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
             let result = database.srem(KEY, members).unwrap();
             let is_member = database.sismember(KEY, &ELEMENT.to_string()).unwrap();
             assert_eq!(result, SuccessQuery::Integer(1));
@@ -2991,9 +3035,9 @@ mod group_set {
             let mut database = create_database();
             let members = vec![ELEMENT, ELEMENT_2, ELEMENT_3];
             let members_to_rmv = vec![ELEMENT, ELEMENT_2, ELEMENT_3, NON_EXIST_ELEMENT];
-            for member in &members {
-                let _ = database.sadd(KEY, member.clone());
-            }
+            
+            let _ = database.sadd(KEY, members.clone());
+            
             let result = database.srem(KEY, members_to_rmv).unwrap();
             assert_eq!(result, SuccessQuery::Integer(3));
             for member in members {
@@ -3014,7 +3058,7 @@ mod group_set {
     #[test]
     fn test_scard_set_with_one_element_returns_1() {
         let database = create_database();
-        database.sadd(KEY, ELEMENT).unwrap();
+        database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
         let len_set = database.scard(KEY).unwrap();
 
@@ -3024,13 +3068,12 @@ mod group_set {
     #[test]
     fn test_scard_create_set_with_multiple_elements_returns_lenght_of_set() {
         let database = create_database();
-
-        for i in 0..10 {
-            let _ = database.sadd(KEY, &i.to_string());
-        }
+        let elements = vec!["0", "1", "2", "3"];
+        
+        let _ = database.sadd(KEY, elements);
 
         let len_set = database.scard(KEY).unwrap();
-        assert_eq!(len_set, SuccessQuery::Integer(10));
+        assert_eq!(len_set, SuccessQuery::Integer(4));
     }
 
     #[test]
@@ -3058,8 +3101,8 @@ mod group_set {
         #[test]
         fn test_smembers_with_elements_return_list_of_elements() {
             let mut database = create_database();
-            database.sadd(KEY, ELEMENT).unwrap();
-            database.sadd(KEY, OTHER_ELEMENT).unwrap();
+            database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
+            database.sadd(KEY, [OTHER_ELEMENT].to_vec()).unwrap();
 
             if let SuccessQuery::List(list) = database.smembers(KEY).unwrap() {
                 for elem in list {
