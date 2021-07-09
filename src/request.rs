@@ -157,7 +157,7 @@ impl<'a> Request<'a> {
                 } else {
                     Request::DataBase(Query::Sadd(key, tail.to_vec()))
                 }
-            },
+            }
             ["sismember", key, element] => Request::DataBase(Query::Sismember(key, element)),
             ["scard", key] => Request::DataBase(Query::Scard(key)),
             ["flushdb"] => Request::DataBase(Query::Flushdb()),
@@ -670,7 +670,12 @@ impl<'a> Display for Query<'a> {
                 write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
             }
             Query::Sadd(key, elements) => {
-                write!(f, "Sadd - Key: {} - Element: {}", key, vec_to_string(elements))
+                write!(
+                    f,
+                    "Sadd - Key: {} - Element: {}",
+                    key,
+                    vec_to_string(elements)
+                )
             }
             Query::Sismember(key, element) => {
                 write!(f, "Sismember - Key: {} - Element: {}", key, element)
