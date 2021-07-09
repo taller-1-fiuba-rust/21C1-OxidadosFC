@@ -17,7 +17,8 @@ const DEFAULT_PORT: u64 = 8888;
 const DEFAULT_TIMEOUT: u64 = 0;
 const DEFAULT_DBFILENAME: &str = "dump.txt";
 const DEFAULT_LOGFILE: &str = "lf.log";
-const NUMERIC_KEYS: [&str; 3] = [VERBOSE, PORT, TIMEOUT];
+const NUMERIC_KEYS: [&str; 2] = [VERBOSE, TIMEOUT];
+const INVALID_SETEABLE: [&str; 3] = [LOGFILE, PORT, DBFILENAME];
 const MIN_PORT: i64 = 1024;
 const MAX_PORT: i64 = 49151;
 
@@ -37,9 +38,10 @@ pub enum ServerError {
     NonExistentConfigOption,
     NotAnInteger,
     InvalidPortValue,
+    NoSeteableOption(String),
 }
 
-impl<'a> Clone for ServerConf {
+impl Clone for ServerConf {
     fn clone(&self) -> Self {
         ServerConf::new_from_conf(self.conf.clone())
     }
@@ -133,6 +135,10 @@ impl ServerConf {
             return Err(ServerError::NotAnInteger);
         }
 
+        if INVALID_SETEABLE.contains(&option) {
+            return Err(ServerError::NoSeteableOption(option.to_string()));
+        }
+
         if conf.contains_key(option) {
             if option == PORT {
                 let value = new_value.parse::<i64>().unwrap();
@@ -182,7 +188,7 @@ impl ServerConf {
     }
 }
 
-impl<'a> fmt::Display for SuccessServerRequest {
+impl fmt::Display for SuccessServerRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SuccessServerRequest::Success => write!(f, "Ok"),
@@ -207,7 +213,7 @@ impl<'a> fmt::Display for SuccessServerRequest {
 
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
+        match self {
             ServerError::NonExistentConfigOption => write!(f, "Non-existent config option"),
             ServerError::NotAnInteger => write!(f, "Value isn't an Integer"),
             ServerError::InvalidPortValue => write!(
@@ -215,6 +221,9 @@ impl fmt::Display for ServerError {
                 "Port mus be a value betwen {} and {}",
                 MIN_PORT, MAX_PORT
             ),
+            ServerError::NoSeteableOption(option) => {
+                write!(f, "ERR Unsupported CONFIG parameter: {}", option)
+            }
         }
     }
 }
@@ -329,17 +338,6 @@ mod config_parser_tests {
             assert_eq!(r, ServerError::NotAnInteger);
 
             assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
-        }
-
-        #[test]
-        fn set_port_correctly() {
-            let mut cp = create_config_parser();
-            assert_eq!(cp.addr(), ADDR_VALUE);
-
-            let r = cp.set_config(PORT, "6379").unwrap();
-            assert_eq!(r, SuccessServerRequest::Success);
-
-            assert_eq!(cp.addr(), "0.0.0.0:6379");
         }
 
         #[test]
