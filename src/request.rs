@@ -15,6 +15,7 @@ pub enum Request<'a> {
     Server(ServerRequest<'a>),
     Suscriber(SuscriberRequest<'a>),
     Publisher(PublisherRequest<'a>),
+    Touch(&'a str),
     CloseClient,
     Invalid(&'a str, RequestError),
 }
@@ -193,6 +194,7 @@ impl<'a> Request<'a> {
             }
             ["info"] => Request::Server(ServerRequest::Info()),
             ["close"] => Request::CloseClient,
+            ["touch", key] => Request::Touch(key),
             _ => Request::Invalid(request_str, RequestError::UnknownRequest),
         };
 
@@ -218,6 +220,7 @@ impl<'a> Display for Request<'a> {
             Request::Invalid(request_str, error) => write!(f, "{} On: {}", error, request_str),
             Request::Suscriber(sus_request) => write!(f, "{}", sus_request),
             Request::Publisher(pub_request) => write!(f, "{}", pub_request),
+            Request::Touch(key) => write!(f, "Touch - key: {}", key),
             Request::CloseClient => write!(f, "Close"),
         }
     }
