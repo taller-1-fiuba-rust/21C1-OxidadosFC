@@ -85,12 +85,8 @@ impl Client {
                         Request::Touch(key) => {
                             let r = database.touch(key);
                             let (response, time) = match r {
-                                Some(time) => {
-                                    ("(Integer) 1".to_string(), time)
-                                }
-                                None => {
-                                    ("(Integer) 0".to_string(), 0)
-                                }
+                                Some(time) => ("(Integer) 1".to_string(), time),
+                                None => ("(Integer) 0".to_string(), 0),
                             };
                             let msg = format!("{} - Time since last access: {}", request, time);
                             channels.send_logger(self.id, &msg);

@@ -242,7 +242,7 @@ impl Database {
                     MessageTtl::Check(key) => {
                         let keys = ttl_keys.clone();
                         let mut keys_locked = keys.lock().unwrap();
-                        
+
                         if let Some(pos) = keys_locked.iter().position(|x| x.key == key) {
                             let ttl = keys_locked.get(pos).unwrap();
                             if ttl.expire_time < SystemTime::now() {
@@ -413,7 +413,8 @@ impl Database {
                     let without_weight = 0;
                     for pal in list_key_match.iter() {
                         if pal.contains(elem.to_owned()) {
-                            if let Some((StorageValue::String(val), _)) = dictionary.get(&(*pal).clone())
+                            if let Some((StorageValue::String(val), _)) =
+                                dictionary.get(&(*pal).clone())
                             {
                                 let result_weight = match val.parse::<i32>() {
                                     Ok(weight_ok) => Ok(weight_ok),
@@ -602,7 +603,9 @@ impl Database {
                     .expect("Clock may have gone backwards");
 
                 *l = SystemTime::now();
-                self.ttl_msg_sender.send(MessageTtl::Check(key.to_string())).unwrap();
+                self.ttl_msg_sender
+                    .send(MessageTtl::Check(key.to_string()))
+                    .unwrap();
                 Some(uptime_in_seconds.as_secs())
             }
             None => None,
@@ -659,7 +662,10 @@ impl Database {
             }
         } else {
             let len_result = value.len() as i32;
-            dictionary.insert(key.to_owned(), (StorageValue::String(value.to_string()), SystemTime::now()));
+            dictionary.insert(
+                key.to_owned(),
+                (StorageValue::String(value.to_string()), SystemTime::now()),
+            );
             Ok(SuccessQuery::Integer(len_result))
         }
     }
@@ -673,7 +679,10 @@ impl Database {
                 Err(_) => return Err(DataBaseError::NotAnInteger),
             };
 
-            dictionary.insert(key.to_owned(), (StorageValue::String(val.to_string()), SystemTime::now()));
+            dictionary.insert(
+                key.to_owned(),
+                (StorageValue::String(val.to_string()), SystemTime::now()),
+            );
             Ok(SuccessQuery::Integer(val))
         } else {
             Err(DataBaseError::NotAnInteger)
@@ -687,7 +696,7 @@ impl Database {
             Some((StorageValue::String(val), last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::String(val.clone()))
-            },
+            }
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
         }
@@ -720,7 +729,10 @@ impl Database {
             None => return Err(DataBaseError::NonExistentKey),
         };
 
-        dictionary.insert(key.to_owned(), (StorageValue::String(new_val.to_owned()), SystemTime::now()));
+        dictionary.insert(
+            key.to_owned(),
+            (StorageValue::String(new_val.to_owned()), SystemTime::now()),
+        );
         Ok(SuccessQuery::String(old_value))
     }
 
@@ -738,7 +750,7 @@ impl Database {
                 Some((StorageValue::String(value), last_access)) => {
                     *last_access = SystemTime::now();
                     list.push(SuccessQuery::String(value.clone()))
-                },
+                }
                 Some(_) | None => list.push(SuccessQuery::Nil),
             }
         }
@@ -757,7 +769,10 @@ impl Database {
                 .send(MessageTtl::Clear(key.to_string()))
                 .unwrap();
 
-            dictionary.insert(key.to_string(), (StorageValue::String(value.to_string()), SystemTime::now()));
+            dictionary.insert(
+                key.to_string(),
+                (StorageValue::String(value.to_string()), SystemTime::now()),
+            );
         }
         Ok(SuccessQuery::Success)
     }
@@ -769,7 +784,10 @@ impl Database {
             .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
-        dictionary.insert(key.to_owned(), (StorageValue::String(val.to_owned()), SystemTime::now()));
+        dictionary.insert(
+            key.to_owned(),
+            (StorageValue::String(val.to_owned()), SystemTime::now()),
+        );
         Ok(SuccessQuery::Success)
     }
 
@@ -805,7 +823,7 @@ impl Database {
                     Some(val) => {
                         *last_access = SystemTime::now();
                         Ok(SuccessQuery::String(val.clone()))
-                    },
+                    }
                     None => Ok(SuccessQuery::Nil),
                 }
             }
@@ -821,7 +839,7 @@ impl Database {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::Integer(list.len() as i32))
-            },
+            }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Integer(0)),
         }
@@ -856,7 +874,10 @@ impl Database {
             None => {
                 let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
-                dictionary.insert(key.to_owned(), (StorageValue::List(list), SystemTime::now()));
+                dictionary.insert(
+                    key.to_owned(),
+                    (StorageValue::List(list), SystemTime::now()),
+                );
                 Ok(SuccessQuery::Integer(len as i32))
             }
         }
@@ -961,7 +982,7 @@ impl Database {
                         Ok(SuccessQuery::Integer(list.len() as i32))
                     }
                 }
-            },
+            }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Integer(0)),
         }
@@ -986,7 +1007,7 @@ impl Database {
                     }
                     None => Err(DataBaseError::IndexOutOfRange),
                 }
-            },
+            }
             Some(_) => Err(DataBaseError::NotAList),
             None => Err(DataBaseError::NonExistentKey),
         }
@@ -1002,7 +1023,7 @@ impl Database {
                     Some(value) => Ok(SuccessQuery::String(value)),
                     None => Ok(SuccessQuery::Nil),
                 }
-            },
+            }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Nil),
         }
@@ -1021,7 +1042,10 @@ impl Database {
             None => {
                 let list: Vec<String> = vec![value.to_owned()];
                 let len = list.len();
-                dictionary.insert(key.to_owned(), (StorageValue::List(list), SystemTime::now()));
+                dictionary.insert(
+                    key.to_owned(),
+                    (StorageValue::List(list), SystemTime::now()),
+                );
                 Ok(SuccessQuery::Integer(len as i32))
             }
         }
@@ -1052,7 +1076,7 @@ impl Database {
                     Some(_val) => Ok(SuccessQuery::Boolean(true)),
                     None => Ok(SuccessQuery::Boolean(false)),
                 }
-            },
+            }
             Some(_) => Err(DataBaseError::NotASet),
             None => Ok(SuccessQuery::Boolean(false)),
         }
@@ -1065,7 +1089,7 @@ impl Database {
             Some((StorageValue::Set(hash_set), last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::Integer(hash_set.len() as i32))
-            },
+            }
             Some(_) => Err(DataBaseError::NotASet),
             None => Ok(SuccessQuery::Boolean(false)),
         }
