@@ -150,7 +150,14 @@ impl<'a> Request<'a> {
             ["rpop", key] => Request::DataBase(Query::Rpop(key)),
             ["rpush", key, value] => Request::DataBase(Query::Rpush(key, value)),
             ["rpushx", key, value] => Request::DataBase(Query::Rpushx(key, value)),
-            ["sadd", key, element] => Request::DataBase(Query::Sadd(key, element)),
+            ["sadd", key, ..] => {
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
+                } else {
+                    Request::DataBase(Query::Sadd(key, tail.to_vec()))
+                }
+            }
             ["sismember", key, element] => Request::DataBase(Query::Sismember(key, element)),
             ["scard", key] => Request::DataBase(Query::Scard(key)),
             ["flushdb"] => Request::DataBase(Query::Flushdb()),
@@ -518,7 +525,7 @@ pub enum Query<'a> {
     Rpop(&'a str),
     Rpush(&'a str, &'a str),
     Rpushx(&'a str, &'a str),
-    Sadd(&'a str, &'a str),
+    Sadd(&'a str, Vec<&'a str>),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
     Smembers(&'a str),
@@ -567,7 +574,7 @@ impl<'a> Query<'a> {
             Query::Rpop(key) => db.rpop(&key),
             Query::Rpush(key, value) => db.rpush(&key, value),
             Query::Rpushx(key, value) => db.rpushx(&key, value),
-            Query::Sadd(set_key, value) => db.sadd(&set_key, value),
+            Query::Sadd(set_key, values) => db.sadd(&set_key, values.to_vec()),
             Query::Sismember(set_key, value) => db.sismember(&set_key, value),
             Query::Scard(set_key) => db.scard(&set_key),
             Query::Flushdb() => db.flushdb(),
@@ -662,8 +669,13 @@ impl<'a> Display for Query<'a> {
             Query::Rpushx(key, value) => {
                 write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
             }
-            Query::Sadd(key, element) => {
-                write!(f, "Sadd - Key: {} - Element: {}", key, element)
+            Query::Sadd(key, elements) => {
+                write!(
+                    f,
+                    "Sadd - Key: {} - Element: {}",
+                    key,
+                    vec_to_string(elements)
+                )
             }
             Query::Sismember(key, element) => {
                 write!(f, "Sismember - Key: {} - Element: {}", key, element)
