@@ -1,5 +1,5 @@
 use crate::databasehelper::{
-    DataBaseError, KeyTtl, MessageTtl, RespondTtl, StorageValue, SuccessQuery,
+    DataBaseError, KeyTtl, MessageTtl, RespondTtl, StorageValue, SuccessQuery, SortFlags
 };
 use crate::matcher::matcher;
 use core::str;
@@ -374,20 +374,166 @@ impl Database {
         }
     }
 
+    pub fn sort_limit(to_order: &mut Vec<String>, pos_begin: &mut i32, num_elems: &mut i32) -> Result<Vec<String>,DataBaseError>{
+        let empty_list = Vec::new();
+        if *pos_begin >= to_order.len() as i32 {
+            return Ok(empty_list);
+        }
+        if *num_elems == 0 {
+            return Ok(empty_list);
+        }
+        if *pos_begin < 0 {
+            *pos_begin = 0;
+        }
+        if *num_elems < 0 || *num_elems > to_order.len() as i32 {
+            *num_elems = to_order.len() as i32;
+        }
+        /*if *num_elems > 0 && *num_elems <= to_order.len() as i32 {
+            range_elem = *num_elems;
+        }
+        */
+        Database::sort_without_flags(to_order)
+    }
+
+    pub fn sort_desc(to_order: &mut Vec<String>) -> Result<Vec<String>, DataBaseError>{
+        let mut parse_error = false;
+        let mut to_order: Vec<_> = to_order
+            .iter()
+            .map(|x| match x.parse::<i32>() {
+                Ok(val) => val,
+                Err(_) => {
+                    parse_error = true;
+                    -1
+                }
+            })
+            .collect();
+        if parse_error {
+            return Err(DataBaseError::SortParseError);
+        }
+        to_order.sort_by(|a, b| b.cmp(&a));
+        let to_build: Vec<String> = to_order.iter().map(|x| x.to_string()).collect();
+        Ok(to_build)
+    }
+
+    pub fn sort_without_flags(to_order: &mut Vec<String>)-> Result<Vec<String>,DataBaseError>{
+        let mut parse_error = false;
+        let mut to_order: Vec<_> = to_order
+            .iter()
+            .map(|x| match x.parse::<i32>() {
+                Ok(val) => val,
+                Err(_) => {
+                    parse_error = true;
+                    -1
+                }
+            })
+            .collect();
+        if parse_error {
+            return Err(DataBaseError::SortParseError);
+        }
+        to_order.sort_unstable();
+        let to_build: Vec<String> = to_order.iter().map(|x| x.to_string()).collect();
+        Ok(to_build)
+    }
+
+    pub fn build_sort_vector(to_build: Vec<String>, pos_begin: &i32, num_elems: &i32) -> Result<Vec<SuccessQuery>, DataBaseError>{
+        let mut result_list: Vec<SuccessQuery> = Vec::new();
+        for i in *pos_begin..(pos_begin + num_elems) {
+            result_list.push(SuccessQuery::String((&to_build[i as usize]).to_string()));
+        }
+        Ok(result_list)
+    }
     // pre: elements in to_order are not duplicated and not contains special characters
     pub fn _sort(
         dictionary: &HashMap<String, StorageValue>,
         to_order: &mut Vec<&String>,
-        pos_begin: &i32,
-        num_elems: &i32,
-        alpha: &i32,
-        desc: &i32,
-        pattern: &Option<&str>,
+        sort_flags: SortFlags,
     ) -> Result<Vec<SuccessQuery>, DataBaseError> {
-        let mut result_list: Vec<SuccessQuery> = Vec::new();
-        let mut range_elem = to_order.len() as i32;
-        let mut pos_begin = pos_begin;
-        match pattern {
+        let num_elems = to_order.len() as i32;
+        let pos_begin = 0;
+        let mut to_order: Vec<String> = to_order.iter().map(|x| x.to_string()).collect();
+
+        match sort_flags{
+            SortFlags::WithoutFlags => {
+                match Database::sort_without_flags(&mut to_order){
+                    Ok(to_build) => {
+                        Database::build_sort_vector(to_build, &pos_begin, &num_elems)
+                    }
+                    Err(err) => Err(err)
+                }
+            }
+            SortFlags::Alpha => {
+                to_order.sort();
+                Database::build_sort_vector(to_order, &pos_begin, &num_elems)
+            }
+            SortFlags::Desc => {
+                match Database::sort_desc(&mut to_order){
+                    Ok(to_build) => {
+                        Database::build_sort_vector(to_build, &pos_begin, &num_elems)
+                    }
+                    Err(err) => Err(err)
+                }
+            }
+            SortFlags::Limit(mut pos_ini, mut num_elem) =>{
+                match Database::sort_limit(&mut to_order, &mut pos_ini, &mut num_elem) {
+                    Ok(to_build) => {
+                        Database::build_sort_vector(to_build, &pos_ini, &num_elem)
+                    },
+                    Err(err) => Err(err),
+                }
+            }
+            SortFlags::By(pattern) =>{
+                let mut list_elem_weight: Vec<(&str, i32)> = Vec::new();
+
+                let list_key_match = dictionary
+                    .keys()
+                    .filter(|x| matcher(x, pattern))
+                    .collect::<Vec<&String>>();
+
+                for (i, elem) in to_order.iter().enumerate() {
+                    let without_weight = 0;
+                    for pal in list_key_match.iter() {
+                        if pal.contains(&elem.to_owned()) {
+                            if let Some(StorageValue::String(val)) = dictionary.get(&(*pal).clone())
+                            {
+                                let result_weight = match val.parse::<i32>() {
+                                    Ok(weight_ok) => Ok(weight_ok),
+                                    Err(_) => Err(DataBaseError::SortByParseError),
+                                };
+                                if let Ok(weight) = result_weight {
+                                    list_elem_weight.push((elem, weight));
+                                    break;
+                                } else {
+                                    return Err(DataBaseError::SortByParseError);
+                                }
+                            }
+                        }
+                    }
+                    if list_elem_weight.len() < i + 1 {
+                        list_elem_weight.push((elem, without_weight));
+                    }
+                }
+
+                if list_elem_weight.is_empty() {
+                    return Ok(to_order
+                        .iter()
+                        .map(|item| SuccessQuery::String(item.to_string()))
+                        .collect::<Vec<SuccessQuery>>());
+                }
+
+                list_elem_weight.sort_by(|a, b| a.1.cmp(&b.1));
+
+                let to_build: Vec<String> = list_elem_weight.iter().map(|x| x.0.to_string()).collect();
+                Database::build_sort_vector(to_build, &pos_begin, &num_elems)
+            }
+            SortFlags::CompositeFlags(_sort_flags) =>{
+                Database::build_sort_vector(to_order, &pos_begin, &num_elems)
+            }
+        }
+
+
+
+
+        /*match pattern {
             Some(pattern) => {
                 let mut list_elem_weight: Vec<(&str, i32)> = Vec::new();
 
@@ -454,9 +600,10 @@ impl Database {
             }
             None => Database::_sort_with_flags(to_order, pos_begin, num_elems, alpha, desc),
         }
+        */
     }
 
-    pub fn _sort_with_flags(
+    /*pub fn _sort_with_flags(
         to_order: &mut Vec<&String>,
         pos_begin: &i32,
         num_elems: &i32,
@@ -531,16 +678,13 @@ impl Database {
             _ => Err(DataBaseError::NotAString),
         }
     }
+    */
 
     //sort
     pub fn sort(
         &self,
         key: &str,
-        pos_begin: &i32,
-        num_elems: &i32,
-        alpha: &i32,
-        desc: &i32,
-        pattern: &Option<&str>,
+        sort_flags: SortFlags
     ) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
         match dictionary.get(key) {
@@ -549,11 +693,7 @@ impl Database {
                 match Database::_sort(
                     &dictionary,
                     &mut to_order,
-                    pos_begin,
-                    num_elems,
-                    alpha,
-                    desc,
-                    pattern,
+                    sort_flags,
                 ) {
                     Ok(result_list) => Ok(SuccessQuery::List(result_list)),
                     Err(e) => Err(e),
@@ -564,11 +704,7 @@ impl Database {
                 match Database::_sort(
                     &dictionary,
                     &mut to_order,
-                    pos_begin,
-                    num_elems,
-                    alpha,
-                    desc,
-                    pattern,
+                    sort_flags
                 ) {
                     Ok(result_list) => Ok(SuccessQuery::List(result_list)),
                     Err(e) => Err(e),
@@ -1976,7 +2112,7 @@ mod group_keys {
             assert_eq!(result, DataBaseError::NonExistentKey);
         }
     }
-
+    /*
     mod sort_test {
         use super::*;
         const LIST: &str = "list";
@@ -2406,6 +2542,7 @@ mod group_keys {
             assert_eq!(result.unwrap_err(), DataBaseError::SortByParseError);
         }
     }
+    */
 }
 
 #[cfg(test)]

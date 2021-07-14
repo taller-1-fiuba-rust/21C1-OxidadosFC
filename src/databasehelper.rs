@@ -80,6 +80,15 @@ impl Display for StorageValue {
     }
 }
 
+pub enum SortFlags<'a> {
+    WithoutFlags,
+    Alpha,
+    Desc,
+    Limit(i32,i32),
+    By(&'a str),
+    CompositeFlags(Vec<SortFlags<'a>>),
+}
+
 #[derive(Debug, PartialEq)]
 pub enum SuccessQuery {
     Success,
