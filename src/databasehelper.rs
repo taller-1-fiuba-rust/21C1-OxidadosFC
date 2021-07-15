@@ -84,7 +84,7 @@ pub enum SortFlags<'a> {
     WithoutFlags,
     Alpha,
     Desc,
-    Limit(i32,i32),
+    Limit(i32, i32),
     By(&'a str),
     CompositeFlags(Vec<SortFlags<'a>>),
 }
