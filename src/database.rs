@@ -585,7 +585,6 @@ impl Database {
                     if let SortFlags::Limit(l_pos_begin, l_num_elems) = flag {
                         pos_begin = l_pos_begin;
                         num_elems = l_num_elems;
-                        println!("{} {}", pos_begin, num_elems);
                         to_order = Database::limit(&mut to_order, &mut pos_begin, &mut num_elems);
                     }
                 }
@@ -654,6 +653,19 @@ impl Database {
 
     //STRINGS
 
+    /// This command appends the value at the end of the string, if key already exists and is a string.
+    /// If key does not exist it is created and set as an empty string, so APPEND will be similar to SET in this special case.
+    ///
+    /// Returns: SuccessQuery of the length of the string after the append operation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    /// if let SuccessQuery::Integer(lenght) = database.append("key", "value").unwrap() {
+    ///     assert_eq!(lenght, 5);
+    /// }
+    /// ```
     pub fn append(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -672,6 +684,21 @@ impl Database {
         }
     }
 
+    /// Decrements the number stored at key by decrement.
+    /// If the key does not exist, it is set to 0 before performing the operation.
+    /// An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer.
+    /// This operation is limited to 64 bit signed integers.
+    ///
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    /// let database = create_database();
+    ///
+    /// database.set(KEY, "5").unwrap();
+    /// let result = database.decrby(KEY, 4).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// ```
     pub fn decrby(&self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -688,6 +715,20 @@ impl Database {
         }
     }
 
+    /// Get the value of key.
+    /// If the key does not exist the special value nil is returned.
+    /// An error is returned if the value stored at key is not a string, because GET only handles string values.
+    ///
+    /// Returns value: SuccessQuery::String with the value of key, or DataBaseError::NonExistentKey when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// let db = Database::new("dump_path.txt");
+    /// db.set("KEY", "VALUE").unwrap();
+    /// if let SuccessQuery::String(value) = database.get("KEY").unwrap() {
+    ///         assert_eq!("VALUE", value.to_string());
+    /// }
+    /// ```
     pub fn get(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
 
@@ -698,6 +739,25 @@ impl Database {
         }
     }
 
+    /// Get the value of key and delete the key.
+    /// This command is similar to GET, except for the fact that it also deletes the key on success
+    /// (if and only if the key's value type is a string).
+    ///
+    /// Returns value: the value of key, nil when key does not exist, or an error if the key's value type isn't a string.
+    ///
+    /// # Examples
+    /// ```
+    /// let database = Database::new("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    /// let database = create_database_with_string();
+    ///
+    /// if let SuccessQuery::String(value) = database.getdel("KEY").unwrap() {
+    ///     assert_eq!(value.to_string(), "VALUE");
+    /// }
+    ///
+    /// let result = database.get("KEY").unwrap_err();
+    /// assert_eq!(result, DataBaseError::NonExistentKey);
+    /// ```
     pub fn getdel(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -712,6 +772,11 @@ impl Database {
         }
     }
 
+    /// Atomically sets key to value and returns the old value stored at key.
+    /// Returns an error when key exists but does not hold a string value.
+    /// Any previous time to live associated with the key is discarded on successful SET operation.
+    ///
+    /// Returns value: the old value stored at key, or nil when key did not exist.
     pub fn getset(&self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -729,10 +794,46 @@ impl Database {
         Ok(SuccessQuery::String(old_value))
     }
 
+    /// Increments the number stored at key by increment.
+    /// If the key does not exist, it is set to 0 before performing the operation.
+    /// An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer.
+    /// This operation is limited to 64 bit signed integers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// database.set(KEY, "1").unwrap();
+    ///
+    /// let result = database.incrby(KEY, 4).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(5));
+    ///
+    /// ```
     pub fn incrby(&self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
         self.decrby(key, -incr)
     }
 
+    /// Returns the values of all specified keys.
+    /// For every key that does not hold a string value or does not exist, the special value nil is returned.
+    /// Because of this, the operation never fails.
+    /// Returns: list of SuccessQuery::String values at the specified keys.
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    /// database.set("KEY_A", "VALUE_A").unwrap();
+    /// database.set("KEY_B", "VALUE_B").unwrap();
+    ///
+    /// let vec_keys = vec!["KEY_A", "KEY_B", "KEY_C", "KEY_D"];
+    ///
+    /// if let SuccessQuery::List(list) = database.mget(vec_keys).unwrap() {
+    ///     assert_eq!(list[0], SuccessQuery::String("VALUE_A"));
+    ///     assert_eq!(list[1], SuccessQuery::String("VALUE_B"));
+    ///     assert_eq!(list[2], SuccessQuery::Nil);
+    ///     assert_eq!(list[3], SuccessQuery::Nil);
+    /// }
+    /// ```
     pub fn mget(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.lock().unwrap();
 
@@ -748,6 +849,29 @@ impl Database {
         Ok(SuccessQuery::List(list))
     }
 
+    /// Sets the given keys to their respective values. MSET replaces existing values with new values, just as regular SET.
+    ///
+    /// Reply: always OK since MSET can't fail.
+    ///
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// let vec_key_value = vec![
+    ///     "KEY_A", "VALUE_A", "KEY_B", "VALUE_B", "KEY_C", "VALUE_C", "KEY_D", "VALUE_D",
+    /// ];
+    ///
+    /// let result = database.mset(vec_key_value).unwrap();
+    /// assert_eq!(result, SuccessQuery::Success);
+    ///
+    /// let result_get1 = database.get("KEY_A").unwrap();
+    /// let result_get2 = database.get("KEY_B").unwrap();
+    /// let result_get3 = database.get("KEY_C").unwrap();
+    ///
+    /// assert_eq!(result_get1, SuccessQuery::String("VALUE_A"));
+    /// assert_eq!(result_get2, SuccessQuery::String("VALUE_B"));
+    /// assert_eq!(result_get3, SuccessQuery::String("VALUE_C"));
+    /// ```
     pub fn mset(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -764,6 +888,23 @@ impl Database {
         Ok(SuccessQuery::Success)
     }
 
+    /// Set key to hold the string value.
+    /// If key already holds a value, it is overwritten, regardless of its type.
+    /// Any previous time to live associated with the key is discarded on successful SET operation.
+    ///
+    /// Reply: OK.SET was always executed correctly.
+    ///
+    /// # Example
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// let result = database.set("KEY","VALUE").unwrap();
+    /// assert_eq!(SuccessQuery::Success, result);
+    ///
+    /// if let SuccessQuery::String(value) = database.get("KEY").unwrap() {
+    ///     assert_eq!("VALUE", value);
+    /// }
+    /// ```
     pub fn set(&self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
@@ -775,6 +916,20 @@ impl Database {
         Ok(SuccessQuery::Success)
     }
 
+    /// Returns the length of the string value stored at key.
+    /// An error is returned when key holds a non-string value.
+    ///
+    /// Reply: SuccessQuery::Integer with the length of the string at key, or 0 when key does not exist.
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// if let SuccessQuery::Integer(value) = database.strlen("KEY").unwrap() {
+    ///     assert_eq!(value, 5);
+    /// }
+    /// ```
     pub fn strlen(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut dictionary = self.dictionary.lock().unwrap();
 
