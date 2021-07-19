@@ -111,7 +111,9 @@ mod server_test {
     }
 
     fn test_command(client: &mut TcpStream, command: &str, expect: &str) {
-        client.write(command.as_bytes()).expect("Failed to write to server");
+        client
+            .write(command.as_bytes())
+            .expect("Failed to write to server");
 
         let mut buffer: Vec<u8> = Vec::new();
         let mut reader = BufReader::new(client);
@@ -119,7 +121,7 @@ mod server_test {
             .read_until(b'\n', &mut buffer)
             .expect("Could not read into buffer");
 
-            assert_eq!(str::from_utf8(&buffer).unwrap(), expect);
+        assert_eq!(str::from_utf8(&buffer).unwrap(), expect);
     }
 
     #[test]
@@ -164,14 +166,14 @@ mod server_test {
         for _ in 0..100 {
             clients.push(TcpStream::connect("0.0.0.0:8888").expect("Could not connect to server"));
         }
-        
+
         let mut i = -1;
         for client in &mut clients {
             i += 1;
             let command = format!("set key1 {}", i);
             test_command(client, &command, ANS_SUCCESS);
         }
-        
+
         for client in &mut clients {
             test_command(client, "get key1", &(i.to_string() + "\n"));
         }

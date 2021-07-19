@@ -1777,10 +1777,7 @@ mod group_keys {
 
             let result = database.del(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Success);
-            assert_eq!(
-                database.get(KEY).unwrap(),
-                SuccessQuery::Nil
-            );
+            assert_eq!(database.get(KEY).unwrap(), SuccessQuery::Nil);
         }
         #[test]
         fn test_del_key_non_exist_returns_error() {
@@ -1801,10 +1798,7 @@ mod group_keys {
 
             let result = database.exists(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Boolean(false));
-            assert_eq!(
-                database.get(KEY).unwrap(),
-                SuccessQuery::Nil
-            );
+            assert_eq!(database.get(KEY).unwrap(), SuccessQuery::Nil);
         }
 
         #[test]
