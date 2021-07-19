@@ -677,7 +677,7 @@ impl Database {
         match dictionary.get(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val.clone())),
             Some(_) => Err(DataBaseError::NotAString),
-            None => Err(DataBaseError::NonExistentKey),
+            None => Ok(SuccessQuery::Nil),
         }
     }
 
@@ -1518,9 +1518,9 @@ mod group_string {
         fn test_get_returns_error_if_the_key_does_not_exist() {
             let database = create_database();
 
-            let result = database.get(KEY).unwrap_err();
+            let result = database.get(KEY).unwrap();
 
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            assert_eq!(result, SuccessQuery::Nil);
         }
     }
 
@@ -1552,8 +1552,8 @@ mod group_string {
                 assert_eq!(value.to_string(), VALUE);
             }
 
-            let result = database.get(KEY).unwrap_err();
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            let result = database.get(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
@@ -1778,8 +1778,8 @@ mod group_keys {
             let result = database.del(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Success);
             assert_eq!(
-                database.get(KEY).unwrap_err(),
-                DataBaseError::NonExistentKey
+                database.get(KEY).unwrap(),
+                SuccessQuery::Nil
             );
         }
         #[test]
@@ -1802,8 +1802,8 @@ mod group_keys {
             let result = database.exists(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Boolean(false));
             assert_eq!(
-                database.get(KEY).unwrap_err(),
-                DataBaseError::NonExistentKey
+                database.get(KEY).unwrap(),
+                SuccessQuery::Nil
             );
         }
 
@@ -1983,8 +1983,8 @@ mod group_keys {
             let result = database.rename(KEY, SECOND_KEY).unwrap();
             assert_eq!(result, SuccessQuery::Success);
 
-            let result = database.get(KEY).unwrap_err();
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            let result = database.get(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
