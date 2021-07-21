@@ -1158,6 +1158,21 @@ impl Database {
 
     //SETS
 
+    /// Returns if member is a member of the set stored at key.
+    ///
+    /// Reply: SuccessQuery::Boolean(true) if the element is a member of the set.
+    ///
+    /// SuccessQuery::Boolean(false) if the element is not a member of the set, or if key does not exist.
+    ///
+    /// Error if key of database exists but not hold a Set.
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let result = database.sadd("key", ["element"].to_vec()).unwrap();
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// let is_member = database.sismember("key", "element").unwrap();
+    /// assert_eq!(is_member, SuccessQuery::Boolean(true));
+    /// ```
     pub fn sismember(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -1171,6 +1186,22 @@ impl Database {
         }
     }
 
+    /// Returns the set cardinality (number of elements) of the set stored at key.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the cardinality (number of elements) of the set,
+    /// or SuccessQuery::Boolean(false) if key does not exist.
+    ///
+    /// Error if key of database exists but not hold a Set.
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let elements = vec!["0", "1", "2", "3"];
+    ///
+    /// let _ = database.sadd("key", elements);
+    /// let len_set = database.scard("key").unwrap();
+    ///
+    /// assert_eq!(len_set, SuccessQuery::Integer(4));
+    /// ```
     pub fn scard(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -1181,7 +1212,7 @@ impl Database {
         }
     }
 
-    pub fn sadd_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    fn sadd_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
@@ -1203,6 +1234,23 @@ impl Database {
         }
     }
 
+    /// Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored.
+    /// If key does not exist, a new set is created before adding the specified members.
+    /// An error is returned when the value stored at key is not a set.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of elements that were added to the set,
+    /// not including all the elements already present in the set.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// let result = database.sadd("KEY", ["ELEMENT", "ELEMENT_2", "ELEMENT_3"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(2));
+    /// let len_set = database.scard("KEY").unwrap();
+    /// assert_eq!(len_set, SuccessQuery::Integer(3));
+    /// ```
     pub fn sadd(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut elems_added = 0;
         let mut result = self.sadd_one(key, values[0]);
@@ -1222,6 +1270,23 @@ impl Database {
         }
     }
 
+    /// Returns all the members of the set value stored at key.
+    ///
+    /// Reply: SuccessQuery::List(list) when list are all elements of the set.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// database.sadd("KEY", ["OTHER_ELEMENT"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.smembers("KEY").unwrap() {
+    ///     for elem in list {
+    ///         let is_member = database.sismember("KEY", &elem.to_string()).unwrap();
+    ///         assert_eq!(is_member, SuccessQuery::Boolean(true));
+    ///     }
+    /// }
+    /// ```
     pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut result: Vec<SuccessQuery> = Vec::new();
         let dictionary = self.dictionary.get_atomic_hash(key);
@@ -1238,6 +1303,26 @@ impl Database {
         }
     }
 
+    /// Remove the specified members from the set stored at key.
+    /// Specified members that are not a member of this set are ignored.
+    ///
+    /// If key does not exist, it is treated as an empty set and this command returns 0.
+    /// An error is returned when the value stored at key is not a set.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of members that were removed from the set, not including non existing members.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let members = vec!["ELEMENT"];
+    ///
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// let result = database.srem("KEY", members).unwrap();
+    /// let is_member = database.sismember("KEY", "ELEMENT").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// assert_eq!(is_member, SuccessQuery::Boolean(false));
+    /// ```
     pub fn srem(
         &mut self,
         key: &str,
