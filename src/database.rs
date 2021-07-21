@@ -1,10 +1,11 @@
 use crate::databasehelper::{
     DataBaseError, KeyTtl, MessageTtl, RespondTtl, SortFlags, StorageValue, SuccessQuery,
 };
+use crate::hash_shard::HashShard;
 use crate::matcher::matcher;
 use core::str;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{self, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
@@ -14,11 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-type Dictionary = Arc<Mutex<HashMap<String, StorageValue>>>;
 type TtlVector = Arc<Mutex<Vec<KeyTtl>>>;
 
 pub struct Database {
-    dictionary: Dictionary,
+    dictionary: HashShard,
     ttl_msg_sender: Sender<MessageTtl>,
     db_dump_path: String,
 }
@@ -47,8 +47,8 @@ impl Database {
     pub fn new(db_dump_path: String) -> Database {
         let (ttl_msg_sender, ttl_rec) = mpsc::channel();
 
-        let database = Database {
-            dictionary: Arc::new(Mutex::new(HashMap::new())),
+        let mut database = Database {
+            dictionary: HashShard::new(),
             ttl_msg_sender,
             db_dump_path,
         };
@@ -56,7 +56,7 @@ impl Database {
         database.ttl_supervisor_run(ttl_rec);
 
         if let Ok(lines) = read_lines(&database.db_dump_path) {
-            let dic = database.dictionary.clone();
+            let mut dic = database.dictionary.clone();
             let mut expires: Vec<(String, i64)> = Vec::new();
 
             for line in lines.flatten() {
@@ -87,8 +87,7 @@ impl Database {
 
                     let value = key_value[1];
                     if let Ok(value) = StorageValue::unserialize(value) {
-                        let mut hash = dic.lock().unwrap();
-                        hash.insert(key.to_string(), value);
+                        dic.insert(key.to_string(), value);
                     }
                 }
             }
@@ -106,7 +105,7 @@ impl Database {
 
     pub fn new_from_db(
         ttl_msg_sender: Sender<MessageTtl>,
-        dictionary: Dictionary,
+        dictionary: HashShard,
         db_dump_path: String,
     ) -> Database {
         Database {
@@ -156,9 +155,7 @@ impl Database {
                 eprintln!("Couldn't write: {}", e);
             }
 
-            let guard = dic.lock().unwrap();
-
-            for (key, value) in guard.iter() {
+            for (key, value) in dic.key_value() {
                 if let Err(e) = writeln!(serializer, "Key:{},{}", key, value.serialize()) {
                     eprintln!("Couldn't write: {}", e);
                 }
@@ -245,55 +242,49 @@ impl Database {
     }
 
     pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-        dictionary.clear();
+        self.dictionary.clear();
         Ok(SuccessQuery::Success)
     }
 
     pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-        Ok(SuccessQuery::Integer(dictionary.len() as i32))
+        Ok(SuccessQuery::Integer(self.dictionary.len() as i32))
     }
 
     // KEYS
 
-    pub fn copy(&self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(to_key) {
+    pub fn copy(&mut self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
+        if self.dictionary.contains_key(to_key) {
             return Err(DataBaseError::KeyAlredyExist);
         }
 
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
         match dictionary.get(key) {
             Some(val) => {
                 let val = val.clone();
-                dictionary.insert(to_key.to_owned(), val);
+                self.dictionary.insert(to_key.to_owned(), val);
                 Ok(SuccessQuery::Success)
             }
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
-    pub fn del(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-        match dictionary.remove(key) {
+    pub fn del(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.remove(key) {
             Some(_) => Ok(SuccessQuery::Success),
             None => Err(DataBaseError::NonExistentKey),
         }
     }
 
     pub fn exists(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-        let bool = dictionary.contains_key(key);
+        let bool = self.dictionary.contains_key(key);
         Ok(SuccessQuery::Boolean(bool))
     }
 
-    pub fn expire(&self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(key) {
+    pub fn expire(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
+        if self.dictionary.contains_key(key) {
             if seconds < 0 {
-                dictionary.remove(key);
+                self.dictionary.remove(key);
             } else {
                 let duration = Duration::new(seconds as u64, 0);
                 let expire_time = SystemTime::now().checked_add(duration).unwrap();
@@ -309,15 +300,13 @@ impl Database {
         }
     }
 
-    pub fn expireat(&self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(key) {
+    pub fn expireat(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
+        if self.dictionary.contains_key(key) {
             let duration = Duration::new(seconds as u64, 0);
             let expire_time = SystemTime::UNIX_EPOCH.checked_add(duration).unwrap();
 
             if expire_time < SystemTime::now() {
-                dictionary.remove(key);
+                self.dictionary.remove(key);
             } else {
                 let key_ttl = KeyTtl::new(key, expire_time);
                 self.ttl_msg_sender
@@ -332,11 +321,11 @@ impl Database {
     }
 
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-        let list: Vec<SuccessQuery> = dictionary
-            .keys()
+        let keys = self.dictionary.keys();
+        let list: Vec<SuccessQuery> = keys
+            .iter()
             .filter(|x| matcher(x, pattern))
-            .map(|item| SuccessQuery::String(item.to_owned()))
+            .map(|item| SuccessQuery::String(item.to_string()))
             .collect::<Vec<SuccessQuery>>();
 
         Ok(SuccessQuery::List(list))
@@ -344,9 +333,7 @@ impl Database {
 
     //persist
     pub fn persist(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(key) {
+        if self.dictionary.contains_key(key) {
             self.ttl_msg_sender
                 .send(MessageTtl::Clear(key.to_owned()))
                 .unwrap();
@@ -357,12 +344,10 @@ impl Database {
         }
     }
 
-    pub fn rename(&self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        match dictionary.remove(old_key) {
+    pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
+        match self.dictionary.remove(old_key) {
             Some(value) => {
-                dictionary.insert(new_key.to_owned(), value);
+                self.dictionary.insert(new_key.to_owned(), value);
 
                 self.ttl_msg_sender
                     .send(MessageTtl::Transfer(old_key.to_owned(), new_key.to_owned()))
@@ -376,13 +361,14 @@ impl Database {
 
     pub fn sort_by(
         to_order: &mut Vec<String>,
-        dictionary: &HashMap<String, StorageValue>,
+        dictionary: &HashShard,
         pattern: &str,
     ) -> Result<Vec<String>, DataBaseError> {
         let mut list_elem_weight: Vec<(&str, i32)> = Vec::new();
 
-        let list_key_match = dictionary
-            .keys()
+        let keys = dictionary.keys();
+        let list_key_match = keys
+            .iter()
             .filter(|x| matcher(x, pattern))
             .collect::<Vec<&String>>();
 
@@ -390,6 +376,8 @@ impl Database {
             let without_weight = 0;
             for pal in list_key_match.iter() {
                 if pal.contains(&elem.to_owned()) {
+                    let dictionary = dictionary.get_atomic_hash(&(*pal).clone());
+                    let dictionary = dictionary.lock().unwrap();
                     if let Some(StorageValue::String(val)) = dictionary.get(&(*pal).clone()) {
                         let result_weight = match val.parse::<i32>() {
                             Ok(weight_ok) => Ok(weight_ok),
@@ -507,8 +495,8 @@ impl Database {
     }
 
     pub fn _sort(
-        dictionary: &HashMap<String, StorageValue>,
-        to_order: &mut Vec<&String>,
+        dictionary: &HashShard,
+        to_order: &mut Vec<String>,
         sort_flags: SortFlags,
     ) -> Result<Vec<SuccessQuery>, DataBaseError> {
         let mut num_elems = to_order.len() as i32;
@@ -595,34 +583,28 @@ impl Database {
 
     //sort
     pub fn sort(&self, key: &str, sort_flags: SortFlags) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-        match dictionary.get(key) {
-            Some(StorageValue::Set(hash_set)) => {
-                let mut to_order: Vec<&String> = hash_set.iter().collect();
-                match Database::_sort(&dictionary, &mut to_order, sort_flags) {
-                    Ok(result_list) => Ok(SuccessQuery::List(result_list)),
-                    Err(e) => Err(e),
-                }
-            }
-            Some(StorageValue::List(list)) => {
-                let mut to_order: Vec<&String> = list.iter().collect();
-                match Database::_sort(&dictionary, &mut to_order, sort_flags) {
-                    Ok(result_list) => Ok(SuccessQuery::List(result_list)),
-                    Err(e) => Err(e),
-                }
-            }
-            Some(_) => Err(DataBaseError::NotAList),
-            None => Ok(SuccessQuery::List(Vec::new())),
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
+        let mut to_order = match dictionary.get(key) {
+            Some(StorageValue::Set(hash_set)) => hash_set.iter().map(|s| s.to_string()).collect(),
+            Some(StorageValue::List(list)) => list.iter().map(|x| x.to_string()).collect(),
+            Some(_) => return Err(DataBaseError::NotAList),
+            None => return Ok(SuccessQuery::List(Vec::new())),
+        };
+        drop(dictionary);
+
+        match Database::_sort(&self.dictionary, &mut to_order, sort_flags) {
+            Ok(result_list) => Ok(SuccessQuery::List(result_list)),
+            Err(e) => Err(e),
         }
     }
     //touch
 
     //ttl
     pub fn ttl(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
         let (respond_sender, respond_reciver) = channel();
 
-        if dictionary.contains_key(key) {
+        if self.dictionary.contains_key(key) {
             self.ttl_msg_sender
                 .send(MessageTtl::Ttl(key.to_owned(), respond_sender))
                 .unwrap();
@@ -643,8 +625,8 @@ impl Database {
     //type
 
     pub fn get_type(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
         match dictionary.get(key) {
             Some(val) => Ok(SuccessQuery::String(val.get_type())),
             None => Ok(SuccessQuery::String("none".to_owned())),
@@ -666,10 +648,10 @@ impl Database {
     ///     assert_eq!(lenght, 5);
     /// }
     /// ```
-    pub fn append(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(key) {
+    pub fn append(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        if self.dictionary.contains_key(key) {
+            let dictionary = self.dictionary.get_atomic_hash(key);
+            let mut dictionary = dictionary.lock().unwrap();
             if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
                 val.push_str(&value);
                 let len_result = val.len() as i32;
@@ -679,7 +661,8 @@ impl Database {
             }
         } else {
             let len_result = value.len() as i32;
-            dictionary.insert(key.to_owned(), StorageValue::String(value.to_string()));
+            self.dictionary
+                .insert(key.to_owned(), StorageValue::String(value.to_string()));
             Ok(SuccessQuery::Integer(len_result))
         }
     }
@@ -699,9 +682,9 @@ impl Database {
     ///
     /// assert_eq!(result, SuccessQuery::Integer(1));
     /// ```
-    pub fn decrby(&self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn decrby(&mut self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
             let val = match val.parse::<i32>() {
                 Ok(val) => val - decr,
@@ -730,12 +713,12 @@ impl Database {
     /// }
     /// ```
     pub fn get(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
         match dictionary.get(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val.clone())),
             Some(_) => Err(DataBaseError::NotAString),
-            None => Err(DataBaseError::NonExistentKey),
+            None => Ok(SuccessQuery::Nil),
         }
     }
 
@@ -758,14 +741,12 @@ impl Database {
     /// let result = database.get("KEY").unwrap_err();
     /// assert_eq!(result, DataBaseError::NonExistentKey);
     /// ```
-    pub fn getdel(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn getdel(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         self.ttl_msg_sender
             .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
-        match dictionary.remove(key) {
+        match self.dictionary.remove(key) {
             Some(StorageValue::String(val)) => Ok(SuccessQuery::String(val)),
             Some(_) => Err(DataBaseError::NotAString),
             None => Err(DataBaseError::NonExistentKey),
@@ -777,20 +758,19 @@ impl Database {
     /// Any previous time to live associated with the key is discarded on successful SET operation.
     ///
     /// Returns value: the old value stored at key, or nil when key did not exist.
-    pub fn getset(&self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn getset(&mut self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
         self.ttl_msg_sender
             .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
-        let old_value = match dictionary.remove(key) {
+        let old_value = match self.dictionary.remove(key) {
             Some(StorageValue::String(old_value)) => old_value,
             Some(_) => return Err(DataBaseError::NotAString),
             None => return Err(DataBaseError::NonExistentKey),
         };
 
-        dictionary.insert(key.to_owned(), StorageValue::String(new_val.to_owned()));
+        self.dictionary
+            .insert(key.to_owned(), StorageValue::String(new_val.to_owned()));
         Ok(SuccessQuery::String(old_value))
     }
 
@@ -811,7 +791,7 @@ impl Database {
     /// assert_eq!(result, SuccessQuery::Integer(5));
     ///
     /// ```
-    pub fn incrby(&self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
+    pub fn incrby(&mut self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
         self.decrby(key, -incr)
     }
 
@@ -835,11 +815,11 @@ impl Database {
     /// }
     /// ```
     pub fn mget(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
         let mut list: Vec<SuccessQuery> = Vec::new();
 
         for key in params {
+            let dictionary = self.dictionary.get_atomic_hash(key);
+            let dictionary = dictionary.lock().unwrap();
             match dictionary.get(key) {
                 Some(StorageValue::String(value)) => list.push(SuccessQuery::String(value.clone())),
                 Some(_) | None => list.push(SuccessQuery::Nil),
@@ -872,9 +852,7 @@ impl Database {
     /// assert_eq!(result_get2, SuccessQuery::String("VALUE_B"));
     /// assert_eq!(result_get3, SuccessQuery::String("VALUE_C"));
     /// ```
-    pub fn mset(&self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn mset(&mut self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         for i in (0..params.len()).step_by(2) {
             let key = params.get(i).unwrap();
             let value = params.get(i + 1).unwrap();
@@ -883,7 +861,8 @@ impl Database {
                 .send(MessageTtl::Clear(key.to_string()))
                 .unwrap();
 
-            dictionary.insert(key.to_string(), StorageValue::String(value.to_string()));
+            self.dictionary
+                .insert(key.to_string(), StorageValue::String(value.to_string()));
         }
         Ok(SuccessQuery::Success)
     }
@@ -905,14 +884,13 @@ impl Database {
     ///     assert_eq!("VALUE", value);
     /// }
     /// ```
-    pub fn set(&self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn set(&mut self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
         self.ttl_msg_sender
             .send(MessageTtl::Clear(key.to_owned()))
             .unwrap();
 
-        dictionary.insert(key.to_owned(), StorageValue::String(val.to_owned()));
+        self.dictionary
+            .insert(key.to_owned(), StorageValue::String(val.to_owned()));
         Ok(SuccessQuery::Success)
     }
 
@@ -930,10 +908,10 @@ impl Database {
     ///     assert_eq!(value, 5);
     /// }
     /// ```
-    pub fn strlen(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
-        if dictionary.contains_key(key) {
+    pub fn strlen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        if self.dictionary.contains_key(key) {
+            let dictionary = self.dictionary.get_atomic_hash(key);
+            let mut dictionary = dictionary.lock().unwrap();
             if let Some(StorageValue::String(val)) = dictionary.get_mut(key) {
                 Ok(SuccessQuery::Integer(val.len() as i32))
             } else {
@@ -947,8 +925,8 @@ impl Database {
     // Lists
 
     pub fn lindex(&self, key: &str, index: i32) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
         match dictionary.get(key) {
             Some(StorageValue::List(list)) => {
                 let index = if index < 0 {
@@ -968,8 +946,8 @@ impl Database {
     }
 
     pub fn llen(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let dictionary = self.dictionary.lock().unwrap();
-
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
         match dictionary.get(key) {
             Some(StorageValue::List(list)) => Ok(SuccessQuery::Integer(list.len() as i32)),
             Some(_) => Err(DataBaseError::NotAList),
@@ -977,8 +955,9 @@ impl Database {
         }
     }
 
-    pub fn lpop(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
+    pub fn lpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 if list.is_empty() {
@@ -992,9 +971,9 @@ impl Database {
         }
     }
 
-    fn lpush_one(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    fn lpush_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.insert(0, value.to_owned());
@@ -1010,7 +989,7 @@ impl Database {
         }
     }
 
-    pub fn lpush(&self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+    pub fn lpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut result = self.lpush_one(key, values[0]);
         for item in values.iter().skip(1) {
             result = self.lpush_one(key, item)
@@ -1019,9 +998,9 @@ impl Database {
         result
     }
 
-    pub fn lpushx(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.insert(0, value.to_owned());
@@ -1034,7 +1013,8 @@ impl Database {
 
     pub fn lrange(&self, key: &str, ini: i32, end: i32) -> Result<SuccessQuery, DataBaseError> {
         let mut sub_list: Vec<SuccessQuery> = Vec::new();
-        let dictionary = self.dictionary.lock().unwrap();
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let dictionary = dictionary.lock().unwrap();
 
         match dictionary.get(key) {
             Some(StorageValue::List(list)) => {
@@ -1063,12 +1043,13 @@ impl Database {
     }
 
     pub fn lrem(
-        &self,
+        &mut self,
         key: &str,
         mut count: i32,
         elem: &str,
     ) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match count.cmp(&0) {
                 Ordering::Greater => {
@@ -1110,13 +1091,13 @@ impl Database {
     }
 
     pub fn lset(
-        &self,
+        &mut self,
         key: &str,
         index: usize,
         value: &str,
     ) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match list.get_mut(index) {
                 Some(val) => {
@@ -1131,9 +1112,9 @@ impl Database {
         }
     }
 
-    pub fn rpop(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn rpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => match list.pop() {
                 Some(value) => Ok(SuccessQuery::String(value)),
@@ -1144,9 +1125,9 @@ impl Database {
         }
     }
 
-    pub fn rpush(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.push(value.to_owned());
@@ -1162,9 +1143,9 @@ impl Database {
         }
     }
 
-    pub fn rpushx(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::List(list)) => {
                 list.push(value.to_owned());
@@ -1177,8 +1158,9 @@ impl Database {
 
     //SETS
 
-    pub fn sismember(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
+    pub fn sismember(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => match hash_set.get(value) {
                 Some(_val) => Ok(SuccessQuery::Boolean(true)),
@@ -1189,9 +1171,9 @@ impl Database {
         }
     }
 
-    pub fn scard(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn scard(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => Ok(SuccessQuery::Integer(hash_set.len() as i32)),
             Some(_) => Err(DataBaseError::NotASet),
@@ -1199,9 +1181,9 @@ impl Database {
         }
     }
 
-    pub fn sadd_one(&self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
-
+    pub fn sadd_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
                 if hash_set.contains(value) {
@@ -1221,7 +1203,7 @@ impl Database {
         }
     }
 
-    pub fn sadd(&self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
+    pub fn sadd(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut elems_added = 0;
         let mut result = self.sadd_one(key, values[0]);
         if let Ok(SuccessQuery::Integer(val)) = result {
@@ -1241,8 +1223,9 @@ impl Database {
     }
 
     pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
         let mut result: Vec<SuccessQuery> = Vec::new();
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
                 for elem in hash_set.iter() {
@@ -1260,7 +1243,8 @@ impl Database {
         key: &str,
         members_to_rmv: Vec<&str>,
     ) -> Result<SuccessQuery, DataBaseError> {
-        let mut dictionary = self.dictionary.lock().unwrap();
+        let dictionary = self.dictionary.get_atomic_hash(key);
+        let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some(StorageValue::Set(hash_set)) => {
                 let mut count: i32 = 0;
@@ -1286,7 +1270,7 @@ impl<'a> Clone for Database {
     }
 }
 
-fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
+fn executor(mut dictionary: HashShard, ttl_vector: TtlVector) {
     loop {
         thread::sleep(Duration::new(1, 0));
         let keys_ttl = ttl_vector.clone();
@@ -1295,8 +1279,7 @@ fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
         while let Some(ttl) = keys_locked.get(0) {
             if ttl.expire_time < SystemTime::now() {
                 let ttl_key = keys_locked.remove(0);
-                let mut dic_locked = dictionary.lock().unwrap();
-                dic_locked.remove(&ttl_key.key);
+                dictionary.remove(&ttl_key.key);
             } else {
                 break;
             }
@@ -1310,9 +1293,7 @@ fn executor(dictionary: Dictionary, ttl_vector: TtlVector) {
 
 impl fmt::Display for Database {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let dictionary = self.dictionary.lock().unwrap();
-
-        for (key, value) in dictionary.iter() {
+        for (key, value) in self.dictionary.key_value() {
             writeln!(f, "key: {}, value: {}", key, value)?;
         }
         Ok(())
@@ -1342,7 +1323,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_a_key() {
-        let db = Database::new(DB_DUMP.to_string());
+        let mut db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
 
@@ -1367,7 +1348,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_two_key() {
-        let db = Database::new(DB_DUMP.to_string());
+        let mut db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -1411,7 +1392,7 @@ mod ttl_commands {
 
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys() {
-        let db = Database::new(DB_DUMP.to_string());
+        let mut db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -1509,7 +1490,7 @@ mod ttl_commands {
     #[test]
     fn ttl_supervisor_run_supervaise_four_keys_one_of_the_key_is_inserted_with_a_lower_expire_time_the_actual_key(
     ) {
-        let db = Database::new(DB_DUMP.to_string());
+        let mut db = Database::new(DB_DUMP.to_string());
 
         db.append(KEY_A, VALUE_A).unwrap();
         db.append(KEY_B, VALUE_B).unwrap();
@@ -1639,7 +1620,7 @@ mod group_string {
     const DB_DUMP: &str = "db_dump_path.txt";
 
     fn create_database_with_string() -> Database {
-        let db = Database::new(DB_DUMP.to_string());
+        let mut db = Database::new(DB_DUMP.to_string());
         db.set(KEY, VALUE).unwrap();
         db
     }
@@ -1655,7 +1636,7 @@ mod group_string {
 
         #[test]
         fn test_append_new_key_return_lenght_of_the_value() {
-            let database = create_database();
+            let mut database = create_database();
 
             if let SuccessQuery::Integer(lenght) = database.append(KEY, VALUE).unwrap() {
                 assert_eq!(lenght, 5);
@@ -1664,7 +1645,7 @@ mod group_string {
 
         #[test]
         fn test_append_key_with_old_value_return_lenght_of_the_total_value() {
-            let database = create_database();
+            let mut database = create_database();
 
             if let SuccessQuery::Integer(lenght) = database.append(KEY, VALUE).unwrap() {
                 assert_eq!(lenght, 5);
@@ -1692,9 +1673,9 @@ mod group_string {
         fn test_get_returns_error_if_the_key_does_not_exist() {
             let database = create_database();
 
-            let result = database.get(KEY).unwrap_err();
+            let result = database.get(KEY).unwrap();
 
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            assert_eq!(result, SuccessQuery::Nil);
         }
     }
 
@@ -1703,7 +1684,7 @@ mod group_string {
 
         #[test]
         fn test_set_returns_ok() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.set(KEY, VALUE).unwrap();
             assert_eq!(SuccessQuery::Success, result);
@@ -1720,19 +1701,19 @@ mod group_string {
         #[test]
         fn test_getdel_returns_old_value_of_key_and_after_value_of_key_what_not_exists_in_database_is_nul(
         ) {
-            let database = create_database_with_string();
+            let mut database = create_database_with_string();
 
             if let SuccessQuery::String(value) = database.getdel(KEY).unwrap() {
                 assert_eq!(value.to_string(), VALUE);
             }
 
-            let result = database.get(KEY).unwrap_err();
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            let result = database.get(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
         fn test_getdel_returns_nil_value_if_key_not_exist_in_database() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.getdel(KEY).unwrap_err();
             assert_eq!(result, DataBaseError::NonExistentKey);
@@ -1744,7 +1725,7 @@ mod group_string {
 
         #[test]
         fn test_incrby_returns_lenght_of_the_resulting_value_after_increment() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY, "1").unwrap();
 
@@ -1759,7 +1740,7 @@ mod group_string {
 
         #[test]
         fn test_decrby_returns_lenght_of_the_resulting_value_after_increment() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY, "5").unwrap();
             let result = database.decrby(KEY, 4).unwrap();
@@ -1773,7 +1754,7 @@ mod group_string {
 
         #[test]
         fn test_strlen_returns_the_lenght_of_value_key() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY, VALUE).unwrap();
 
@@ -1784,7 +1765,7 @@ mod group_string {
 
         #[test]
         fn test_strlen_returns_zero_if_the_key_not_exists_in_database() {
-            let database = create_database();
+            let mut database = create_database();
 
             if let SuccessQuery::Integer(value) = database.strlen(KEY).unwrap() {
                 assert_eq!(value, 0);
@@ -1809,7 +1790,7 @@ mod group_string {
 
         #[test]
         fn test_mset_set_multiple_key_and_value_ok() {
-            let database = create_database();
+            let mut database = create_database();
 
             let vec_key_value = vec![
                 KEY_A, VALUE_A, KEY_B, VALUE_B, KEY_C, VALUE_C, KEY_D, VALUE_D,
@@ -1846,7 +1827,7 @@ mod group_string {
         const VALUE_D: &str = "VALUE_D";
 
         fn create_a_database_with_key_values() -> Database {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_A, VALUE_A).unwrap();
             database.set(KEY_B, VALUE_B).unwrap();
@@ -1872,7 +1853,7 @@ mod group_string {
 
         #[test]
         fn test_mget_returns_nil_for_some_key_that_no_exists_in_database() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_A, VALUE_A).unwrap();
             database.set(KEY_B, VALUE_B).unwrap();
@@ -1911,7 +1892,7 @@ mod group_keys {
 
         #[test]
         fn test_copy_set_dolly_sheep_then_copy_to_clone() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY, VALUE).unwrap();
             let result = database.copy(KEY, SECOND_KEY);
@@ -1923,7 +1904,8 @@ mod group_keys {
 
         #[test]
         fn test_copy_set_dolly_sheep_then_copy_to_clone_when_clone_exist() {
-            let database = create_database();
+            let mut database = create_database();
+
             database.set(KEY, VALUE).unwrap();
             database.set(SECOND_KEY, SECOND_VALUE).unwrap();
             let result = database.copy(KEY, SECOND_KEY);
@@ -1933,7 +1915,7 @@ mod group_keys {
 
         #[test]
         fn test_copy_try_to_copy_a_key_does_not_exist() {
-            let database = create_database();
+            let mut database = create_database();
             let result = database.copy(KEY, SECOND_KEY);
 
             assert_eq!(result.unwrap_err(), DataBaseError::NonExistentKey);
@@ -1945,19 +1927,16 @@ mod group_keys {
 
         #[test]
         fn test_del_key_value_returns_succes() {
-            let database = create_database();
+            let mut database = create_database();
             database.set(KEY, VALUE).unwrap();
 
             let result = database.del(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Success);
-            assert_eq!(
-                database.get(KEY).unwrap_err(),
-                DataBaseError::NonExistentKey
-            );
+            assert_eq!(database.get(KEY).unwrap(), SuccessQuery::Nil);
         }
         #[test]
         fn test_del_key_non_exist_returns_error() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.del(KEY);
             assert_eq!(result.unwrap_err(), DataBaseError::NonExistentKey);
@@ -1974,15 +1953,12 @@ mod group_keys {
 
             let result = database.exists(KEY);
             assert_eq!(result.unwrap(), SuccessQuery::Boolean(false));
-            assert_eq!(
-                database.get(KEY).unwrap_err(),
-                DataBaseError::NonExistentKey
-            );
+            assert_eq!(database.get(KEY).unwrap(), SuccessQuery::Nil);
         }
 
         #[test]
         fn test_exists_key_hello_returns_bool_true() {
-            let database = create_database();
+            let mut database = create_database();
             database.set(KEY, VALUE).unwrap();
 
             let result = database.exists(KEY);
@@ -2007,7 +1983,7 @@ mod group_keys {
         const AGE_VALUE: &str = "22";
 
         fn create_database_with_keys() -> Database {
-            let database = create_database();
+            let mut database = create_database();
             database.set(FIRST_NAME, FIRST_NAME_VALUE).unwrap();
             database.set(LAST_NAME, LAST_NAME_VALUE).unwrap();
             database.set(AGE, AGE_VALUE).unwrap();
@@ -2047,7 +2023,7 @@ mod group_keys {
         const VAL_D: &str = "valD";
 
         fn create_database_with_keys_two() -> Database {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_A, VAL_A).unwrap();
             database.set(KEY_B, VAL_B).unwrap();
@@ -2092,7 +2068,7 @@ mod group_keys {
         const HALLOWN: &str = "hallown";
 
         fn create_database_with_keys_three() -> Database {
-            let database = create_database();
+            let mut database = create_database();
             database.set(HELLO, VAL_A).unwrap();
             database.set(HEEEELLO, VAL_A).unwrap();
             database.set(HALLO, VAL_B).unwrap();
@@ -2150,19 +2126,19 @@ mod group_keys {
 
         #[test]
         fn test_rename_key_with_mykey_get_hello() {
-            let database = create_database();
+            let mut database = create_database();
             database.set(KEY, VALUE).unwrap();
 
             let result = database.rename(KEY, SECOND_KEY).unwrap();
             assert_eq!(result, SuccessQuery::Success);
 
-            let result = database.get(KEY).unwrap_err();
-            assert_eq!(result, DataBaseError::NonExistentKey);
+            let result = database.get(KEY).unwrap();
+            assert_eq!(result, SuccessQuery::Nil);
         }
 
         #[test]
         fn test_rename_key_non_exists_error() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.rename(KEY, SECOND_KEY).unwrap_err();
 
@@ -2197,7 +2173,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_2, VALUE_3].to_vec())
                 .unwrap();
@@ -2216,7 +2192,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_without_flags_return_err_if_elem_in_list_are_not_numbers() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_2, VALUE_A].to_vec())
                 .unwrap();
@@ -2228,7 +2204,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_alpha_on_return_sorted_list_with_numbers_and_string_values() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_A, VALUE_2, VALUE_3].to_vec())
                 .unwrap();
@@ -2246,7 +2222,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_desc_on_return_sorted_list_with_numbers_descending() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2264,7 +2240,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_limit_offset_count_0_return_empty_list() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2280,7 +2256,7 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_count_in_range_of_list_return_sorted_list_with_count_elem(
         ) {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2302,7 +2278,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_limit_offset_count_negative_return_sorted_list_with_all_elements() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2324,7 +2300,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_limit_offset_neg_count_0_return_emptylist() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2339,7 +2315,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_limit_offset_out_of_range_of_list_count_return_empty_list() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2355,7 +2331,7 @@ mod group_keys {
         #[test]
         fn test_sort_list_with_limit_offset_negative_count_negative_return_sorted_list_with_all_elements(
         ) {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2375,7 +2351,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_with_limit_offset_in_range_count_2_return_sorted_sublist_of_2_elements() {
-            let database = create_database();
+            let mut database = create_database();
             database
                 .lpush(LIST, [VALUE_1, VALUE_3, VALUE_2].to_vec())
                 .unwrap();
@@ -2394,7 +2370,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_set_by_weight_return_list_ordered_by_weight() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
@@ -2418,7 +2394,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_list_by_weight_with_pattern_that_no_match_return_list_unordered() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
@@ -2445,7 +2421,7 @@ mod group_keys {
         #[test]
         fn test_sort_set_by_weight_if_weight_of_elem_that_does_not_match_weight_is_set_to_zero_and_return_list_ordered_by_pattern(
         ) {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
@@ -2469,7 +2445,7 @@ mod group_keys {
 
         #[test]
         fn test_sort_set_by_weight_and_only_weight_isnt_a_number_return_err() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.set(KEY_WEIGHT_3, VAL_WEIGHT_3).unwrap();
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
@@ -2505,7 +2481,7 @@ mod group_list {
     }
 
     fn database_with_a_list() -> Database {
-        let database = create_database();
+        let mut database = create_database();
 
         database.lpush(KEY, [VALUEA].to_vec()).unwrap();
         database.lpush(KEY, [VALUEB].to_vec()).unwrap();
@@ -2516,7 +2492,7 @@ mod group_list {
     }
 
     fn database_with_a_three_repeated_values() -> Database {
-        let database = create_database();
+        let mut database = create_database();
 
         database.lpush(KEY, [VALUEA].to_vec()).unwrap();
         database.lpush(KEY, [VALUEA].to_vec()).unwrap();
@@ -2527,7 +2503,7 @@ mod group_list {
     }
 
     fn database_with_a_string() -> Database {
-        let database = create_database();
+        let mut database = create_database();
 
         database.append(KEY, VALUE).unwrap();
 
@@ -2549,7 +2525,7 @@ mod group_list {
 
         #[test]
         fn test_llen_on_a_list_with_one_value() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
@@ -2591,7 +2567,7 @@ mod group_list {
 
         #[test]
         fn test_lindex_with_a_list_with_one_value_on_idex_zero() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
@@ -2642,7 +2618,7 @@ mod group_list {
 
         #[test]
         fn test_lpop_on_a_non_existent_key() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.lpop(KEY).unwrap();
 
@@ -2651,7 +2627,7 @@ mod group_list {
 
         #[test]
         fn test_lpop_with_a_list_with_one_value_on_idex_zero() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
@@ -2665,12 +2641,14 @@ mod group_list {
 
         #[test]
         fn test_lpop_with_a_list_with_more_than_one_value() {
-            let database = database_with_a_list();
+            let mut database = database_with_a_list();
 
             if let SuccessQuery::String(val) = database.lpop(KEY).unwrap() {
                 assert_eq!(val.to_string(), VALUED);
             }
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEC);
@@ -2679,7 +2657,7 @@ mod group_list {
 
         #[test]
         fn test_lpop_on_an_empty_list() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
@@ -2690,7 +2668,9 @@ mod group_list {
             let value = database.lpop(KEY).unwrap();
             assert_eq!(value, SuccessQuery::Nil);
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert!(list.is_empty());
@@ -2704,12 +2684,14 @@ mod group_list {
 
         #[test]
         fn test_lpush_on_a_non_existent_key_creates_a_list_with_new_value() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.lpush(KEY, [VALUE].to_vec()).unwrap();
             assert_eq!(result, SuccessQuery::Integer(1));
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 1);
@@ -2719,7 +2701,7 @@ mod group_list {
 
         #[test]
         fn test_lpush_on_an_existent_key_is_valid() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUEA].to_vec()).unwrap();
 
@@ -2727,7 +2709,9 @@ mod group_list {
 
             assert_eq!(result, SuccessQuery::Integer(2));
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 2);
@@ -2738,7 +2722,7 @@ mod group_list {
 
         #[test]
         fn test_lpush_on_an_existent_key_that_isnt_a_list() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.append(KEY, VALUE).unwrap();
 
@@ -2749,7 +2733,7 @@ mod group_list {
 
         #[test]
         fn test_lpush_more_than_one_value_with_a_key_non_existent() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database
                 .lpush(KEY, [VALUEA, VALUEB, VALUEC].to_vec())
@@ -2757,7 +2741,9 @@ mod group_list {
 
             assert_eq!(result, SuccessQuery::Integer(3));
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 3);
@@ -2769,14 +2755,16 @@ mod group_list {
 
         #[test]
         fn test_lpush_more_than_one_value_with_a_key_with_list() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUEA].to_vec()).unwrap();
             let result = database.lpush(KEY, [VALUEB, VALUEC].to_vec()).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(3));
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list.len(), 3);
@@ -2792,7 +2780,7 @@ mod group_list {
 
         #[test]
         fn test_lrange_on_zero_zero_range() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.lpush(KEY, [VALUE].to_vec()).unwrap();
 
@@ -2876,13 +2864,15 @@ mod group_list {
 
         #[test]
         fn test_lrem_2_on_a_list() {
-            let database = database_with_a_three_repeated_values();
+            let mut database = database_with_a_three_repeated_values();
 
             let result = database.lrem(KEY, 2, VALUEA);
 
             assert_eq!(SuccessQuery::Integer(2), result.unwrap());
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let Some(StorageValue::List(list)) = dictionary.get(KEY) {
                 assert_eq!(list[0], VALUEC);
@@ -2892,13 +2882,15 @@ mod group_list {
 
         #[test]
         fn test_lrem_negative_2_on_a_list() {
-            let database = database_with_a_three_repeated_values();
+            let mut database = database_with_a_three_repeated_values();
 
             let result = database.lrem(KEY, -2, VALUEA);
 
             assert_eq!(SuccessQuery::Integer(2), result.unwrap());
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEA);
@@ -2908,11 +2900,13 @@ mod group_list {
 
         #[test]
         fn test_lrem_zero_on_a_list() {
-            let database = database_with_a_three_repeated_values();
+            let mut database = database_with_a_three_repeated_values();
 
             let result = database.lrem(KEY, 0, VALUEA);
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             assert_eq!(SuccessQuery::Integer(1), result.unwrap());
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
@@ -2922,7 +2916,7 @@ mod group_list {
 
         #[test]
         fn test_lset_with_a_non_existen_key() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.lset(KEY, 0, &VALUEA).unwrap_err();
 
@@ -2931,7 +2925,7 @@ mod group_list {
 
         #[test]
         fn test_lset_with_a_value_that_isn_a_list() {
-            let database = database_with_a_string();
+            let mut database = database_with_a_string();
 
             let result = database.lset(KEY, 0, &VALUEA).unwrap_err();
 
@@ -2940,12 +2934,14 @@ mod group_list {
 
         #[test]
         fn test_lset_on_a_list_with_values() {
-            let database = database_with_a_list();
+            let mut database = database_with_a_list();
 
             let result = database.lset(KEY, 0, &VALUEA);
             assert_eq!(SuccessQuery::Success, result.unwrap());
 
-            let dictionary = database.dictionary.lock().unwrap();
+            let dictionary = database.dictionary;
+            let dictionary = dictionary.get_atomic_hash(KEY);
+            let dictionary = dictionary.lock().unwrap();
 
             if let StorageValue::List(list) = dictionary.get(KEY).unwrap() {
                 assert_eq!(list[0], VALUEA);
@@ -2980,7 +2976,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_create_new_set_with_element_returns_1_if_key_set_not_exist_in_database() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
             assert_eq!(result, SuccessQuery::Integer(1));
@@ -2990,7 +2986,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_create_set_with_repeating_elements_returns_0() {
-            let database = create_database();
+            let mut database = create_database();
 
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
@@ -3002,7 +2998,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_key_with_another_type_of_set_returns_err() {
-            let database = create_database();
+            let mut database = create_database();
             database.set(KEY, ELEMENT).unwrap();
 
             let result = database.sadd(KEY, [ELEMENT].to_vec()).unwrap_err();
@@ -3011,7 +3007,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_add_element_with_set_created_returns_1() {
-            let database = create_database();
+            let mut database = create_database();
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let result = database.sadd(KEY, [OTHER_ELEMENT].to_vec()).unwrap();
@@ -3022,7 +3018,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_add_multiple_elem_in_set_returns_lenght_of_correctly_added_set() {
-            let database = create_database();
+            let mut database = create_database();
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let result = database
@@ -3036,7 +3032,7 @@ mod group_set {
 
         #[test]
         fn test_sadd_add_multiple_elem_in_key_that_not_contains_set_return_err() {
-            let database = create_database();
+            let mut database = create_database();
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
             database.set(KEY, ELEMENT).unwrap();
 
@@ -3053,7 +3049,7 @@ mod group_set {
 
         #[test]
         fn test_sismember_set_with_element_returns_1() {
-            let database = create_database();
+            let mut database = create_database();
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let is_member = database.sismember(KEY, ELEMENT).unwrap();
@@ -3063,7 +3059,7 @@ mod group_set {
 
         #[test]
         fn test_sismember_set_without_element_returns_0() {
-            let database = create_database();
+            let mut database = create_database();
             database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
             let result = database.sismember(KEY, OTHER_ELEMENT).unwrap();
@@ -3073,7 +3069,7 @@ mod group_set {
 
         #[test]
         fn test_sismember_key_with_another_type_of_set_returns_err() {
-            let database = create_database();
+            let mut database = create_database();
             database.set(KEY, ELEMENT).unwrap();
             let result = database.sismember(KEY, ELEMENT).unwrap_err();
 
@@ -3082,7 +3078,7 @@ mod group_set {
 
         #[test]
         fn test_sismember_with_non_exist_key_set_returns_0() {
-            let database = create_database();
+            let mut database = create_database();
 
             let result = database.sismember(KEY, ELEMENT).unwrap();
 
@@ -3136,7 +3132,7 @@ mod group_set {
 
     #[test]
     fn test_scard_set_with_one_element_returns_1() {
-        let database = create_database();
+        let mut database = create_database();
         database.sadd(KEY, [ELEMENT].to_vec()).unwrap();
 
         let len_set = database.scard(KEY).unwrap();
@@ -3146,7 +3142,7 @@ mod group_set {
 
     #[test]
     fn test_scard_create_set_with_multiple_elements_returns_lenght_of_set() {
-        let database = create_database();
+        let mut database = create_database();
         let elements = vec!["0", "1", "2", "3"];
 
         let _ = database.sadd(KEY, elements);
@@ -3157,7 +3153,7 @@ mod group_set {
 
     #[test]
     fn test_scard_key_with_another_type_of_set_returns_err() {
-        let database = create_database();
+        let mut database = create_database();
         database.set(KEY, ELEMENT).unwrap();
 
         let result = database.scard(KEY).unwrap_err();
@@ -3167,7 +3163,7 @@ mod group_set {
 
     #[test]
     fn test_scard_key_set_not_exist_in_database_returns_0() {
-        let database = create_database();
+        let mut database = create_database();
 
         let result = database.scard(KEY).unwrap();
 
@@ -3244,8 +3240,8 @@ mod group_server {
             let r = db.flushdb().unwrap();
             assert_eq!(r, SuccessQuery::Success);
 
-            let guard = db.dictionary.lock().unwrap();
-            assert!(guard.is_empty());
+            let guard = db.dictionary;
+            assert!(guard.len() == 0);
         }
     }
 
@@ -3262,7 +3258,7 @@ mod group_server {
 
         #[test]
         fn dbsize_with_one_element_gets_1() {
-            let db = create_database();
+            let mut db = create_database();
             let _ = db.set(KEY1, VALUE1);
             let r = db.get(KEY1).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
@@ -3273,7 +3269,7 @@ mod group_server {
 
         #[test]
         fn dbsize_with_two_element_gets_2() {
-            let db = create_database();
+            let mut db = create_database();
             let _ = db.mset(vec![KEY1, VALUE1, KEY2, VALUE2]);
             let r = db.get(KEY1).unwrap();
             assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
