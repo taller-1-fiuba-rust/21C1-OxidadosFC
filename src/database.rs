@@ -924,6 +924,23 @@ impl Database {
 
     // Lists
 
+    /// Returns the element at index in the list stored at key.
+    /// The index is zero-based, so 0 means the first element, 1 the second element and so on.
+    /// Negative indices can be used to designate elements starting at the tail of the list.
+    /// Here, -1 means the last element, -2 means the penultimate and so forth.
+    /// When the value at key is not a list, an error is returned.
+    ///
+    /// Reply: SuccessQuery::String(val) when val is the requested element, or SuccessQuery::Nil when index is out of range.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// database.lpush("KEY", ["VALUE"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::String(value) = database.lindex("KEY", 0).unwrap() {
+    ///     assert_eq!(value, "VALUE");
+    /// }
+    /// ```
     pub fn lindex(&self, key: &str, index: i32) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let dictionary = dictionary.lock().unwrap();
@@ -945,6 +962,21 @@ impl Database {
         }
     }
 
+    /// Returns the length of the list stored at key.
+    /// If key does not exist, it is interpreted as an empty list and 0 is returned.
+    /// An error is returned when the value stored at key is not a list.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list at key.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// let database = database.lpush("KEY", ["VALUE_A","VALUE_B", "VALUE_C"].to_vec()).unwrap();
+    ///
+    /// let result = database.llen("KEY").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(3));
+    /// ```
     pub fn llen(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let dictionary = dictionary.lock().unwrap();
@@ -955,6 +987,25 @@ impl Database {
         }
     }
 
+    /// Removes and returns the first elements of the list stored at key.
+    /// By default, the command pops a single element from the beginning of the list.
+    /// When provided with the optional count argument, the reply will consist of up to count elements, depending on the list's length.
+    ///
+    /// Reply: SuccessQuery::String(s) when s is the the value of the first element, or SuccessQuery::Nil when key does not exist.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// let database = database.rpush("KEY", "VALUE_A").unwrap();
+    /// let database = database.rpush("KEY", "VALUE_B").unwrap();
+    ///
+    /// if let SuccessQuery::String(val) = database.lpop("KEY").unwrap() {
+    ///     assert_eq!(val.to_string(), "VALUE_A".to_string());
+    /// }
+    ///
+    /// let result = database.llen("KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// ```
     pub fn lpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -989,6 +1040,35 @@ impl Database {
         }
     }
 
+    /// Insert all the specified values at the head of the list stored at key.
+    /// If key does not exist, it is created as empty list before performing the push operations.
+    /// When key holds a value that is not a list, an error is returned.
+    ///
+    /// It is possible to push multiple elements using a single command call just specifying multiple arguments at the end of the command.
+    /// Elements are inserted one after the other to the head of the list, from the leftmost element to the rightmost element.
+    /// So for instance the command LPUSH mylist a b c will result into a list containing c as first element, b as second element and a as third element.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list after the push operations.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA"].to_vec()).unwrap();
+    ///
+    /// let result = database.lpush("KEY", ["VALUEB"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(2));
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list.len(), 2);
+    ///     assert_eq!(list[1], "VALUEA");
+    ///     assert_eq!(list[0], "VALUEB");
+    /// }
+    /// ```
     pub fn lpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut result = self.lpush_one(key, values[0]);
         for item in values.iter().skip(1) {
@@ -998,6 +1078,33 @@ impl Database {
         result
     }
 
+    /// Inserts specified values at the head of the list stored at key, only if key already exists and holds a list.
+    /// In contrary to LPUSH, no operation will be performed when key does not yet exist.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list after the push operation.
+    /// n=0 if key not hold a list and not push data.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpushx("KEY", ["VALUEA"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(0));
+    /// ```
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA"].to_vec()).unwrap();
+    /// database.lpushx("KEY", ["VALUEB"].to_vec()).unwrap();
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list.len(), 2);
+    ///     assert_eq!(list[1], "VALUEA");
+    ///     assert_eq!(list[0], "VALUEB");
+    /// }
+    /// ```
     pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -1011,6 +1118,41 @@ impl Database {
         }
     }
 
+    /// Returns the specified elements of the list stored at key.
+    /// The offsets start and stop are zero-based indexes, with 0 being the first element of the list (the head of the list),
+    /// 1 being the next element and so on.
+    ///
+    /// These offsets can also be negative numbers indicating offsets starting at the end of the list.
+    /// For example, -1 is the last element of the list, -2 the penultimate, and so on.
+    ///
+    /// Reply: SuccessQuery::List(list) when list is the list of elements in the specified range.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA","VALUEB", "VALUEC","VALUED"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.lrange("KEY", 0, 2).unwrap() {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let second_list: Vec<&str> = vec!["VALUED", "VALUEC", "VALUEB"];
+    ///     let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     })
+    /// }
+    /// ```
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA","VALUEB", "VALUEC","VALUED"].to_vec()).unwrap();
+    /// if let SuccessQuery::List(list) = database.lrange("KEY", 0, -1).unwrap() {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let second_list: Vec<&str> = vec!["VALUED", "VALUEC", "VALUEB", "VALUEA"];
+    ///     let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     })
+    /// }
+    /// ```
     pub fn lrange(&self, key: &str, ini: i32, end: i32) -> Result<SuccessQuery, DataBaseError> {
         let mut sub_list: Vec<SuccessQuery> = Vec::new();
         let dictionary = self.dictionary.get_atomic_hash(key);
@@ -1042,6 +1184,39 @@ impl Database {
         }
     }
 
+    /// Removes the first count occurrences of elements equal to element from the list stored at key.
+    /// The count argument influences the operation in the following ways:
+    ///
+    /// count > 0: Remove elements equal to element moving from head to tail.
+    ///
+    /// count < 0: Remove elements equal to element moving from tail to head.
+    ///
+    /// count = 0: Remove all elements equal to element.
+    ///
+    /// For example, LREM list -2 "hello" will remove the last two occurrences of "hello" in the list stored at list.
+    ///
+    /// Note that non-existing keys are treated like empty lists, so when key does not exist, the command will always return 0.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of removed elements.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA", "VALUEA", "VALUEC", "VALUEA"].to_vec()).unwrap();
+    ///
+    /// let result = database.lrem("KEY", 2, "VALUEA");
+    ///
+    /// assert_eq!(SuccessQuery::Integer(2), result.unwrap());
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let Some(StorageValue::List(list)) = dictionary.get("KEY") {
+    ///     assert_eq!(list[0], "VALUEC");
+    ///     assert_eq!(list[1], "VALUEA");
+    /// }
+    /// ```
     pub fn lrem(
         &mut self,
         key: &str,
@@ -1090,6 +1265,28 @@ impl Database {
         }
     }
 
+    /// Sets the list element at index to element. For more information on the index argument, see lindex.
+    ///
+    /// An error is returned for out of range indexes.
+    ///
+    /// Reply: SuccessQuery::Success if set the list element correctly.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush(KEY, ["VALUEA", "VALUEB", "VALUEC", "VALUED"].to_vec()).unwrap();
+    ///
+    /// let result = database.lset("KEY", 0, "VALUEA");
+    /// assert_eq!(SuccessQuery::Success, result.unwrap());
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list[0], "VALUEA");
+    /// }
+    /// ```
     pub fn lset(
         &mut self,
         key: &str,
@@ -1112,6 +1309,15 @@ impl Database {
         }
     }
 
+    /// Removes and returns the last elements of the list stored at key.
+    /// By default, the command pops a single element from the end of the list.
+    ///
+    /// Reply: SuccessQuery::String(val) when val is the value of the last element, or SuccessQuery::Nil when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -1125,6 +1331,16 @@ impl Database {
         }
     }
 
+    /// Insert all the specified values at the tail of the list stored at key.
+    /// If key does not exist, it is created as empty list before performing the push operation.
+    /// When key holds a value that is not a list, an error is returned.
+    ///
+    /// Reply: the length of the list after the push operation.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -1143,6 +1359,15 @@ impl Database {
         }
     }
 
+    /// Inserts specified values at the tail of the list stored at key, only if key already exists and holds a list.
+    /// In contrary to RPUSH, no operation will be performed when key does not yet exist.
+    ///
+    /// Reply: SuccessQuery:Integer(n) when n is the length of the list after the push operation.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
@@ -2568,10 +2793,9 @@ mod group_list {
     fn database_with_a_list() -> Database {
         let mut database = create_database();
 
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEB].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
-        database.lpush(KEY, [VALUED].to_vec()).unwrap();
+        database
+            .lpush(KEY, [VALUEA, VALUEB, VALUEC, VALUED].to_vec())
+            .unwrap();
 
         database
     }
@@ -2579,10 +2803,9 @@ mod group_list {
     fn database_with_a_three_repeated_values() -> Database {
         let mut database = create_database();
 
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+        database
+            .lpush(KEY, [VALUEA, VALUEA, VALUEC, VALUEA].to_vec())
+            .unwrap();
 
         database
     }
