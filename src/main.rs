@@ -2,6 +2,7 @@ mod channels;
 mod client;
 mod database;
 mod databasehelper;
+mod hash_shard;
 mod logger;
 mod matcher;
 mod request;

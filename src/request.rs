@@ -1,5 +1,6 @@
 use crate::channels::Channels;
 use crate::database::Database;
+use crate::databasehelper::SortFlags;
 use crate::server_conf::{ServerConf, SuccessServerRequest};
 use core::fmt::{self, Display, Formatter};
 use std::io::{Read, Write};
@@ -56,20 +57,25 @@ impl<'a> Request<'a> {
             ["rename", old_key, new_key] => Request::DataBase(Query::Rename(old_key, new_key)),
             ["sort", key, ..] => {
                 let tail = &request[2..];
-                let mut pos_begin_unwrap = 0;
-                let mut num_elem_unwrap = -1;
-                let mut alpha = 0;
-                let mut desc = 0;
-                let mut pattern_unwrap = None;
-
+                let mut sort_flags: Vec<SortFlags> = Vec::new();
+                if tail.is_empty() {
+                    println!("sort sin flags");
+                    return Request::DataBase(Query::Sort(key, SortFlags::WithoutFlags));
+                }
                 for elem in tail.iter() {
-                    if elem.contains("alpha") {
-                        alpha = 1;
+                    if *elem == "alpha" && tail.len() > 1 {
+                        sort_flags.push(SortFlags::Alpha);
+                        continue;
+                    } else if *elem == "alpha" && tail.len() == 1 {
+                        return Request::DataBase(Query::Sort(key, SortFlags::Alpha));
                     }
-                    if elem.contains("desc") {
-                        desc = 1;
+                    if *elem == "desc" && tail.len() > 1 {
+                        sort_flags.push(SortFlags::Desc);
+                        continue;
+                    } else if *elem == "desc" && tail.len() == 1 {
+                        return Request::DataBase(Query::Sort(key, SortFlags::Desc));
                     }
-                    if elem.contains("limit") {
+                    if *elem == "limit" {
                         if let (Some(pos_begin), Some(num_elems)) = (
                             tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 1),
                             tail.get(tail.iter().position(|r| *r == "limit").unwrap() + 2),
@@ -77,31 +83,34 @@ impl<'a> Request<'a> {
                             if let (Ok(num_pos_begin), Ok(num_elems)) =
                                 (pos_begin.parse::<i32>(), num_elems.parse::<i32>())
                             {
-                                pos_begin_unwrap = num_pos_begin;
-                                num_elem_unwrap = num_elems;
-                                continue;
+                                if tail.len() == 3 {
+                                    return Request::DataBase(Query::Sort(
+                                        key,
+                                        SortFlags::Limit(num_pos_begin, num_elems),
+                                    ));
+                                } else {
+                                    sort_flags.push(SortFlags::Limit(num_pos_begin, num_elems));
+                                    continue;
+                                }
                             };
                             return Request::Invalid(request_str, RequestError::ParseError);
                         };
                     }
-                    if elem.contains("by") {
+                    if *elem == "by" {
                         if let Some(pattern) =
                             tail.get(tail.iter().position(|r| *r == "by").unwrap() + 1)
                         {
-                            pattern_unwrap = Some(pattern.to_owned());
-                            continue;
+                            if tail.len() > 1 {
+                                sort_flags.push(SortFlags::By(pattern));
+                                continue;
+                            } else {
+                                return Request::DataBase(Query::Sort(key, SortFlags::By(pattern)));
+                            }
                         }
                         return Request::Invalid(request_str, RequestError::ParseError);
                     }
                 }
-                Request::DataBase(Query::Sort(
-                    key,
-                    pos_begin_unwrap,
-                    num_elem_unwrap,
-                    alpha,
-                    desc,
-                    pattern_unwrap,
-                ))
+                Request::DataBase(Query::Sort(key, SortFlags::CompositeFlags(sort_flags)))
             }
             ["strlen", key] => Request::DataBase(Query::Strlen(key)),
             ["mset", ..] => {
@@ -504,7 +513,7 @@ pub enum Query<'a> {
     Keys(&'a str),
     Persist(&'a str),
     Rename(&'a str, &'a str),
-    Sort(&'a str, i32, i32, i32, i32, Option<&'a str>),
+    Sort(&'a str, SortFlags<'a>),
     Ttl(&'a str),
     Type(&'a str),
     Get(&'a str),
@@ -555,14 +564,7 @@ impl<'a> Query<'a> {
             Query::Exists(key) => db.exists(&key),
             Query::Keys(pattern) => db.keys(pattern),
             Query::Rename(old_key, new_key) => db.rename(&old_key, &new_key),
-            Query::Sort(key, pos_begin_unwrap, num_elem_unwrap, alpha, desc, pattern) => db.sort(
-                &key,
-                &pos_begin_unwrap,
-                &num_elem_unwrap,
-                &alpha,
-                &desc,
-                &pattern,
-            ),
+            Query::Sort(key, sort_flags) => db.sort(&key, sort_flags),
             Query::Strlen(key) => db.strlen(&key),
             Query::Mset(vec_str) => db.mset(vec_str),
             Query::Mget(vec_str) => db.mget(vec_str),
@@ -631,16 +633,10 @@ impl<'a> Display for Query<'a> {
             Query::Rename(old_key, new_key) => {
                 write!(f, "Rename - Old_Key {} - New_Key {}", old_key, new_key)
             }
-            Query::Sort(key, pos_begin, num_elems, alpha, asc_desc, pattern) => {
+            Query::Sort(_key, _sort_flags) => {
                 write!(
                     f,
-                    "QueryKeys::Sort - Key: {} - Limit {} {} - Alpha {} - ASC {} - Pattern {}",
-                    key,
-                    pos_begin,
-                    num_elems,
-                    alpha,
-                    asc_desc,
-                    pattern.unwrap_or("None")
+                    "QueryKeys::Sort - Key:  - Limit   - Alpha  - ASC  - Pattern "
                 )
             }
             Query::Lindex(key, indx) => {

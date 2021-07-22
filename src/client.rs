@@ -89,7 +89,7 @@ impl Client {
                                 None => ("(Integer) 0".to_string(), 0),
                             };
                             let msg = format!("{} - Time since last access: {}", request, time);
-                            channels.send_logger(self.id, &msg);
+                            self.emit_request(msg, &mut channels);
                             Reponse::Valid(response)
                         }
                         Request::Invalid(_, _) => Reponse::Error(request.to_string()),
