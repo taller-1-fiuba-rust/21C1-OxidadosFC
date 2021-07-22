@@ -1201,7 +1201,7 @@ impl<'a> Clone for Database {
 
 fn executor(mut dictionary: HashShard, ttl_vector: TtlVector) {
     loop {
-        thread::sleep(Duration::new(1, 0));
+        thread::sleep(Duration::new(30, 0));
         let keys_ttl = ttl_vector.clone();
         let mut keys_locked = keys_ttl.lock().unwrap();
 

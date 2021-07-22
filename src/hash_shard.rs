@@ -37,10 +37,7 @@ impl HashShard {
         let atomic_hash = self.get_atomic_hash(&key);
         let mut atomic_hash = atomic_hash.lock().unwrap();
         let r = atomic_hash.insert(key, (value, SystemTime::now()));
-        match r {
-            Some((value, _)) => Some(value),
-            None => None,
-        }
+        r.map(|(value, _)| value)
     }
 
     pub fn clear(&mut self) {
@@ -72,10 +69,7 @@ impl HashShard {
         let atomic_hash = self.get_atomic_hash(key);
         let mut guard = atomic_hash.lock().unwrap();
         let r = guard.remove(key);
-        match r {
-            Some((v, _)) => Some(v),
-            None => None,
-        }
+        r.map(|(v, _)| v)
     }
 
     pub fn key_value(&self) -> Vec<(String, StorageValue)> {
