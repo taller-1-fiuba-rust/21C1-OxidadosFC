@@ -599,7 +599,9 @@ impl Database {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let dictionary = dictionary.lock().unwrap();
         let mut to_order = match dictionary.get(key) {
-            Some((StorageValue::Set(hash_set), _)) => hash_set.iter().map(|s| s.to_string()).collect(),
+            Some((StorageValue::Set(hash_set), _)) => {
+                hash_set.iter().map(|s| s.to_string()).collect()
+            }
             Some((StorageValue::List(list), _)) => list.iter().map(|x| x.to_string()).collect(),
             Some(_) => return Err(DataBaseError::NotAList),
             None => return Ok(SuccessQuery::List(Vec::new())),
@@ -663,7 +665,7 @@ impl Database {
             Some((val, last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::String(val.get_type()))
-            },
+            }
             None => Ok(SuccessQuery::String("none".to_owned())),
         }
     }
@@ -709,14 +711,14 @@ impl Database {
         }
     }
 
-pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
             Some((StorageValue::String(val), last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::String(val.clone()))
-            },
+            }
             Some(_) => Err(DataBaseError::NotAString),
             None => Ok(SuccessQuery::Nil),
         }
@@ -764,7 +766,7 @@ pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
                 Some((StorageValue::String(value), last_access)) => {
                     *last_access = SystemTime::now();
                     list.push(SuccessQuery::String(value.clone()))
-                },
+                }
                 Some(_) | None => list.push(SuccessQuery::Nil),
             }
         }
@@ -845,7 +847,7 @@ pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::Integer(list.len() as i32))
-            },
+            }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Integer(0)),
         }

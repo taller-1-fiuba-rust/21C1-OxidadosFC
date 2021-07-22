@@ -1,5 +1,9 @@
 use crate::databasehelper::StorageValue;
-use std::{collections::HashMap, sync::{Arc, Mutex}, time::SystemTime};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::SystemTime,
+};
 
 type Dictionary = Arc<Mutex<HashMap<String, (StorageValue, SystemTime)>>>;
 const HASH_NUMBER: usize = 10;
