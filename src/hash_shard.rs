@@ -27,6 +27,22 @@ impl HashShard {
         }
     }
 
+    pub fn touch(&mut self, key: &str) -> Option<u64> {
+        let atomic_hash = self.get_atomic_hash(&key);
+        let mut atomic_hash = atomic_hash.lock().unwrap();
+        match atomic_hash.get_mut(key) {
+            Some((_, l)) => {
+                let uptime_in_seconds = SystemTime::now()
+                    .duration_since(*l)
+                    .expect("Clock may have gone backwards");
+
+                *l = SystemTime::now();
+                Some(uptime_in_seconds.as_secs())
+            }
+            None => None,
+        }
+    }
+
     pub fn get_atomic_hash(&self, key: &str) -> Dictionary {
         let mut d = self.data.lock().unwrap();
         let atomic_hash = d.get_mut(hash_funcion(key)).unwrap();
