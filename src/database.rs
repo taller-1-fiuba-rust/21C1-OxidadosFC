@@ -44,6 +44,12 @@ where
 }
 
 impl Database {
+    /// Creates a new empty Database.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// ```
     pub fn new(db_dump_path: String) -> Database {
         let (ttl_msg_sender, ttl_rec) = mpsc::channel();
 
@@ -241,17 +247,67 @@ impl Database {
         });
     }
 
+    // KEYS
+
+    /// Delete all the keys of the currently selected DB. This command never fails.
+    ///
+    /// Reply: SuccessQuery:Success
+    ///
+    /// # Examples
+    /// ```
+    /// let mut db = Database("path_to_dump.txt");
+    ///
+    /// db.mset(vec!["KEY1", "VALUE1", "KEY2", "VALUE2"]).unwrap();
+    /// let r = db.get("KEY1").unwrap();
+    /// assert_eq!(r, SuccessQuery::String("VALUE1"));
+    /// let r = db.get("KEY2").unwrap();
+    /// assert_eq!(r, SuccessQuery::String("VALUE2"));
+    ///
+    /// let r = db.flushdb().unwrap();
+    /// assert_eq!(r, SuccessQuery::Success);
+    ///
+    /// let guard = db.dictionary;
+    /// assert!(guard.len() == 0);
+    /// ```
     pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.clear();
         Ok(SuccessQuery::Success)
     }
 
+    /// Return the number of keys in the currently-selected database. This command never fails.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is the number of keys in currently database.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut db = Database("path_to_dump.txt");
+    /// let _ = db.set(KEY1, VALUE1);
+    /// let r = db.get(KEY1).unwrap();
+    /// assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+    ///
+    /// let r = db.dbsize().unwrap();
+    /// assert_eq!(r, SuccessQuery::Integer(1));
+    /// ```
     pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
         Ok(SuccessQuery::Integer(self.dictionary.len() as i32))
     }
 
-    // KEYS
-
+    /// This command copies the value stored at the source key to the destination key.
+    ///
+    /// The command returns an error when the destination key already exists.
+    ///
+    /// Reply: SuccessQuery:Success if copies sucessful. Database error in wrong case.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    ///
+    /// database.set("KEY", "VALUE").unwrap();
+    /// database.set("SECOND_KEY", "SECOND_VALUE").unwrap();
+    /// let result = database.copy("KEY", "SECOND_KEY");
+    ///
+    /// assert_eq!(result.unwrap_err(), DataBaseError::KeyAlredyExist);
+    /// ```
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(to_key) {
             return Err(DataBaseError::KeyAlredyExist);
@@ -269,6 +325,14 @@ impl Database {
         }
     }
 
+    /// Removes the specified keys. A key is ignored if it does not exist.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n=1 if were removed or n=0 if were not removed.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn del(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.remove(key) {
             Some(_) => Ok(SuccessQuery::Success),
@@ -276,11 +340,56 @@ impl Database {
         }
     }
 
+    /// Returns if key exists.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the key exists.
+    ///
+    /// n=0 if the key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// let result = database.exists("KEY").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Boolean(true));
+    /// ```
     pub fn exists(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let bool = self.dictionary.contains_key(key);
         Ok(SuccessQuery::Boolean(bool))
     }
 
+    /// Set a timeout on key. After the timeout has expired, the key will automatically be deleted.
+    /// A key with an associated timeout is often said to be volatile in Redis terminology.
+    ///
+    /// The timeout will only be cleared by commands that delete or overwrite the contents of the key, including DEL, SET, GETSET and
+    /// all the *STORE commands.
+    ///
+    /// This means that all the operations that conceptually alter the value stored at the key without replacing it with a new one will leave the timeout untouched.
+    /// For instance, incrementing the value of a key with INCR, pushing a new value into a list with LPUSH,
+    /// or altering the field value of a hash with HSET are all operations that will leave the timeout untouched.
+    ///
+    ///
+    /// The timeout can also be cleared, turning the key back into a persistent key, using the PERSIST command.
+    ///
+    /// If a key is renamed with RENAME, the associated time to live is transferred to the new key name.
+    ///
+    /// If a key is overwritten by RENAME, like in the case of an existing key Key_A that is overwritten by a call like RENAME Key_B Key_A,
+    /// it does not matter if the original Key_A had a timeout associated or not,
+    /// the new key Key_A will inherit all the characteristics of Key_B.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was set.
+    ///
+    /// n=0 if key does not exist.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn expire(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(key) {
             if seconds < 0 {
@@ -300,6 +409,21 @@ impl Database {
         }
     }
 
+    /// EXPIREAT has the same effect and semantic as EXPIRE, but instead of specifying the number of seconds representing the TTL (time to live),
+    /// it takes an absolute Unix timestamp (seconds since January 1, 1970).
+    ///
+    /// A timestamp in the past will delete the key immediately.
+    /// Please for the specific semantics of the command refer to the documentation of EXPIRE.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was set.
+    ///
+    /// n=0 if key does not exist.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn expireat(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(key) {
             let duration = Duration::new(seconds as u64, 0);
@@ -320,6 +444,54 @@ impl Database {
         }
     }
 
+    /// Returns all keys matching pattern.
+    ///
+    /// This command is intended for debugging and special operations, such as changing your keyspace layout.
+    ///
+    /// Supported glob-style patterns:
+    ///
+    /// h?llo matches hello, hallo and hxllo
+    ///
+    /// h*llo matches hllo and heeeello
+    ///
+    /// h{ae}llo matches hello and hallo, but not hillo
+    ///
+    /// h{^e}llo matches hallo, hbllo, ... but not hello
+    ///
+    /// h{a-b}llo matches hallo and hbllo
+    ///
+    /// list of keys matching pattern.
+    ///
+    /// Reply: SuccessQuery:List(list) where list is an array of keys matching pattern.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("firstname", "alex").unwrap();
+    /// database.set("lastname", "arbieto").unwrap();
+    /// database.set("age", "22").unwrap();
+    ///
+    /// if let Ok(SuccessQuery::List(list)) = database.keys("????name") {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///
+    ///     assert!(list.contains("lastname"));
+    /// }
+    /// ```
+    /// other example with * pattern:
+    ///
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");;
+    /// database.set("firstname", "alex").unwrap();
+    /// database.set("lastname", "arbieto").unwrap();
+    /// database.set("age", "22").unwrap();
+    ///
+    /// if let Ok(SuccessQuery::List(list)) = database.keys("*name") {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///
+    ///     assert!(list.contains("firstname"));
+    ///     assert!(list.contains("lastname"));
+    /// }
+    /// ```
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let keys = self.dictionary.keys();
         let list: Vec<SuccessQuery> = keys
@@ -331,7 +503,18 @@ impl Database {
         Ok(SuccessQuery::List(list))
     }
 
-    //persist
+    /// Remove the existing timeout on key, turning the key from volatile (a key with an expire set)
+    /// to persistent (a key that will never expire as no timeout is associated).
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was removed.
+    ///
+    /// n=0 if key does not exist or does not have an associated timeout.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn persist(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if self.dictionary.contains_key(key) {
             self.ttl_msg_sender
@@ -344,6 +527,26 @@ impl Database {
         }
     }
 
+    /// Renames key to newkey.
+    ///
+    /// It returns an error when key does not exist.
+    ///
+    /// If newkey already exists it is overwritten, when this happens RENAME executes an implicit DEL operation,
+    /// so if the deleted key contains a very big value it may cause high latency even if RENAME itself is usually a constant-time operation.
+    ///
+    /// Reply: SuccessQuery::Success if success result or DatabaseError::NonExistentKey if key does not exists.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// let result = database.rename("KEY", "SECOND_KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Success);
+    ///
+    /// let result = database.get("KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Nil);
+    /// ```
     pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.dictionary.remove(old_key) {
             Some(value) => {
@@ -581,7 +784,74 @@ impl Database {
         }
     }
 
-    //sort
+    /// # Sort in simplest Form
+    ///
+    /// Returns or stores the elements contained in the list or set at key. By default,
+    /// sorting is numeric and elements are compared by their value interpreted as double precision floating point number.
+    ///
+    /// `database.sort("key", SortingFlags::WithoutFlags)`
+    ///
+    /// # Sort with Params
+    ///
+    /// Assuming key is a list of numbers, this command will return the same list with the elements sorted from small to large.
+    ///
+    /// In order to sort the numbers from large to small to large. use the DESC modifier:
+    ///
+    /// `database.sort("key", SortFlags::Desc)`
+    ///
+    /// When mylist contains string values and you want to sort them lexicographically, use the ALPHA modifier:
+    ///
+    /// `database.sort("key", SortFlags::Alpha)`
+    ///
+    /// The number of returned elements can be limited using the LIMIT modifier.
+    ///
+    /// This modifier takes the offset argument, specifying the number of elements to skip and the count argument,
+    /// specifying the number of elements to return from starting at offset.
+    ///
+    /// The following example will return 10 elements of the sorted version of mylist, starting at element 0 (offset is zero-based):
+    ///
+    /// `database.sort("key", SortFlags::Limit(0, 10))`
+    ///
+    /// Almost all modifiers can be used together.
+    /// The following example will return the first 5 elements, lexicographically sorted in descending order:
+    ///
+    /// `database.sort("key", SortFlags::CompositeFlags(![SortFlags::Limit(0,5), SortingFlags::Alpha, SortingFlags::Desc]))`
+    ///
+    /// # Sorting By External Keys
+    ///
+    /// Sometimes you want to sort elements using external keys as weights to compare instead of comparing the actual elements in the list,
+    /// set or sorted set.
+    ///
+    /// Let's say the list mylist contains the elements 1, 2 and 3 representing unique IDs of objects stored in object_1, object_2 and object_3.
+    /// When these objects have associated weights stored in weight_1, weight_2 and weight_3,
+    /// SORT can be instructed to use these weights to sort mylist with the following statement:
+    ///
+    /// `database.sort("key", SortingFlags::By("weight_*"))`
+    ///
+    /// The BY option takes a pattern (equal to weight_* in this example) that is used to generate the keys that are used for sorting.
+    ///
+    /// These key names are obtained substituting the first occurrence of * with the actual value of the element in the list (1, 2 and 3 in this example).
+    ///
+    /// Reply: without passing the store option the command returns a SuccessQuery::List(list) where list is an array of sorted elements.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database
+    ///     .lpush("LIST", ["3", "1", "2"].to_vec())
+    ///     .unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.sort("LIST", SortFlags::WithoutFlags).unwrap()
+    /// {
+    ///     let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let to_compare_list: Vec<&str> = vec!["1", "2", "3"];
+    ///     let pair_list: Vec<(&String, &str)> =
+    ///         list_result.iter().zip(to_compare_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     });
+    /// }
+    /// ```
     pub fn sort(&self, key: &str, sort_flags: SortFlags) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let dictionary = dictionary.lock().unwrap();
@@ -600,7 +870,22 @@ impl Database {
     }
     //touch
 
-    //ttl
+    /// Returns the remaining time to live of a key that has a timeout.
+    /// This introspection capability allows a Redis client to check how many seconds a given key will continue to be part of the dataset.
+    ///
+    /// Reply: TTL in seconds, or a negative value in order to signal an error (see the description above).
+    /// SuccessQuery::Integer(n) where n is the time to live of the key.
+    ///
+    /// SuccessQuery::Integer(n) when n is negative if an error ocurred according to:
+    ///
+    /// -2 if the key does not exist.
+    ///
+    /// -1 if the key exists but has no associated expire.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn ttl(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let (respond_sender, respond_reciver) = channel();
 
@@ -622,8 +907,15 @@ impl Database {
         }
     }
 
-    //type
-
+    /// Returns the string representation of the type of the value stored at key.
+    /// The different types that can be returned are: string, list, set.
+    ///
+    /// Reply: SuccessQuery::String(s) where s is type of key or none when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn get_type(&self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let dictionary = self.dictionary.get_atomic_hash(key);
         let dictionary = dictionary.lock().unwrap();
@@ -2485,7 +2777,7 @@ mod group_keys {
         fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
             let mut database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_3].to_vec())
+                .lpush(LIST, [VALUE_3, VALUE_1, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database.sort(LIST, SortFlags::WithoutFlags).unwrap()
