@@ -140,7 +140,14 @@ impl<'a> Request<'a> {
                     Request::DataBase(Query::Lpush(key, tail.to_vec()))
                 }
             }
-            ["lpushx", key, value] => Request::DataBase(Query::Lpushx(key, value)),
+            ["lpushx", key, ..] => {
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
+                } else {
+                    Request::DataBase(Query::Lpushx(key, tail.to_vec()))
+                }
+            },
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
                     Ok(end) => Request::DataBase(Query::Lrange(key, ini, end)),
@@ -157,8 +164,22 @@ impl<'a> Request<'a> {
                 Err(_) => Request::Invalid(request_str, RequestError::ParseError),
             },
             ["rpop", key] => Request::DataBase(Query::Rpop(key)),
-            ["rpush", key, value] => Request::DataBase(Query::Rpush(key, value)),
-            ["rpushx", key, value] => Request::DataBase(Query::Rpushx(key, value)),
+            ["rpush", key, ..] => {
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
+                } else {
+                    Request::DataBase(Query::Rpush(key, tail.to_vec()))
+                }
+            },
+            ["rpushx", key, ..] =>{
+                let tail = &request[2..];
+                if tail.is_empty() {
+                    Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
+                } else {
+                    Request::DataBase(Query::Rpushx(key, tail.to_vec()))
+                }
+            },
             ["sadd", key, ..] => {
                 let tail = &request[2..];
                 if tail.is_empty() {
@@ -527,13 +548,13 @@ pub enum Query<'a> {
     Llen(&'a str),
     Lpop(&'a str),
     Lpush(&'a str, Vec<&'a str>),
-    Lpushx(&'a str, &'a str),
+    Lpushx(&'a str, Vec<&'a str>),
     Lrange(&'a str, i32, i32),
     Lrem(&'a str, i32, &'a str),
     Lset(&'a str, usize, &'a str),
     Rpop(&'a str),
-    Rpush(&'a str, &'a str),
-    Rpushx(&'a str, &'a str),
+    Rpush(&'a str, Vec<&'a str>),
+    Rpushx(&'a str, Vec<&'a str>),
     Sadd(&'a str, Vec<&'a str>),
     Sismember(&'a str, &'a str),
     Scard(&'a str),
@@ -569,13 +590,13 @@ impl<'a> Query<'a> {
             Query::Llen(key) => db.llen(&key),
             Query::Lpop(key) => db.lpop(&key),
             Query::Lpush(key, values) => db.lpush(&key, values),
-            Query::Lpushx(key, value) => db.lpushx(&key, value),
+            Query::Lpushx(key, values) => db.lpushx(&key, values),
             Query::Lrange(key, ini, end) => db.lrange(&key, ini, end),
             Query::Lrem(key, count, value) => db.lrem(&key, count, value),
             Query::Lset(key, index, value) => db.lset(&key, index, &value),
             Query::Rpop(key) => db.rpop(&key),
-            Query::Rpush(key, value) => db.rpush(&key, value),
-            Query::Rpushx(key, value) => db.rpushx(&key, value),
+            Query::Rpush(key, values) => db.rpush(&key, values),
+            Query::Rpushx(key, values) => db.rpushx(&key, values),
             Query::Sadd(set_key, values) => db.sadd(&set_key, values.to_vec()),
             Query::Sismember(set_key, value) => db.sismember(&set_key, value),
             Query::Scard(set_key) => db.scard(&set_key),
@@ -644,8 +665,8 @@ impl<'a> Display for Query<'a> {
             Query::Lpush(key, values) => {
                 write!(f, "Lpush - Key: {} - Value: {}", key, vec_to_string(values))
             }
-            Query::Lpushx(key, value) => {
-                write!(f, "Lpushx - Key: {} - Value: {}", key, value)
+            Query::Lpushx(key, values) => {
+                write!(f, "Lpushx - Key: {} - Value: {}", key, vec_to_string(values))
             }
             Query::Lrange(key, beg, end) => {
                 write!(f, "Lrange - Key: {} - Begining: {} - End {}", key, beg, end)
@@ -660,10 +681,10 @@ impl<'a> Display for Query<'a> {
             ),
             Query::Rpop(key) => write!(f, "Rpop - Key: {}", key),
             Query::Rpush(key, value) => {
-                write!(f, "Rpush - Key: {} - Value: {} ", key, value)
+                write!(f, "Rpush - Key: {} - Value: {} ", key, vec_to_string(value))
             }
             Query::Rpushx(key, value) => {
-                write!(f, "Rpushx - Key: {} - Value: {} ", key, value)
+                write!(f, "Rpushx - Key: {} - Value: {} ", key, vec_to_string(value))
             }
             Query::Sadd(key, elements) => {
                 write!(
