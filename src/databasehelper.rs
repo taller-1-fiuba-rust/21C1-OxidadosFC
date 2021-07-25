@@ -164,6 +164,7 @@ pub enum MessageTtl {
     Clear(String),
     Transfer(String, String),
     Ttl(String, Sender<RespondTtl>),
+    Check(String),
     AllTtL(Sender<RespondTtl>),
 }
 
