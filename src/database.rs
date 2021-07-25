@@ -938,7 +938,7 @@ impl Database {
         result
     }
 
-    pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn lpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Integer(0));
         }
@@ -948,7 +948,9 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.insert(0, value.to_owned());
+                values.iter().for_each(|&val| {
+                    list.insert(0, val.to_owned());
+                });
                 Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
@@ -1097,9 +1099,13 @@ impl Database {
         }
     }
 
-    pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn rpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
-            let list: Vec<String> = vec![value.to_owned()];
+            let mut list: Vec<String> = Vec::new();
+            values.iter().for_each(|&val| {
+                list.push(val.to_owned());
+            });
+
             let len = list.len();
             self.dictionary
                 .insert(key.to_owned(), StorageValue::List(list));
@@ -1111,14 +1117,16 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.push(value.to_owned());
-                Ok(SuccessQuery::Integer(value.len() as i32))
+                values.iter().for_each(|&val| {
+                    list.push(val.to_owned());
+                });
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             _ => Err(DataBaseError::NotAList),
         }
     }
 
-    pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn rpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
         }
@@ -1127,8 +1135,10 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.push(value.to_owned());
-                Ok(SuccessQuery::Integer(value.len() as i32))
+                values.iter().for_each(|&val| {
+                    list.push(val.to_owned());
+                });
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Boolean(false)),
@@ -2410,9 +2420,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
-            database.rpush(LIST, VALUE_1).unwrap();
-            database.rpush(LIST, VALUE_3).unwrap();
-            database.rpush(LIST, VALUE_2).unwrap();
+            database.rpush(LIST, vec![VALUE_1]).unwrap();
+            database.rpush(LIST, vec![VALUE_3]).unwrap();
+            database.rpush(LIST, vec![VALUE_2]).unwrap();
 
             if let SuccessQuery::List(list) =
                 database.sort(LIST, SortFlags::By(UNMATCH_PATTERN)).unwrap()
