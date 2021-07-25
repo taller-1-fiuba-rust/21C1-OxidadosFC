@@ -2,9 +2,10 @@ use crate::databasehelper::StorageValue;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::SystemTime,
 };
 
-type Dictionary = Arc<Mutex<HashMap<String, StorageValue>>>;
+type Dictionary = Arc<Mutex<HashMap<String, (StorageValue, SystemTime)>>>;
 const HASH_NUMBER: usize = 10;
 
 pub struct HashShard {
@@ -26,6 +27,22 @@ impl HashShard {
         }
     }
 
+    pub fn touch(&mut self, key: &str) -> Option<u64> {
+        let atomic_hash = self.get_atomic_hash(&key);
+        let mut atomic_hash = atomic_hash.lock().unwrap();
+        match atomic_hash.get_mut(key) {
+            Some((_, l)) => {
+                let uptime_in_seconds = SystemTime::now()
+                    .duration_since(*l)
+                    .expect("Clock may have gone backwards");
+
+                *l = SystemTime::now();
+                Some(uptime_in_seconds.as_secs())
+            }
+            None => None,
+        }
+    }
+
     pub fn get_atomic_hash(&self, key: &str) -> Dictionary {
         let mut d = self.data.lock().unwrap();
         let atomic_hash = d.get_mut(hash_funcion(key)).unwrap();
@@ -35,7 +52,8 @@ impl HashShard {
     pub fn insert(&mut self, key: String, value: StorageValue) -> Option<StorageValue> {
         let atomic_hash = self.get_atomic_hash(&key);
         let mut atomic_hash = atomic_hash.lock().unwrap();
-        atomic_hash.insert(key, value)
+        let r = atomic_hash.insert(key, (value, SystemTime::now()));
+        r.map(|(value, _)| value)
     }
 
     pub fn clear(&mut self) {
@@ -66,7 +84,8 @@ impl HashShard {
     pub fn remove(&mut self, key: &str) -> Option<StorageValue> {
         let atomic_hash = self.get_atomic_hash(key);
         let mut guard = atomic_hash.lock().unwrap();
-        guard.remove(key)
+        let r = guard.remove(key);
+        r.map(|(v, _)| v)
     }
 
     pub fn key_value(&self) -> Vec<(String, StorageValue)> {
@@ -79,7 +98,7 @@ impl HashShard {
                 .map(|(k, v)| {
                     let k = k.to_string();
                     let v = v.clone();
-                    (k, v)
+                    (k, v.0)
                 })
                 .collect::<Vec<(String, StorageValue)>>();
             result.append(&mut vec);
