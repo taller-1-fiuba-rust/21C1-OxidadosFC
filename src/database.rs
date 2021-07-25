@@ -907,7 +907,22 @@ impl Database {
         }
     }
 
-    //touch
+    /// Update the key's last access value
+    ///
+    /// Indicates in the log file the last previous access or the time since that previous access.
+    ///
+    /// Check if the key expiration condition (TTL) was met and if so, perform the deletion
+    ///
+    /// Reply: SuccessQuery::Integer(n) where n is specified by .
+    ///
+    /// n=1 if the key was be touched.
+    ///
+    /// n=0 if key does not be touch.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn touch(&mut self, key: &str) -> Option<u64> {
         self.ttl_msg_sender
             .send(MessageTtl::Check(key.to_string()))
@@ -1462,10 +1477,11 @@ impl Database {
         result
     }
 
-    /// Inserts specified values at the head of the list stored at key, only if key already exists and holds a list.
+    /// Inserts specified value/s at the head of the list stored at key, only if key already exists and holds a list.
     /// In contrary to LPUSH, no operation will be performed when key does not yet exist.
     ///
     /// Reply: SuccessQuery::Integer(n) when n is the the length of the list after the push operation.
+    ///
     /// n=0 if key not hold a list and not push data.
     ///
     /// # Examples
@@ -1489,7 +1505,7 @@ impl Database {
     ///     assert_eq!(list[0], "VALUEB");
     /// }
     /// ```
-    pub fn lpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn lpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Integer(0));
         }
@@ -1499,7 +1515,9 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.insert(0, value.to_owned());
+                values.iter().for_each(|&val| {
+                    list.insert(0, val.to_owned());
+                });
                 Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
@@ -1751,15 +1769,24 @@ impl Database {
     /// If key does not exist, it is created as empty list before performing the push operation.
     /// When key holds a value that is not a list, an error is returned.
     ///
+    /// It is possible to push multiple elements using a single command call just specifying multiple arguments at the end of the command.
+    /// Elements are inserted one after the other to the tail of the list, from the leftmost element to the rightmost element.
+    ///
+    /// So for instance the command RPUSH mylist a b c will result into a list containing a as first element, b as second element and c as third element.
+    ///
     /// Reply: the length of the list after the push operation.
     ///
     /// # Examples
     /// ```
     /// todo
     /// ```
-    pub fn rpush(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn rpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
-            let list: Vec<String> = vec![value.to_owned()];
+            let mut list: Vec<String> = Vec::new();
+            values.iter().for_each(|&val| {
+                list.push(val.to_owned());
+            });
+
             let len = list.len();
             self.dictionary
                 .insert(key.to_owned(), StorageValue::List(list));
@@ -1771,8 +1798,10 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.push(value.to_owned());
-                Ok(SuccessQuery::Integer(value.len() as i32))
+                values.iter().for_each(|&val| {
+                    list.push(val.to_owned());
+                });
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             _ => Err(DataBaseError::NotAList),
         }
@@ -1787,7 +1816,7 @@ impl Database {
     /// ```
     /// todo
     /// ```
-    pub fn rpushx(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
+    pub fn rpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
         }
@@ -1796,8 +1825,10 @@ impl Database {
         match dictionary.get_mut(key) {
             Some((StorageValue::List(list), last_access)) => {
                 *last_access = SystemTime::now();
-                list.push(value.to_owned());
-                Ok(SuccessQuery::Integer(value.len() as i32))
+                values.iter().for_each(|&val| {
+                    list.push(val.to_owned());
+                });
+                Ok(SuccessQuery::Integer(list.len() as i32))
             }
             Some(_) => Err(DataBaseError::NotAList),
             None => Ok(SuccessQuery::Boolean(false)),
@@ -3186,9 +3217,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
-            database.rpush(LIST, VALUE_1).unwrap();
-            database.rpush(LIST, VALUE_3).unwrap();
-            database.rpush(LIST, VALUE_2).unwrap();
+            database.rpush(LIST, vec![VALUE_1]).unwrap();
+            database.rpush(LIST, vec![VALUE_3]).unwrap();
+            database.rpush(LIST, vec![VALUE_2]).unwrap();
 
             if let SuccessQuery::List(list) =
                 database.sort(LIST, SortFlags::By(UNMATCH_PATTERN)).unwrap()
