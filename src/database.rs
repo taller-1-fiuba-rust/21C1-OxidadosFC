@@ -2498,6 +2498,17 @@ mod group_string {
 
             assert_eq!(result, SuccessQuery::Integer(5));
         }
+
+        #[test]
+        fn test_incrby_returns_error_if_the_value_of_key_not_hold_parseable_value_to_number() {
+            let mut database = create_database();
+
+            database.set(KEY, "1a").unwrap();
+
+            let result = database.incrby(KEY, 4).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotAnInteger);
+        }
     }
 
     mod decrby_test {
@@ -2511,6 +2522,16 @@ mod group_string {
             let result = database.decrby(KEY, 4).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(1));
+        }
+
+        #[test]
+        fn test_decrby_returns_error_if_the_value_of_key_not_hold_parseable_value_to_number() {
+            let mut database = create_database();
+
+            database.set(KEY, "5a").unwrap();
+            let result = database.decrby(KEY, 4).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotAnInteger);
         }
     }
 
