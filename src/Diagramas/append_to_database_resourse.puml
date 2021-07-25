@@ -1,0 +1,51 @@
+@startuml handle_client
+hide footbox
+activate Client
+
+
+participant Client order 10
+participant Database as "db:Database" order 100
+participant Request order 20
+participant Query order 80
+
+    Client -> Request++: parse_request(&mut self.stream: TcpStream)
+    return result
+
+    alt result == Ok(request) 
+        create Request
+        Client -> Request++: new(request, subscriptions_mode)
+        return request: Request
+        alt request == Request::DataBase
+            Client -> Request++:
+            create Query
+            Request -> Query++:
+            return query:Query
+        else Request::Server
+            Client -> Request:
+        else Request::Publisher
+            Client -> Request:
+        else Request::Suscriber
+            Client -> Request:
+        else Request::CloseClient
+            Client -> Request:
+        else Request::Invalid
+            Client -> Request:
+        end
+    end
+    
+    return query:Query
+
+    Client -> Query++: exec_query(db: Database): Response
+
+        alt query == Query::Append(key: &str, value: &str)
+            Query -> Database++: append(key: &str, value: &str): Result<SuccessQuery, DataBaseError>   
+            return result_query: Result< SuccessQuery, DataBaseError>
+        end
+    alt result_query == Ok(succes)
+        participant Respond as "respond: Response" order 140
+        create Respond
+        Query -> Respond++: new(succes_msg: &str)
+        return respond::Valid
+    end
+    return respond
+@enduml
