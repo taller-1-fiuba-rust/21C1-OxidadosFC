@@ -353,7 +353,7 @@ impl<'a> SuscriberRequest<'a> {
                 for channel in channels_to_add {
                     if !subscriptions.contains(&channel.to_string()) {
                         subscriptions.push(channel.to_string());
-                        channels.add_to_channel(channel, s.clone(), id);
+                        channels.subscribe(channel, s.clone(), id);
                     }
 
                     let subscription =
