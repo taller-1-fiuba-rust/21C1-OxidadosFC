@@ -2260,9 +2260,9 @@ mod group_keys {
             database.set(KEY_WEIGHT_1, VAL_WEIGHT_1).unwrap();
             database.set(KEY_WEIGHT_2, VAL_WEIGHT_2).unwrap();
 
-            database.rpush(LIST, vec!(VALUE_1)).unwrap();
-            database.rpush(LIST, vec!(VALUE_3)).unwrap();
-            database.rpush(LIST, vec!(VALUE_2)).unwrap();
+            database.rpush(LIST, vec![VALUE_1]).unwrap();
+            database.rpush(LIST, vec![VALUE_3]).unwrap();
+            database.rpush(LIST, vec![VALUE_2]).unwrap();
 
             if let SuccessQuery::List(list) =
                 database.sort(LIST, SortFlags::By(UNMATCH_PATTERN)).unwrap()

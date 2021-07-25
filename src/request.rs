@@ -147,7 +147,7 @@ impl<'a> Request<'a> {
                 } else {
                     Request::DataBase(Query::Lpushx(key, tail.to_vec()))
                 }
-            },
+            }
             ["lrange", key, ini, end] => match ini.parse::<i32>() {
                 Ok(ini) => match end.parse::<i32>() {
                     Ok(end) => Request::DataBase(Query::Lrange(key, ini, end)),
@@ -171,15 +171,15 @@ impl<'a> Request<'a> {
                 } else {
                     Request::DataBase(Query::Rpush(key, tail.to_vec()))
                 }
-            },
-            ["rpushx", key, ..] =>{
+            }
+            ["rpushx", key, ..] => {
                 let tail = &request[2..];
                 if tail.is_empty() {
                     Request::Invalid(request_str, RequestError::InvalidNumberOfArguments)
                 } else {
                     Request::DataBase(Query::Rpushx(key, tail.to_vec()))
                 }
-            },
+            }
             ["sadd", key, ..] => {
                 let tail = &request[2..];
                 if tail.is_empty() {
@@ -666,7 +666,12 @@ impl<'a> Display for Query<'a> {
                 write!(f, "Lpush - Key: {} - Value: {}", key, vec_to_string(values))
             }
             Query::Lpushx(key, values) => {
-                write!(f, "Lpushx - Key: {} - Value: {}", key, vec_to_string(values))
+                write!(
+                    f,
+                    "Lpushx - Key: {} - Value: {}",
+                    key,
+                    vec_to_string(values)
+                )
             }
             Query::Lrange(key, beg, end) => {
                 write!(f, "Lrange - Key: {} - Begining: {} - End {}", key, beg, end)
@@ -684,7 +689,12 @@ impl<'a> Display for Query<'a> {
                 write!(f, "Rpush - Key: {} - Value: {} ", key, vec_to_string(value))
             }
             Query::Rpushx(key, value) => {
-                write!(f, "Rpushx - Key: {} - Value: {} ", key, vec_to_string(value))
+                write!(
+                    f,
+                    "Rpushx - Key: {} - Value: {} ",
+                    key,
+                    vec_to_string(value)
+                )
             }
             Query::Sadd(key, elements) => {
                 write!(
