@@ -7,15 +7,29 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+/// Server is the one in charge of distribute and share the resources for
+/// each command executed.
+///
 pub struct Client {
+    #[doc(hidden)]
     stream: TcpStream,
+    #[doc(hidden)]
     subscriptions: Vec<String>,
+    #[doc(hidden)]
     id: u32,
+    #[doc(hidden)]
     total_clients: Arc<Mutex<u64>>,
+    #[doc(hidden)]
     logger_ref: Arc<Mutex<Logger>>,
 }
 
 impl Client {
+    /// Creates a new Client with all the data passed by arguments.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let server = Server::new("redis.conf")?;
+    /// ```
     pub fn new(
         stream: TcpStream,
         id: u32,
@@ -32,6 +46,9 @@ impl Client {
         }
     }
 
+    /// Handles a client with all the resources that it needs and executes each command
+    /// arrived from the stream untill it desconnectes for any reason.
+    ///
     pub fn handle_client(
         &mut self,
         mut database: Database,
@@ -132,6 +149,7 @@ impl Client {
         }
     }
 
+    #[doc(hidden)]
     fn emit_request(&mut self, request: String, channels: &mut Channels) {
         channels.send_logger(self.id, &request);
         channels.send_monitor(self.id, &request);

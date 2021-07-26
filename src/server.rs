@@ -84,8 +84,8 @@ impl Server {
     }
 
     /// Creates a client with all the resources that it needs for each connection listened
-    /// in the stream connected to the port passed in the config file and spawn a thread
-    /// with that client.
+    /// in the litener connected to the port passed in the config file and spawn a thread
+    /// with that client being handled.
     ///
     pub fn run(mut self) {
         let mut logger = Logger::new(&self.config.logfile(), self.config.verbose());
