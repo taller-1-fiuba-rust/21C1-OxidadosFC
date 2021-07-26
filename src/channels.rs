@@ -20,7 +20,7 @@ type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
 /// implementing clone.
 /// It is the one in charge of subscribe or unsubscribe clients to specific channels,
 /// it also has two special channels: Monitor and Logger.
-/// 
+///
 pub struct Channels {
     #[doc(hidden)]
     channels: Dictionary,
@@ -78,13 +78,13 @@ impl Channels {
     /// let mut channels = Channels::new();
     /// let (s, r) = channel();
     /// channels.subscribe("channel", s, 1);
-    /// 
+    ///
     /// let number = channels.send("channel", "hola");
     /// assert_eq!(number, 1);
     ///
     /// let r = r.recv().unwrap();
     /// assert_eq!(r, "hola");
-    /// 
+    ///
     /// channels.unsubscribe("channel", 1);
     /// let number = channels.send("channel", "hola");
     /// assert_eq!(number, 0);
@@ -137,7 +137,7 @@ impl Channels {
     /// let mut channels = Channels::new();
     /// let (s, r) = channel();
     /// channels.subscribe("channel_1", s, 1);
-    /// 
+    ///
     /// let number = channels.send("channel_1", "hola");
     /// assert_eq!(number, 1);
     ///
@@ -158,8 +158,8 @@ impl Channels {
     }
 
     /// Sends a message to the logger, if there's anyone.
-    /// 
-    /// It's a rapper from send to the special channel Logger, that means 
+    ///
+    /// It's a rapper from send to the special channel Logger, that means
     /// you can use in the same way that other channel.
     pub fn send_logger(&mut self, id: u32, msg: &str) {
         let msg: String = id.to_string() + " " + " " + msg;
@@ -167,15 +167,15 @@ impl Channels {
     }
 
     /// Sends a message all the active monitors.
-    /// 
-    /// It's a rapper from send to the special channel Monitor, that means 
+    ///
+    /// It's a rapper from send to the special channel Monitor, that means
     /// you can use in the same way that other channel.
     pub fn send_monitor(&mut self, id: u32, msg: &str) {
         let msg: String = "Client: ".to_string() + &id.to_string() + " " + msg;
         self.send(MONITOR, &msg);
     }
 
-    /// Get all channels that matches with the pattern passed in a list of strings 
+    /// Get all channels that matches with the pattern passed in a list of strings
     /// except Logger and Monitor.
     /// # Examples
     /// Basic Usage:
@@ -188,13 +188,13 @@ impl Channels {
     ///     let (s, _) = channel();
     ///     channels.subscribe(&i.to_string(), s, i);
     /// }
-    /// 
+    ///
     /// c.sort_by(|a, b| {
     ///     let a = a.parse::<i32>().unwrap();
     ///     let b = b.parse::<i32>().unwrap();
     ///     a.cmp(&b)
     /// });
-    /// 
+    ///
     /// assert_eq!(
     ///    c,
     ///    vec!["1", "2", "3", "4", "5"]
@@ -215,7 +215,7 @@ impl Channels {
     /// ```
     /// let mut channels = Channels::new();
     /// let (s, _) = channel();
-    /// 
+    ///
     /// for i in 1..6 {
     ///     channels.subscribe("channel", s.clone(), i);
     ///     let number = channels.subcriptors_number("channel");
@@ -383,7 +383,7 @@ mod channels_test {
     fn unsubscribe_works_properly() {
         let mut channels = Channels::new();
         let (s, r) = channel();
-        
+
         channels.subscribe(CHANNEL_1, s, ID_1);
         let number = channels.send(CHANNEL_1, MSG);
         assert_eq!(number, 1);

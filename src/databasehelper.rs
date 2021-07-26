@@ -6,7 +6,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum StorageValue {
     String(String),
     List(Vec<String>),
