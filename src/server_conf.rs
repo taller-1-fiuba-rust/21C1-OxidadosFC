@@ -272,7 +272,7 @@ mod config_parser_tests {
             assert_eq!(cp.verbose(), DEFAULT_VERBOSE_TO_BOOLEAN);
             assert_eq!(cp.addr(), ADDR_VALUE);
             assert_eq!(cp.time_out(), DEFAULT_TIMEOUT);
-            // assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
+            assert_eq!(cp.dbfilename(), DEFAULT_DBFILENAME);
             assert_eq!(cp.logfile(), DEFAULT_LOGFILE);
         }
     }
