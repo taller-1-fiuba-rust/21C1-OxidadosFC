@@ -104,7 +104,16 @@ impl Client {
                         channels.send_logger(self.id, msg);
                     }
 
-                    respond.respond(&mut self.stream);
+                    match &respond {
+                        Reponse::Error(e) => {
+                            if e != "Monitor" {
+                                respond.respond(&mut self.stream);    
+                            }
+                        },
+                        _ => {
+                            respond.respond(&mut self.stream);
+                        },
+                    }
                 }
                 Err(error) => {
                     a_live = false;

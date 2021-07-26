@@ -122,9 +122,9 @@ impl Channels {
     ///     println!("{}", msg);
     /// }
     /// ```
-    pub fn add_monitor(&mut self) -> Receiver<String> {
+    pub fn add_monitor(&mut self, id: u32) -> Receiver<String> {
         let (s, r) = channel();
-        self.subscribe(MONITOR, s, SPECIAL_CHANNELS_ID);
+        self.subscribe(MONITOR, s, id);
 
         r
     }

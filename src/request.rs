@@ -357,15 +357,17 @@ impl<'a> SuscriberRequest<'a> {
     ) -> Reponse {
         match self {
             Self::Monitor => {
-                let r = channels.add_monitor();
+                let r = channels.add_monitor(id);
                 Reponse::Valid("Ok".to_string()).respond(stream);
+                subscriptions.push("Monitor".to_string());
 
                 for msg in r.iter() {
-                    let respons = Reponse::Valid(msg);
-                    respons.respond(stream);
+                    if writeln!(stream, "{}", msg).is_err() {
+                        break;
+                    }
                 }
 
-                Reponse::Valid("Ok".to_string())
+                Reponse::Error("Monitor".to_string())
             }
             Self::Subscribe(channels_to_add) => {
                 let (s, r) = channel();
