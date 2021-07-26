@@ -107,12 +107,12 @@ impl Client {
                     match &respond {
                         Reponse::Error(e) => {
                             if e != "Monitor" {
-                                respond.respond(&mut self.stream);    
+                                respond.respond(&mut self.stream);
                             }
-                        },
+                        }
                         _ => {
                             respond.respond(&mut self.stream);
-                        },
+                        }
                     }
                 }
                 Err(error) => {

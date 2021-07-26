@@ -9,7 +9,7 @@ pub const MONITOR: &str = "Monitor";
 #[doc(hidden)]
 pub const LOGGER: &str = "Logger";
 #[doc(hidden)]
-pub const SPECIAL_CHANNELS_ID: u32 = 0;
+pub const LOGGER_SPECIAL_ID: u32 = 0;
 
 #[doc(hidden)]
 type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
@@ -109,7 +109,7 @@ impl Channels {
     /// channels.add_logger(log_sender);
     /// ```
     pub fn add_logger(&mut self, logger_sender: Sender<String>) {
-        self.subscribe(LOGGER, logger_sender, SPECIAL_CHANNELS_ID);
+        self.subscribe(LOGGER, logger_sender, LOGGER_SPECIAL_ID);
     }
 
     /// Adds a new monitor and rerturn his receiver to listen.
@@ -181,14 +181,13 @@ impl Channels {
     /// Basic Usage:
     /// ```
     /// let mut channels = Channels::new();
-    /// add_channels(&mut channels);
     ///
-    /// let mut c = channels.get_channels("*");
     /// for i in 1..6 {
     ///     let (s, _) = channel();
     ///     channels.subscribe(&i.to_string(), s, i);
     /// }
     ///
+    /// let mut c = channels.get_channels("*");
     /// c.sort_by(|a, b| {
     ///     let a = a.parse::<i32>().unwrap();
     ///     let b = b.parse::<i32>().unwrap();
