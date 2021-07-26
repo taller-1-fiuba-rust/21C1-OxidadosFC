@@ -32,7 +32,7 @@ impl HashShard {
     /// # Examples
     /// Basic Usage:
     /// ```
-    /// let mut hashShard = HashShard::new();
+    /// let hashShard = HashShard::new();
     /// ```
     pub fn new() -> HashShard {
         let mut data = Vec::with_capacity(HASH_NUMBER);

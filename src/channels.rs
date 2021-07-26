@@ -4,13 +4,25 @@ use std::sync::{Arc, Mutex};
 
 use crate::matcher::matcher;
 
+#[doc(hidden)]
 pub const MONITOR: &str = "Monitor";
+#[doc(hidden)]
 pub const LOGGER: &str = "Logger";
+#[doc(hidden)]
 pub const SPECIAL_CHANNELS_ID: u32 = 0;
 
+#[doc(hidden)]
 type Dictionary = Arc<Mutex<HashMap<String, Vec<(u32, Sender<String>)>>>>;
 
+/// A Channels implemented in a multithreading context.
+///
+/// Channels uses Arc and Mutex to be shared safety in a multithreading context
+/// implementing clone.
+/// It is the one in charge of subscribe or unsubscribe clients to specific channels,
+/// channels also hash two special channels: Monitor and Logger.
+/// 
 pub struct Channels {
+    #[doc(hidden)]
     channels: Dictionary,
 }
 
@@ -21,10 +33,17 @@ impl<'a> Clone for Channels {
 }
 
 impl Channels {
+    #[doc(hidden)]
     fn new_from_channels(channels: Dictionary) -> Self {
         Channels { channels }
     }
 
+    /// Creates a new Channels.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let channels = Channels::new();
+    /// ```
     pub fn new() -> Channels {
         let mut hash = HashMap::new();
         hash.insert(MONITOR.to_string(), Vec::new());
@@ -33,6 +52,14 @@ impl Channels {
         Channels { channels }
     }
 
+    /// Subscribes a client with his sender and id in the corresponding channel.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut channels = Channels::new();
+    /// let (s, _) = channel();
+    /// channels.subscribe("channel", s, 1);
+    /// ```
     pub fn subscribe(&mut self, channel: &str, sender: Sender<String>, id: u32) {
         let mut guard = self.channels.lock().unwrap();
         match guard.get_mut(channel) {
@@ -43,10 +70,29 @@ impl Channels {
         }
     }
 
+    /// Adds a new Logger with his sender.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut channels = Channels::new();
+    /// let mut logger = Logger::new("log_file.log", false);
+    /// let log_sender = logger.run();
+    /// self.channels.add_logger(log_sender);
+    /// ```
     pub fn add_logger(&mut self, logger_sender: Sender<String>) {
         self.subscribe(LOGGER, logger_sender, SPECIAL_CHANNELS_ID);
     }
 
+    /// Adds a new monitor and rerturn his receiver to listen.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut channels = Channels::new();
+    /// let r = channels.add_monitor();
+    /// for msg in r.iter() {
+    ///     println!("{}", msg);
+    /// }
+    /// ```
     pub fn add_monitor(&mut self) -> Receiver<String> {
         let (s, r) = channel();
         self.subscribe(MONITOR, s, SPECIAL_CHANNELS_ID);
@@ -54,6 +100,21 @@ impl Channels {
         r
     }
 
+    /// Sends a message to all the subscriptors in the corresponding channel
+    /// and return the number of subscriptors that received the message.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut channels = Channels::new();
+    /// let (s, r) = channel();
+    /// channels.subscribe("channel_1", s, 1);
+    /// 
+    /// let number = channels.send("channel_1", "hola");
+    /// assert_eq!(number, 1);
+    ///
+    /// let r = r.recv().unwrap();
+    /// assert_eq!(r, "hola");
+    /// ```
     pub fn send(&mut self, channel: &str, msg: &str) -> i32 {
         let guard = self.channels.lock().unwrap();
         match guard.get(channel) {
@@ -185,7 +246,8 @@ mod channels_test {
         let (s, r) = channel();
         channels.subscribe(CHANNEL_1, s, ID_1);
 
-        channels.send(CHANNEL_1, MSG);
+        let number = channels.send(CHANNEL_1, MSG);
+        assert_eq!(number, 1);
 
         let r = r.recv().unwrap();
         assert_eq!(r, MSG);
@@ -197,7 +259,8 @@ mod channels_test {
         let receivers = add_channels(&mut channels);
 
         for c in &CHANNELS {
-            channels.send(c, MSG);
+            let n = channels.send(c, MSG);
+            assert_eq!(n, 1);
         }
 
         for r in receivers {
@@ -207,7 +270,7 @@ mod channels_test {
     }
 
     #[test]
-    fn subscribe_different_client_to_a_channel_and_send_a_msg() {
+    fn subscribe_a_client_to_different_channels_and_send_a_msg() {
         let mut channels = Channels::new();
         let (s, r) = channel();
         for c in &CHANNELS {
@@ -215,7 +278,8 @@ mod channels_test {
         }
 
         for c in &CHANNELS {
-            channels.send(c, MSG);
+            let n = channels.send(c, MSG);
+            assert_eq!(n, 1);
         }
 
         let mut msgs = Vec::new();
@@ -244,7 +308,8 @@ mod channels_test {
         let receivers = add_all_channels_in_all_clients(&mut channels);
 
         for c in &CHANNELS {
-            channels.send(c, MSG);
+            let n = channels.send(c, MSG);
+            assert_eq!(n, 5);
         }
 
         for r in &receivers {
