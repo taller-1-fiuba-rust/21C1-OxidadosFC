@@ -7,18 +7,40 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
+/// Logger is the one in charge of write in the log file and show in stdout
+/// whats going on if verbose is true.
+///
 pub struct Logger {
+    #[doc(hidden)]
     file_path: String,
+    #[doc(hidden)]
     verbose: Arc<AtomicBool>,
 }
 
 impl Logger {
+    /// Creates a new Logger with verbose and his log file path.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let logger = Logger::new("lf.log", false);
+    /// ```
     pub fn new(file_path: &str, verbose: bool) -> Logger {
         let file_path = file_path.to_string();
         let verbose = Arc::new(AtomicBool::new(verbose));
         Logger { file_path, verbose }
     }
 
+    /// Spawn a thread where listens the messages sended to the sender that returns.
+    /// If verbose is true, also show the messages in stdout.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut logger = Logger::new("lf.log", false);
+    /// let s = logger.run();
+    ///
+    /// let msg = "Hello".to_string();
+    /// s.send(msg).unwrap();   // It has to show the message in the file lf.log
+    /// ```
     pub fn run(&mut self) -> Sender<String> {
         let (log_sender, log_rec): (Sender<String>, Receiver<String>) = mpsc::channel();
         let path = self.file_path.clone();
@@ -41,11 +63,26 @@ impl Logger {
         log_sender
     }
 
+    /// Set verbose to the value passed for argument.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut logger = Logger::new("lf.log", false);
+    /// let s = logger.run();
+    ///
+    /// let msg = "Hello".to_string();
+    /// s.send(msg).unwrap();
+    ///
+    /// logger.set_verbose(true);
+    /// let msg = "Adios".to_string();
+    /// s.send(msg).unwrap();   // It has to show the message in stdout too.
+    /// ```
     pub fn set_verbose(&mut self, new_value: bool) {
         self.verbose.store(new_value, Ordering::Relaxed);
     }
 }
 
+#[doc(hidden)]
 fn open_logger(path: &str) -> Result<File, String> {
     match OpenOptions::new()
         .read(true)
