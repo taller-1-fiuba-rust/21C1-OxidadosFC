@@ -31,7 +31,7 @@ impl Logger {
     }
 
     /// Spawn a thread where listens the messages sended to the sender that returns.
-    /// If verbose is true, also show the messages in stdout.
+    /// If verbose is true, also shows the messages in stdout.
     /// # Examples
     /// Basic Usage:
     /// ```

@@ -8,17 +8,42 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::SystemTime;
 
+/// Server is the one in charge of distribute and share the resources for
+/// each client.
+///
 pub struct Server {
+    #[doc(hidden)]
     database: Database,
+    #[doc(hidden)]
     listener: TcpListener,
+    #[doc(hidden)]
     config: ServerConf,
+    #[doc(hidden)]
     next_id: Arc<Mutex<u32>>,
+    #[doc(hidden)]
     channels: Channels,
+    #[doc(hidden)]
     uptime: SystemTime,
+    #[doc(hidden)]
     clients: Arc<Mutex<u64>>,
 }
 
 impl Server {
+    /// Creates a new Server with the configuration from config_file.
+    /// The config file has to comply the next format:
+    /// ```text
+    /// verbose = 0 -> a number
+    /// port = 8888 -> a number
+    /// timeout = 0 -> a number
+    /// dbfilename = dump.txt -> an existing file
+    /// logfile = lf.log -> it can non-existing file
+    /// ```
+    /// If it happens returns Ok(server), an Err otherwise.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let server = Server::new("redis.conf")?;
+    /// ```
     pub fn new(config_file: &str) -> Result<Server, String> {
         let config = ServerConf::new(config_file)?;
         let listener = TcpListener::bind(config.addr()).expect("Could not bind");
@@ -39,6 +64,7 @@ impl Server {
         })
     }
 
+    #[doc(hidden)]
     fn new_client(&self, stream: TcpStream, id: u32, logger_ref: Arc<Mutex<Logger>>) -> Client {
         let total_clients = self.clients.clone();
         let mut clients = self.clients.lock().unwrap();
@@ -48,6 +74,7 @@ impl Server {
         Client::new(stream, id, total_clients, logger_ref)
     }
 
+    #[doc(hidden)]
     fn get_next_id(&self) -> u32 {
         let next_id = self.next_id.clone();
         let mut guard = next_id.lock().unwrap();
@@ -56,6 +83,10 @@ impl Server {
         id
     }
 
+    /// Creates a client with all the resources that it needs for each connection listened
+    /// in the stream connected to the port passed in the config file and spawn a thread
+    /// with that client.
+    ///
     pub fn run(mut self) {
         let mut logger = Logger::new(&self.config.logfile(), self.config.verbose());
         let log_sender = logger.run();
