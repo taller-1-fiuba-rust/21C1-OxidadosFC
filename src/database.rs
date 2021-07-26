@@ -15,14 +15,26 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+#[doc(hidden)]
 type TtlVector = Arc<Mutex<Vec<KeyTtl>>>;
 
+/// A Database implemented in a multithreading context.
+///
+/// Database uses Arc and Mutex to be shared safety in a multithreading context
+/// implementing clone.
+/// It also supervises the keys's time to live and save its own data every 30
+/// seconds.
+///
 pub struct Database {
+    #[doc(hidden)]
     dictionary: HashShard,
+    #[doc(hidden)]
     ttl_msg_sender: Sender<MessageTtl>,
+    #[doc(hidden)]
     db_dump_path: String,
 }
 
+#[doc(hidden)]
 fn open_serializer(path: &str) -> Result<File, String> {
     match OpenOptions::new()
         .read(true)
@@ -35,6 +47,7 @@ fn open_serializer(path: &str) -> Result<File, String> {
     }
 }
 
+#[doc(hidden)]
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
@@ -44,7 +57,10 @@ where
 }
 
 impl Database {
-    /// Creates a new empty Database.
+    /// Creates a new Database.
+    ///
+    /// If there's somenthing in path_to_dump.txt loads all the data there and run the
+    /// ttl_supervisor, wich supervises the time to live for every key.
     /// # Examples
     /// Basic Usage:
     /// ```
@@ -109,6 +125,7 @@ impl Database {
         database
     }
 
+    #[doc(hidden)]
     pub fn new_from_db(
         ttl_msg_sender: Sender<MessageTtl>,
         dictionary: HashShard,
@@ -121,6 +138,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn run_serializer(&self) {
         let path = self.db_dump_path.clone();
         let dic = self.dictionary.clone();
@@ -169,6 +187,7 @@ impl Database {
         });
     }
 
+    #[doc(hidden)]
     pub fn ttl_supervisor_run(&mut self, reciver: Receiver<MessageTtl>) {
         let mut dictionary = self.dictionary.clone();
 
@@ -355,6 +374,17 @@ impl Database {
         Ok(SuccessQuery::Success)
     }
 
+    #[doc(hidden)]
+    fn _exists(&self, key: &str) -> bool {
+        let contains_key = self.dictionary.contains_key(key);
+        let expire_time_passed = match self.get_expire_time(key) {
+            RespondTtl::Ttl(expire_time) => expire_time < SystemTime::now(),
+            _ => false,
+        };
+
+        !expire_time_passed && contains_key
+    }
+
     /// Returns if key exists.
     ///
     /// Reply: SuccessQuery:Integer(n) where n is specified by:
@@ -372,16 +402,6 @@ impl Database {
     ///
     /// assert_eq!(result, SuccessQuery::Boolean(true));
     /// ```
-    fn _exists(&self, key: &str) -> bool {
-        let contains_key = self.dictionary.contains_key(key);
-        let expire_time_passed = match self.get_expire_time(key) {
-            RespondTtl::Ttl(expire_time) => expire_time < SystemTime::now(),
-            _ => false,
-        };
-
-        !expire_time_passed && contains_key
-    }
-
     pub fn exists(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.touch(key);
         Ok(SuccessQuery::Boolean(self._exists(key)))
@@ -594,6 +614,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn sort_by(
         &mut self,
         to_order: &mut Vec<String>,
@@ -642,6 +663,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn limit(
         to_order: &mut Vec<String>,
         pos_begin: &mut i32,
@@ -663,6 +685,7 @@ impl Database {
         to_order.to_vec()
     }
 
+    #[doc(hidden)]
     pub fn sort_limit(
         to_order: &mut Vec<String>,
         pos_begin: &mut i32,
@@ -672,11 +695,13 @@ impl Database {
         Database::sort_without_flags(&mut to_build)
     }
 
+    #[doc(hidden)]
     pub fn desc(to_order: &mut Vec<String>) -> Vec<String> {
         to_order.reverse();
         to_order.to_vec()
     }
 
+    #[doc(hidden)]
     pub fn sort_desc(to_order: &mut Vec<String>) -> Result<Vec<String>, DataBaseError> {
         let mut parse_error = false;
         let mut to_order: Vec<_> = to_order
@@ -697,6 +722,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn sort_without_flags(to_order: &mut Vec<String>) -> Result<Vec<String>, DataBaseError> {
         let mut parse_error = false;
         let mut to_order: Vec<_> = to_order
@@ -717,6 +743,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn build_sort_vector(
         to_build: Vec<String>,
         pos_begin: &i32,
@@ -729,6 +756,7 @@ impl Database {
         Ok(result_list)
     }
 
+    #[doc(hidden)]
     pub fn _sort(
         &mut self,
         to_order: &mut Vec<String>,
@@ -921,7 +949,10 @@ impl Database {
     ///
     /// # Examples
     /// ```
-    /// todo
+    /// let mut database = Database("path_to_dump.txt");
+    ///
+    ///
+    ///
     /// ```
     pub fn touch(&mut self, key: &str) -> Option<u64> {
         self.ttl_msg_sender
@@ -938,6 +969,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     fn get_expire_time(&self, key: &str) -> RespondTtl {
         let (respond_sender, respond_reciver) = channel();
 
@@ -1418,6 +1450,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     fn lpush_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             let list: Vec<String> = vec![value.to_owned()];
@@ -1905,6 +1938,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn sadd_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             let mut set: HashSet<String> = HashSet::new();
@@ -2062,6 +2096,7 @@ impl<'a> Clone for Database {
     }
 }
 
+#[doc(hidden)]
 fn executor(mut dictionary: HashShard, ttl_vector: TtlVector) {
     loop {
         thread::sleep(Duration::new(30, 0));
