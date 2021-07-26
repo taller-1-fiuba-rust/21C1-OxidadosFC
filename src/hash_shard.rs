@@ -5,18 +5,35 @@ use std::{
     time::SystemTime,
 };
 
+/// A HashShard implemented with the simplest hash function in a multithreading 
+/// context.
+///
+/// HashShard uses Arc and Mutex to be shared safety in a multithreading context
+/// implementing clone.
+/// It is the one in charge of dividing all the data in shorter pieces.
+///
+#[doc(hidden)]
 type Dictionary = Arc<Mutex<HashMap<String, (StorageValue, SystemTime)>>>;
+#[doc(hidden)]
 const HASH_NUMBER: usize = 10;
 
 pub struct HashShard {
+    #[doc(hidden)]
     pub data: Arc<Mutex<Vec<Dictionary>>>,
 }
 
 impl HashShard {
+    #[doc(hidden)]
     pub fn new_from_hs(data: Arc<Mutex<Vec<Dictionary>>>) -> HashShard {
         HashShard { data }
     }
 
+    /// Creates a new HashShard.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut hashShard = HashShard::new();
+    /// ```
     pub fn new() -> HashShard {
         let mut data = Vec::with_capacity(HASH_NUMBER);
         for _ in 0..HASH_NUMBER {
@@ -120,6 +137,7 @@ impl HashShard {
     }
 }
 
+#[doc(hidden)]
 fn hash_funcion(key: &str) -> usize {
     key.len() % HASH_NUMBER
 }
