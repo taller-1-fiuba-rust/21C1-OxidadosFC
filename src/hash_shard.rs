@@ -115,12 +115,12 @@ impl HashShard {
     /// Basic Usage:
     /// ```
     /// let mut hash_shard = HashShard::new();
-    /// 
+    ///
     /// assert!(hash_shard
     ///     .insert("key1".to_string(), StorageValue::String("value1".to_string()))
     ///     .is_none());
     /// assert!(hash_shard.contains_key("key_1"));
-    /// 
+    ///
     /// if let Some(StorageValue::String(old_value)) =
     ///     hash_shard.insert("key_1".to_string(), StorageValue::String("value2".to_string()))
     /// {
@@ -139,12 +139,12 @@ impl HashShard {
     /// Basic Usage:
     /// ```
     /// let mut hash_shard = HashShard::new();
-    /// 
+    ///
     /// for i in 0..100 {
     ///     hash_shard.insert(i.to_string(), StorageValue::String(i.to_string()));
     /// }
     /// assert_eq!(hash_shard.len(), 100);
-    /// 
+    ///
     /// hash_shard.clear();
     /// assert_eq!(hash_shard.len(), 0);
     /// ```
@@ -161,7 +161,7 @@ impl HashShard {
     /// Basic Usage:
     /// ```
     /// let mut hash_shard = HashShard::new();
-    /// 
+    ///
     /// for i in 0..100 {
     ///     hash_shard.insert(i.to_string(), StorageValue::String(i.to_string()));
     /// }
@@ -185,7 +185,7 @@ impl HashShard {
     /// ```
     /// let mut hash_shard = HashShard::new();
     /// assert_eq!(hash_shard.contains_key(KEY_2), false);
-    /// 
+    ///
     /// hash_shard.insert(KEY_2.to_string(), StorageValue::String(VALUE_2.to_string()));
     /// assert_eq!(hash_shard.contains_key(KEY_2), true);
     /// ```
@@ -195,7 +195,7 @@ impl HashShard {
         guard.contains_key(key)
     }
 
-    /// Removes a key from the hash shard, returning the value at the key if the key was 
+    /// Removes a key from the hash shard, returning the value at the key if the key was
     /// previously in the hash shard, None otherwise.
     /// # Examples
     /// Basic Usage:
@@ -203,10 +203,10 @@ impl HashShard {
     /// let mut hash_shard = HashShard::new();
     /// assert!(!hash_shard.contains_key(KEY_2));
     /// assert!(hash_shard.remove(KEY_2).is_none());
-    /// 
+    ///
     /// hash_shard.insert(KEY_2.to_string(), StorageValue::String(VALUE_2.to_string()));
     /// assert!(hash_shard.contains_key(KEY_2));
-    /// 
+    ///
     /// if let Some(StorageValue::String(value_removed)) = hash_shard.remove(KEY_2) {
     ///     assert_eq!(value_removed, VALUE_2);
     /// }
@@ -228,7 +228,7 @@ impl HashShard {
     /// for i in 0..10 {
     ///     hash_shard.insert(i.to_string(), StorageValue::String(i.to_string()));
     /// }
-    /// 
+    ///
     /// let key_values = hash_shard.key_value();
     /// for (key, value) in key_values {
     ///     println!("{}: {:?}", key, value);
@@ -262,7 +262,7 @@ impl HashShard {
     /// for i in 0..5 {
     ///     hash_shard.insert(i.to_string(), StorageValue::String(i.to_string()));
     /// }
-    /// 
+    ///
     /// let mut keys = hash_shard.keys();
     /// keys.sort_by(|a, b| {
     ///     let a = a.parse::<i32>().unwrap();
@@ -408,7 +408,7 @@ mod hash_shard_test {
         for i in 0..5 {
             hash_shard.insert(i.to_string(), StorageValue::String(i.to_string()));
         }
-        
+
         let mut keys = hash_shard.keys();
         keys.sort_by(|a, b| {
             let a = a.parse::<i32>().unwrap();
