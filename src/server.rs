@@ -36,7 +36,7 @@ impl Server {
     /// port = 8888 -> a number
     /// timeout = 0 -> a number
     /// dbfilename = dump.txt -> an existing file
-    /// logfile = lf.log -> it can non-existing file
+    /// logfile = lf.log -> it can be a non-existing file
     /// ```
     /// If it happens returns Ok(server), an Err otherwise.
     /// # Examples
