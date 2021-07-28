@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 /// An abstraction used by Database and represents the different types of data that each key in the database can store.
-/// 
-#[derive(Clone, Debug)] 
+#[derive(Clone, Debug)]
 pub enum StorageValue {
     #[doc(hidden)]
     String(String),
@@ -86,7 +85,7 @@ impl Display for StorageValue {
 }
 
 /// Abstraction that represents the possible flags that the sort command from Database can receive.
-/// 
+///
 /// For usage, view examples to Sort on Database Struct.
 pub enum SortFlags<'a> {
     #[doc(hidden)]
