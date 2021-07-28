@@ -6,10 +6,15 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-#[derive(Clone, Debug)]
+/// An abstraction used by Database and represents the different types of data that each key in the database can store.
+/// 
+#[derive(Clone, Debug)] 
 pub enum StorageValue {
+    #[doc(hidden)]
     String(String),
+    #[doc(hidden)]
     List(Vec<String>),
+    #[doc(hidden)]
     Set(HashSet<String>),
 }
 
@@ -80,22 +85,37 @@ impl Display for StorageValue {
     }
 }
 
+/// Abstraction that represents the possible flags that the sort command from Database can receive.
+/// 
+/// For usage, view examples to Sort on Database Struct.
 pub enum SortFlags<'a> {
+    #[doc(hidden)]
     WithoutFlags,
+    #[doc(hidden)]
     Alpha,
+    #[doc(hidden)]
     Desc,
+    #[doc(hidden)]
     Limit(i32, i32),
+    #[doc(hidden)]
     By(&'a str),
+    #[doc(hidden)]
     CompositeFlags(Vec<SortFlags<'a>>),
 }
 
+/// Structure created in order to standardize the different ways of returning a result from the Database, when executing a command
 #[derive(Debug, PartialEq)]
 pub enum SuccessQuery {
+    #[doc(hidden)]
     Success,
     Boolean(bool),
+    #[doc(hidden)]
     Integer(i32),
+    #[doc(hidden)]
     String(String),
+    #[doc(hidden)]
     List(Vec<SuccessQuery>),
+    #[doc(hidden)]
     Nil,
 }
 
@@ -126,16 +146,27 @@ impl<'a> fmt::Display for SuccessQuery {
     }
 }
 
+/// Structure created to encapsulate the different types of errors that the commands executed by Database can return.
+#[doc(hidden)]
 #[derive(Debug, PartialEq)]
 pub enum DataBaseError {
+    #[doc(hidden)]
     NotAString,
+    #[doc(hidden)]
     NonExistentKey,
+    #[doc(hidden)]
     NotAnInteger,
+    #[doc(hidden)]
     KeyAlredyExist,
+    #[doc(hidden)]
     NotASet,
+    #[doc(hidden)]
     NotAList,
+    #[doc(hidden)]
     IndexOutOfRange,
+    #[doc(hidden)]
     SortParseError,
+    #[doc(hidden)]
     SortByParseError,
 }
 
@@ -159,21 +190,34 @@ impl fmt::Display for DataBaseError {
     }
 }
 
+/// Structure created to be able to manage from Database ttl_supervisor_run the different use cases of ttl command in the database keys.
+/// the structure also communicates to solve some commands of the group keys like Expire, Persist, Rename.
 pub enum MessageTtl {
+    #[doc(hidden)]
     Expire(KeyTtl),
+    #[doc(hidden)]
     Clear(String),
+    #[doc(hidden)]
     Transfer(String, String),
+    #[doc(hidden)]
     Ttl(String, Sender<RespondTtl>),
+    #[doc(hidden)]
     Check(String),
+    #[doc(hidden)]
     AllTtL(Sender<RespondTtl>),
 }
 
+/// Structure created together with MessageTtl to resolve the ttl command and the serialization of the database.
 pub enum RespondTtl {
+    #[doc(hidden)]
     Ttl(SystemTime),
+    #[doc(hidden)]
     Persistent,
+    #[doc(hidden)]
     List(Arc<Mutex<Vec<KeyTtl>>>),
 }
 
+/// Structure created as support for the solution of the Expire command, for the creation of a key with expiration time.
 #[derive(Eq, Clone, Debug)]
 pub struct KeyTtl {
     pub key: String,
@@ -181,6 +225,7 @@ pub struct KeyTtl {
 }
 
 impl KeyTtl {
+    /// Function to create a key with time to live asociated.
     pub fn new(key: &str, expire_time: SystemTime) -> KeyTtl {
         KeyTtl {
             key: key.to_string(),
