@@ -29,7 +29,8 @@ fn handle_connection(mut stream: TcpStream) {
         let post = b"POST / HTTP/1.1\r\n";
         let (status_line, filename) = if buffer.starts_with(post) {
             let command = get_command(request);
-            let response = handle_redis_connection(redis_stream, command);
+            let response = handle_redis_connection(&redis_stream, command);
+        
             ("HTTP/1.1 200 OK\r\n\r\n", "src/home.html")
         } else {
             ("HTTP/1.1 404 NOT FOUND\r\n\r\n", "src/home.html")
@@ -49,10 +50,10 @@ fn get_command(request: &str) -> String {
     command
 }
 
-fn handle_redis_connection(mut stream: TcpStream, command: String) -> String{
-    redis_stream.write(command.as_bytes()).unwrap();
+fn handle_redis_connection(mut stream: &TcpStream, command: String) -> String{
+    stream.write(command.as_bytes()).unwrap();
     let mut buffer_respond = [0; 1024];
-    let bytes_read = redis_stream.read(&mut buffer_respond).unwrap();
+    let bytes_read = stream.read(&mut buffer_respond).unwrap();
     let response = std::str::from_utf8(&buffer_respond[..bytes_read]).unwrap();
     response.to_string()
 }
