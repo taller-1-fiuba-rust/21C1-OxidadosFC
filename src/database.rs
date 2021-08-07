@@ -15,14 +15,26 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+#[doc(hidden)]
 type TtlVector = Arc<Mutex<Vec<KeyTtl>>>;
 
+/// A Database implemented in a multithreading context.
+///
+/// Database uses Arc and Mutex to be shared safety in a multithreading context
+/// implementing clone.
+/// It also supervises the keys's time to live and save its own data every 30
+/// seconds.
+///
 pub struct Database {
+    #[doc(hidden)]
     dictionary: HashShard,
+    #[doc(hidden)]
     ttl_msg_sender: Sender<MessageTtl>,
+    #[doc(hidden)]
     db_dump_path: String,
 }
 
+#[doc(hidden)]
 fn open_serializer(path: &str) -> Result<File, String> {
     match OpenOptions::new()
         .read(true)
@@ -35,6 +47,7 @@ fn open_serializer(path: &str) -> Result<File, String> {
     }
 }
 
+#[doc(hidden)]
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
@@ -44,6 +57,15 @@ where
 }
 
 impl Database {
+    /// Creates a new Database.
+    ///
+    /// If there's somenthing in path_to_dump.txt loads all the data there and run the
+    /// ttl_supervisor, wich supervises the time to live for every key.
+    /// # Examples
+    /// Basic Usage:
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// ```
     pub fn new(db_dump_path: String) -> Database {
         let (ttl_msg_sender, ttl_rec) = mpsc::channel();
 
@@ -103,6 +125,7 @@ impl Database {
         database
     }
 
+    #[doc(hidden)]
     pub fn new_from_db(
         ttl_msg_sender: Sender<MessageTtl>,
         dictionary: HashShard,
@@ -115,6 +138,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn run_serializer(&self) {
         let path = self.db_dump_path.clone();
         let dic = self.dictionary.clone();
@@ -163,6 +187,7 @@ impl Database {
         });
     }
 
+    #[doc(hidden)]
     pub fn ttl_supervisor_run(&mut self, reciver: Receiver<MessageTtl>) {
         let mut dictionary = self.dictionary.clone();
 
@@ -253,17 +278,67 @@ impl Database {
         });
     }
 
+    // KEYS
+
+    /// Delete all the keys of the currently selected DB. This command never fails.
+    ///
+    /// Reply: SuccessQuery:Success
+    ///
+    /// # Examples
+    /// ```
+    /// let mut db = Database("path_to_dump.txt");
+    ///
+    /// db.mset(vec!["KEY1", "VALUE1", "KEY2", "VALUE2"]).unwrap();
+    /// let r = db.get("KEY1").unwrap();
+    /// assert_eq!(r, SuccessQuery::String("VALUE1"));
+    /// let r = db.get("KEY2").unwrap();
+    /// assert_eq!(r, SuccessQuery::String("VALUE2"));
+    ///
+    /// let r = db.flushdb().unwrap();
+    /// assert_eq!(r, SuccessQuery::Success);
+    ///
+    /// let guard = db.dictionary;
+    /// assert!(guard.len() == 0);
+    /// ```
     pub fn flushdb(&mut self) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.clear();
         Ok(SuccessQuery::Success)
     }
 
+    /// Return the number of keys in the currently-selected database. This command never fails.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is the number of keys in currently database.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut db = Database("path_to_dump.txt");
+    /// let _ = db.set(KEY1, VALUE1);
+    /// let r = db.get(KEY1).unwrap();
+    /// assert_eq!(r, SuccessQuery::String(VALUE1.to_owned()));
+    ///
+    /// let r = db.dbsize().unwrap();
+    /// assert_eq!(r, SuccessQuery::Integer(1));
+    /// ```
     pub fn dbsize(&self) -> Result<SuccessQuery, DataBaseError> {
         Ok(SuccessQuery::Integer(self.dictionary.len() as i32))
     }
 
-    // KEYS
-
+    /// This command copies the value stored at the source key to the destination key.
+    ///
+    /// The command returns an error when the destination key already exists.
+    ///
+    /// Reply: SuccessQuery:Success if copies sucessful. Database error in wrong case.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    ///
+    /// database.set("KEY", "VALUE").unwrap();
+    /// database.set("SECOND_KEY", "SECOND_VALUE").unwrap();
+    /// let result = database.copy("KEY", "SECOND_KEY");
+    ///
+    /// assert_eq!(result.unwrap_err(), DataBaseError::KeyAlredyExist);
+    /// ```
     pub fn copy(&mut self, key: &str, to_key: &str) -> Result<SuccessQuery, DataBaseError> {
         if self._exists(to_key) {
             return Err(DataBaseError::KeyAlredyExist);
@@ -286,11 +361,20 @@ impl Database {
         }
     }
 
+    /// Removes the specified keys. A key is ignored if it does not exist.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n=1 if were removed or n=0 if were not removed.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn del(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.remove(key);
         Ok(SuccessQuery::Success)
     }
 
+    #[doc(hidden)]
     fn _exists(&self, key: &str) -> bool {
         let contains_key = self.dictionary.contains_key(key);
         let expire_time_passed = match self.get_expire_time(key) {
@@ -301,11 +385,56 @@ impl Database {
         !expire_time_passed && contains_key
     }
 
+    /// Returns if key exists.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the key exists.
+    ///
+    /// n=0 if the key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// let result = database.exists("KEY").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Boolean(true));
+    /// ```
     pub fn exists(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         self.dictionary.touch(key);
         Ok(SuccessQuery::Boolean(self._exists(key)))
     }
 
+    /// Set a timeout on key. After the timeout has expired, the key will automatically be deleted.
+    /// A key with an associated timeout is often said to be volatile in Redis terminology.
+    ///
+    /// The timeout will only be cleared by commands that delete or overwrite the contents of the key, including DEL, SET, GETSET and
+    /// all the *STORE commands.
+    ///
+    /// This means that all the operations that conceptually alter the value stored at the key without replacing it with a new one will leave the timeout untouched.
+    /// For instance, incrementing the value of a key with INCR, pushing a new value into a list with LPUSH,
+    /// or altering the field value of a hash with HSET are all operations that will leave the timeout untouched.
+    ///
+    ///
+    /// The timeout can also be cleared, turning the key back into a persistent key, using the PERSIST command.
+    ///
+    /// If a key is renamed with RENAME, the associated time to live is transferred to the new key name.
+    ///
+    /// If a key is overwritten by RENAME, like in the case of an existing key Key_A that is overwritten by a call like RENAME Key_B Key_A,
+    /// it does not matter if the original Key_A had a timeout associated or not,
+    /// the new key Key_A will inherit all the characteristics of Key_B.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was set.
+    ///
+    /// n=0 if key does not exist.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn expire(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
@@ -326,6 +455,21 @@ impl Database {
         Ok(SuccessQuery::Boolean(true))
     }
 
+    /// EXPIREAT has the same effect and semantic as EXPIRE, but instead of specifying the number of seconds representing the TTL (time to live),
+    /// it takes an absolute Unix timestamp (seconds since January 1, 1970).
+    ///
+    /// A timestamp in the past will delete the key immediately.
+    /// Please for the specific semantics of the command refer to the documentation of EXPIRE.
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was set.
+    ///
+    /// n=0 if key does not exist.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn expireat(&mut self, key: &str, seconds: i64) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
@@ -347,6 +491,54 @@ impl Database {
         Ok(SuccessQuery::Boolean(true))
     }
 
+    /// Returns all keys matching pattern.
+    ///
+    /// This command is intended for debugging and special operations, such as changing your keyspace layout.
+    ///
+    /// Supported glob-style patterns:
+    ///
+    /// h?llo matches hello, hallo and hxllo
+    ///
+    /// h*llo matches hllo and heeeello
+    ///
+    /// h{ae}llo matches hello and hallo, but not hillo
+    ///
+    /// h{^e}llo matches hallo, hbllo, ... but not hello
+    ///
+    /// h{a-b}llo matches hallo and hbllo
+    ///
+    /// list of keys matching pattern.
+    ///
+    /// Reply: SuccessQuery:List(list) where list is an array of keys matching pattern.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("firstname", "alex").unwrap();
+    /// database.set("lastname", "arbieto").unwrap();
+    /// database.set("age", "22").unwrap();
+    ///
+    /// if let Ok(SuccessQuery::List(list)) = database.keys("????name") {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///
+    ///     assert!(list.contains("lastname"));
+    /// }
+    /// ```
+    /// other example with * pattern:
+    ///
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");;
+    /// database.set("firstname", "alex").unwrap();
+    /// database.set("lastname", "arbieto").unwrap();
+    /// database.set("age", "22").unwrap();
+    ///
+    /// if let Ok(SuccessQuery::List(list)) = database.keys("*name") {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///
+    ///     assert!(list.contains("firstname"));
+    ///     assert!(list.contains("lastname"));
+    /// }
+    /// ```
     pub fn keys(&mut self, pattern: &str) -> Result<SuccessQuery, DataBaseError> {
         let keys = self.dictionary.keys();
         let list: Vec<SuccessQuery> = keys
@@ -358,7 +550,18 @@ impl Database {
         Ok(SuccessQuery::List(list))
     }
 
-    //persist
+    /// Remove the existing timeout on key, turning the key from volatile (a key with an expire set)
+    /// to persistent (a key that will never expire as no timeout is associated).
+    ///
+    /// Reply: SuccessQuery:Integer(n) where n is specified by:
+    ///
+    /// n=1 if the timeout was removed.
+    ///
+    /// n=0 if key does not exist or does not have an associated timeout.
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn persist(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Err(DataBaseError::NonExistentKey);
@@ -372,6 +575,26 @@ impl Database {
         Ok(SuccessQuery::Boolean(true))
     }
 
+    /// Renames key to newkey.
+    ///
+    /// It returns an error when key does not exist.
+    ///
+    /// If newkey already exists it is overwritten, when this happens RENAME executes an implicit DEL operation,
+    /// so if the deleted key contains a very big value it may cause high latency even if RENAME itself is usually a constant-time operation.
+    ///
+    /// Reply: SuccessQuery::Success if success result or DatabaseError::NonExistentKey if key does not exists.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// let result = database.rename("KEY", "SECOND_KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Success);
+    ///
+    /// let result = database.get("KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Nil);
+    /// ```
     pub fn rename(&mut self, old_key: &str, new_key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(old_key) {
             return Err(DataBaseError::NonExistentKey);
@@ -391,6 +614,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn sort_by(
         &mut self,
         to_order: &mut Vec<String>,
@@ -439,6 +663,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn limit(
         to_order: &mut Vec<String>,
         pos_begin: &mut i32,
@@ -460,6 +685,7 @@ impl Database {
         to_order.to_vec()
     }
 
+    #[doc(hidden)]
     pub fn sort_limit(
         to_order: &mut Vec<String>,
         pos_begin: &mut i32,
@@ -469,11 +695,13 @@ impl Database {
         Database::sort_without_flags(&mut to_build)
     }
 
+    #[doc(hidden)]
     pub fn desc(to_order: &mut Vec<String>) -> Vec<String> {
         to_order.reverse();
         to_order.to_vec()
     }
 
+    #[doc(hidden)]
     pub fn sort_desc(to_order: &mut Vec<String>) -> Result<Vec<String>, DataBaseError> {
         let mut parse_error = false;
         let mut to_order: Vec<_> = to_order
@@ -494,6 +722,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn sort_without_flags(to_order: &mut Vec<String>) -> Result<Vec<String>, DataBaseError> {
         let mut parse_error = false;
         let mut to_order: Vec<_> = to_order
@@ -514,6 +743,7 @@ impl Database {
         Ok(to_build)
     }
 
+    #[doc(hidden)]
     pub fn build_sort_vector(
         to_build: Vec<String>,
         pos_begin: &i32,
@@ -526,6 +756,7 @@ impl Database {
         Ok(result_list)
     }
 
+    #[doc(hidden)]
     pub fn _sort(
         &mut self,
         to_order: &mut Vec<String>,
@@ -601,7 +832,6 @@ impl Database {
                     if let SortFlags::Limit(l_pos_begin, l_num_elems) = flag {
                         pos_begin = l_pos_begin;
                         num_elems = l_num_elems;
-                        println!("{} {}", pos_begin, num_elems);
                         to_order = Database::limit(&mut to_order, &mut pos_begin, &mut num_elems);
                     }
                 }
@@ -610,7 +840,74 @@ impl Database {
         }
     }
 
-    //sort
+    /// # Sort in simplest Form
+    ///
+    /// Returns or stores the elements contained in the list or set at key. By default,
+    /// sorting is numeric and elements are compared by their value interpreted as double precision floating point number.
+    ///
+    /// `database.sort("key", SortingFlags::WithoutFlags)`
+    ///
+    /// # Sort with Params
+    ///
+    /// Assuming key is a list of numbers, this command will return the same list with the elements sorted from small to large.
+    ///
+    /// In order to sort the numbers from large to small to large. use the DESC modifier:
+    ///
+    /// `database.sort("key", SortFlags::Desc)`
+    ///
+    /// When mylist contains string values and you want to sort them lexicographically, use the ALPHA modifier:
+    ///
+    /// `database.sort("key", SortFlags::Alpha)`
+    ///
+    /// The number of returned elements can be limited using the LIMIT modifier.
+    ///
+    /// This modifier takes the offset argument, specifying the number of elements to skip and the count argument,
+    /// specifying the number of elements to return from starting at offset.
+    ///
+    /// The following example will return 10 elements of the sorted version of mylist, starting at element 0 (offset is zero-based):
+    ///
+    /// `database.sort("key", SortFlags::Limit(0, 10))`
+    ///
+    /// Almost all modifiers can be used together.
+    /// The following example will return the first 5 elements, lexicographically sorted in descending order:
+    ///
+    /// `database.sort("key", SortFlags::CompositeFlags(![SortFlags::Limit(0,5), SortingFlags::Alpha, SortingFlags::Desc]))`
+    ///
+    /// # Sorting By External Keys
+    ///
+    /// Sometimes you want to sort elements using external keys as weights to compare instead of comparing the actual elements in the list,
+    /// set or sorted set.
+    ///
+    /// Let's say the list mylist contains the elements 1, 2 and 3 representing unique IDs of objects stored in object_1, object_2 and object_3.
+    /// When these objects have associated weights stored in weight_1, weight_2 and weight_3,
+    /// SORT can be instructed to use these weights to sort mylist with the following statement:
+    ///
+    /// `database.sort("key", SortingFlags::By("weight_*"))`
+    ///
+    /// The BY option takes a pattern (equal to weight_* in this example) that is used to generate the keys that are used for sorting.
+    ///
+    /// These key names are obtained substituting the first occurrence of * with the actual value of the element in the list (1, 2 and 3 in this example).
+    ///
+    /// Reply: without passing the store option the command returns a SuccessQuery::List(list) where list is an array of sorted elements.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    /// database
+    ///     .lpush("LIST", ["3", "1", "2"].to_vec())
+    ///     .unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.sort("LIST", SortFlags::WithoutFlags).unwrap()
+    /// {
+    ///     let list_result: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let to_compare_list: Vec<&str> = vec!["1", "2", "3"];
+    ///     let pair_list: Vec<(&String, &str)> =
+    ///         list_result.iter().zip(to_compare_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     });
+    /// }
+    /// ```
     pub fn sort(
         &mut self,
         key: &str,
@@ -638,7 +935,25 @@ impl Database {
         }
     }
 
-    //touch
+    /// Update the key's last access value
+    ///
+    /// Indicates in the log file the last previous access or the time since that previous access.
+    ///
+    /// Check if the key expiration condition (TTL) was met and if so, perform the deletion
+    ///
+    /// Reply: SuccessQuery::Integer(n) where n is specified by .
+    ///
+    /// n=1 if the key was be touched.
+    ///
+    /// n=0 if key does not be touch.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database("path_to_dump.txt");
+    ///
+    ///
+    ///
+    /// ```
     pub fn touch(&mut self, key: &str) -> Option<u64> {
         self.ttl_msg_sender
             .send(MessageTtl::Check(key.to_string()))
@@ -648,13 +963,13 @@ impl Database {
                 self.ttl_msg_sender
                     .send(MessageTtl::Check(key.to_string()))
                     .unwrap();
-
                 Some(t)
             }
             None => None,
         }
     }
 
+    #[doc(hidden)]
     fn get_expire_time(&self, key: &str) -> RespondTtl {
         let (respond_sender, respond_reciver) = channel();
 
@@ -665,7 +980,22 @@ impl Database {
         respond_reciver.recv().unwrap()
     }
 
-    //ttl
+    /// Returns the remaining time to live of a key that has a timeout.
+    /// This introspection capability allows a Redis client to check how many seconds a given key will continue to be part of the dataset.
+    ///
+    /// Reply: TTL in seconds, or a negative value in order to signal an error (see the description above).
+    /// SuccessQuery::Integer(n) where n is the time to live of the key.
+    ///
+    /// SuccessQuery::Integer(n) when n is negative if an error ocurred according to:
+    ///
+    /// -2 if the key does not exist.
+    ///
+    /// -1 if the key exists but has no associated expire.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn ttl(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Integer(-2));
@@ -681,8 +1011,15 @@ impl Database {
         }
     }
 
-    //type
-
+    /// Returns the string representation of the type of the value stored at key.
+    /// The different types that can be returned are: string, list, set.
+    ///
+    /// Reply: SuccessQuery::String(s) where s is type of key or none when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn get_type(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::String("none".to_owned()));
@@ -701,6 +1038,19 @@ impl Database {
 
     //STRINGS
 
+    /// This command appends the value at the end of the string, if key already exists and is a string.
+    /// If key does not exist it is created and set as an empty string, so APPEND will be similar to SET in this special case.
+    ///
+    /// Returns: SuccessQuery of the length of the string after the append operation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    /// if let SuccessQuery::Integer(lenght) = database.append("key", "value").unwrap() {
+    ///     assert_eq!(lenght, 5);
+    /// }
+    /// ```
     pub fn append(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if self._exists(key) {
             let dictionary = self.dictionary.get_atomic_hash(key);
@@ -721,6 +1071,21 @@ impl Database {
         }
     }
 
+    /// Decrements the number stored at key by decrement.
+    /// If the key does not exist, it is set to 0 before performing the operation.
+    /// An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer.
+    /// This operation is limited to 64 bit signed integers.
+    ///
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    /// let database = create_database();
+    ///
+    /// database.set(KEY, "5").unwrap();
+    /// let result = database.decrby(KEY, 4).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// ```
     pub fn decrby(&mut self, key: &str, decr: i32) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             self.dictionary
@@ -745,6 +1110,20 @@ impl Database {
         }
     }
 
+    /// Get the value of key.
+    /// If the key does not exist the special value nil is returned.
+    /// An error is returned if the value stored at key is not a string, because GET only handles string values.
+    ///
+    /// Returns value: SuccessQuery::String with the value of key, or DataBaseError::NonExistentKey when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// let db = Database::new("dump_path.txt");
+    /// db.set("KEY", "VALUE").unwrap();
+    /// if let SuccessQuery::String(value) = database.get("KEY").unwrap() {
+    ///         assert_eq!("VALUE", value.to_string());
+    /// }
+    /// ```
     pub fn get(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Nil);
@@ -760,6 +1139,25 @@ impl Database {
         }
     }
 
+    /// Get the value of key and delete the key.
+    /// This command is similar to GET, except for the fact that it also deletes the key on success
+    /// (if and only if the key's value type is a string).
+    ///
+    /// Returns value: the value of key, nil when key does not exist, or an error if the key's value type isn't a string.
+    ///
+    /// # Examples
+    /// ```
+    /// let database = Database::new("path_to_dump.txt");
+    /// database.set("KEY", "VALUE").unwrap();
+    /// let database = create_database_with_string();
+    ///
+    /// if let SuccessQuery::String(value) = database.getdel("KEY").unwrap() {
+    ///     assert_eq!(value.to_string(), "VALUE");
+    /// }
+    ///
+    /// let result = database.get("KEY").unwrap_err();
+    /// assert_eq!(result, DataBaseError::NonExistentKey);
+    /// ```
     pub fn getdel(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         self.ttl_msg_sender
             .send(MessageTtl::Clear(key.to_owned()))
@@ -774,6 +1172,11 @@ impl Database {
         }
     }
 
+    /// Atomically sets key to value and returns the old value stored at key.
+    /// Returns an error when key exists but does not hold a string value.
+    /// Any previous time to live associated with the key is discarded on successful SET operation.
+    ///
+    /// Returns value: the old value stored at key, or nil when key did not exist.
     pub fn getset(&mut self, key: &str, new_val: &str) -> Result<SuccessQuery, DataBaseError> {
         let old_value = match self.get(key) {
             Ok(SuccessQuery::String(old_value)) => old_value,
@@ -790,10 +1193,46 @@ impl Database {
         Ok(SuccessQuery::String(old_value))
     }
 
+    /// Increments the number stored at key by increment.
+    /// If the key does not exist, it is set to 0 before performing the operation.
+    /// An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer.
+    /// This operation is limited to 64 bit signed integers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// database.set(KEY, "1").unwrap();
+    ///
+    /// let result = database.incrby(KEY, 4).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(5));
+    ///
+    /// ```
     pub fn incrby(&mut self, key: &str, incr: i32) -> Result<SuccessQuery, DataBaseError> {
         self.decrby(key, -incr)
     }
 
+    /// Returns the values of all specified keys.
+    /// For every key that does not hold a string value or does not exist, the special value nil is returned.
+    /// Because of this, the operation never fails.
+    /// Returns: list of SuccessQuery::String values at the specified keys.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.set("KEY_A", "VALUE_A").unwrap();
+    /// database.set("KEY_B", "VALUE_B").unwrap();
+    ///
+    /// let vec_keys = vec!["KEY_A", "KEY_B", "KEY_C", "KEY_D"];
+    ///
+    /// if let SuccessQuery::List(list) = database.mget(vec_keys).unwrap() {
+    ///     assert_eq!(list[0], SuccessQuery::String("VALUE_A"));
+    ///     assert_eq!(list[1], SuccessQuery::String("VALUE_B"));
+    ///     assert_eq!(list[2], SuccessQuery::Nil);
+    ///     assert_eq!(list[3], SuccessQuery::Nil);
+    /// }
+    /// ```
     pub fn mget(&mut self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut list: Vec<SuccessQuery> = Vec::new();
 
@@ -812,6 +1251,29 @@ impl Database {
         Ok(SuccessQuery::List(list))
     }
 
+    /// Sets the given keys to their respective values. MSET replaces existing values with new values, just as regular SET.
+    ///
+    /// Reply: always OK since MSET can't fail.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// let vec_key_value = vec![
+    ///     "KEY_A", "VALUE_A", "KEY_B", "VALUE_B", "KEY_C", "VALUE_C", "KEY_D", "VALUE_D",
+    /// ];
+    ///
+    /// let result = database.mset(vec_key_value).unwrap();
+    /// assert_eq!(result, SuccessQuery::Success);
+    ///
+    /// let result_get1 = database.get("KEY_A").unwrap();
+    /// let result_get2 = database.get("KEY_B").unwrap();
+    /// let result_get3 = database.get("KEY_C").unwrap();
+    ///
+    /// assert_eq!(result_get1, SuccessQuery::String("VALUE_A"));
+    /// assert_eq!(result_get2, SuccessQuery::String("VALUE_B"));
+    /// assert_eq!(result_get3, SuccessQuery::String("VALUE_C"));
+    /// ```
     pub fn mset(&mut self, params: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         for i in (0..params.len()).step_by(2) {
             let key = params.get(i).unwrap();
@@ -822,6 +1284,23 @@ impl Database {
         Ok(SuccessQuery::Success)
     }
 
+    /// Set key to hold the string value.
+    /// If key already holds a value, it is overwritten, regardless of its type.
+    /// Any previous time to live associated with the key is discarded on successful SET operation.
+    ///
+    /// Reply: OK. SET was always executed correctly.
+    ///
+    /// # Example
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// let result = database.set("KEY","VALUE").unwrap();
+    /// assert_eq!(SuccessQuery::Success, result);
+    ///
+    /// if let SuccessQuery::String(value) = database.get("KEY").unwrap() {
+    ///     assert_eq!("VALUE", value);
+    /// }
+    /// ```
     pub fn set(&mut self, key: &str, val: &str) -> Result<SuccessQuery, DataBaseError> {
         self.ttl_msg_sender
             .send(MessageTtl::Clear(key.to_owned()))
@@ -833,6 +1312,20 @@ impl Database {
         Ok(SuccessQuery::Success)
     }
 
+    /// Returns the length of the string value stored at key.
+    /// An error is returned when key holds a non-string value.
+    ///
+    /// Reply: SuccessQuery::Integer with the length of the string at key, or 0 when key does not exist.
+    /// # Examples
+    /// ```
+    /// let database = Database::new("dump_path.txt");
+    ///
+    /// database.set("KEY", "VALUE").unwrap();
+    ///
+    /// if let SuccessQuery::Integer(value) = database.strlen("KEY").unwrap() {
+    ///     assert_eq!(value, 5);
+    /// }
+    /// ```
     pub fn strlen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         match self.get(key) {
             Ok(SuccessQuery::String(val)) => Ok(SuccessQuery::Integer(val.len() as i32)),
@@ -842,11 +1335,27 @@ impl Database {
 
     // Lists
 
+    /// Returns the element at index in the list stored at key.
+    /// The index is zero-based, so 0 means the first element, 1 the second element and so on.
+    /// Negative indices can be used to designate elements starting at the tail of the list.
+    /// Here, -1 means the last element, -2 means the penultimate and so forth.
+    /// When the value at key is not a list, an error is returned.
+    ///
+    /// Reply: SuccessQuery::String(val) when val is the requested element, or SuccessQuery::Nil when index is out of range.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// database.lpush("KEY", ["VALUE"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::String(value) = database.lindex("KEY", 0).unwrap() {
+    ///     assert_eq!(value, "VALUE");
+    /// }
+    /// ```
     pub fn lindex(&mut self, key: &str, index: i32) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Nil);
         }
-
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
@@ -870,11 +1379,25 @@ impl Database {
         }
     }
 
+    /// Returns the length of the list stored at key.
+    /// If key does not exist, it is interpreted as an empty list and 0 is returned.
+    /// An error is returned when the value stored at key is not a list.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list at key.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// let database = database.lpush("KEY", ["VALUE_A","VALUE_B", "VALUE_C"].to_vec()).unwrap();
+    ///
+    /// let result = database.llen("KEY").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(3));
+    /// ```
     pub fn llen(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Integer(0));
         }
-
         let dictionary = self.dictionary.get_atomic_hash(key);
         let mut dictionary = dictionary.lock().unwrap();
         match dictionary.get_mut(key) {
@@ -887,6 +1410,25 @@ impl Database {
         }
     }
 
+    /// Removes and returns the first elements of the list stored at key.
+    /// By default, the command pops a single element from the beginning of the list.
+    /// When provided with the optional count argument, the reply will consist of up to count elements, depending on the list's length.
+    ///
+    /// Reply: SuccessQuery::String(s) when s is the the value of the first element, or SuccessQuery::Nil when key does not exist.
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    ///
+    /// let database = database.rpush("KEY", "VALUE_A").unwrap();
+    /// let database = database.rpush("KEY", "VALUE_B").unwrap();
+    ///
+    /// if let SuccessQuery::String(val) = database.lpop("KEY").unwrap() {
+    ///     assert_eq!(val.to_string(), "VALUE_A".to_string());
+    /// }
+    ///
+    /// let result = database.llen("KEY").unwrap();
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// ```
     pub fn lpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Nil);
@@ -908,6 +1450,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     fn lpush_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             let list: Vec<String> = vec![value.to_owned()];
@@ -929,6 +1472,35 @@ impl Database {
         }
     }
 
+    /// Insert all the specified values at the head of the list stored at key.
+    /// If key does not exist, it is created as empty list before performing the push operations.
+    /// When key holds a value that is not a list, an error is returned.
+    ///
+    /// It is possible to push multiple elements using a single command call just specifying multiple arguments at the end of the command.
+    /// Elements are inserted one after the other to the head of the list, from the leftmost element to the rightmost element.
+    /// So for instance the command LPUSH mylist a b c will result into a list containing c as first element, b as second element and a as third element.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list after the push operations.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA"].to_vec()).unwrap();
+    ///
+    /// let result = database.lpush("KEY", ["VALUEB"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(2));
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list.len(), 2);
+    ///     assert_eq!(list[1], "VALUEA");
+    ///     assert_eq!(list[0], "VALUEB");
+    /// }
+    /// ```
     pub fn lpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut result = self.lpush_one(key, values[0]);
         for item in values.iter().skip(1) {
@@ -938,6 +1510,34 @@ impl Database {
         result
     }
 
+    /// Inserts specified value/s at the head of the list stored at key, only if key already exists and holds a list.
+    /// In contrary to LPUSH, no operation will be performed when key does not yet exist.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the the length of the list after the push operation.
+    ///
+    /// n=0 if key not hold a list and not push data.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpushx("KEY", ["VALUEA"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(0));
+    /// ```
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA"].to_vec()).unwrap();
+    /// database.lpushx("KEY", ["VALUEB"].to_vec()).unwrap();
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list.len(), 2);
+    ///     assert_eq!(list[1], "VALUEA");
+    ///     assert_eq!(list[0], "VALUEB");
+    /// }
+    /// ```
     pub fn lpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Integer(0));
@@ -958,6 +1558,41 @@ impl Database {
         }
     }
 
+    /// Returns the specified elements of the list stored at key.
+    /// The offsets start and stop are zero-based indexes, with 0 being the first element of the list (the head of the list),
+    /// 1 being the next element and so on.
+    ///
+    /// These offsets can also be negative numbers indicating offsets starting at the end of the list.
+    /// For example, -1 is the last element of the list, -2 the penultimate, and so on.
+    ///
+    /// Reply: SuccessQuery::List(list) when list is the list of elements in the specified range.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA","VALUEB", "VALUEC","VALUED"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.lrange("KEY", 0, 2).unwrap() {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let second_list: Vec<&str> = vec!["VALUED", "VALUEC", "VALUEB"];
+    ///     let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     })
+    /// }
+    /// ```
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA","VALUEB", "VALUEC","VALUED"].to_vec()).unwrap();
+    /// if let SuccessQuery::List(list) = database.lrange("KEY", 0, -1).unwrap() {
+    ///     let list: Vec<String> = list.iter().map(|x| x.to_string()).collect();
+    ///     let second_list: Vec<&str> = vec!["VALUED", "VALUEC", "VALUEB", "VALUEA"];
+    ///     let pair_list: Vec<(&String, &str)> = list.iter().zip(second_list).collect();
+    ///     pair_list.iter().for_each(|x| {
+    ///         assert_eq!(x.0, x.1);
+    ///     })
+    /// }
+    /// ```
     pub fn lrange(&mut self, key: &str, ini: i32, end: i32) -> Result<SuccessQuery, DataBaseError> {
         let mut sub_list: Vec<SuccessQuery> = Vec::new();
         if !self._exists(key) {
@@ -995,6 +1630,39 @@ impl Database {
         }
     }
 
+    /// Removes the first count occurrences of elements equal to element from the list stored at key.
+    /// The count argument influences the operation in the following ways:
+    ///
+    /// count > 0: Remove elements equal to element moving from head to tail.
+    ///
+    /// count < 0: Remove elements equal to element moving from tail to head.
+    ///
+    /// count = 0: Remove all elements equal to element.
+    ///
+    /// For example, LREM list -2 "hello" will remove the last two occurrences of "hello" in the list stored at list.
+    ///
+    /// Note that non-existing keys are treated like empty lists, so when key does not exist, the command will always return 0.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of removed elements.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush("KEY", ["VALUEA", "VALUEA", "VALUEC", "VALUEA"].to_vec()).unwrap();
+    ///
+    /// let result = database.lrem("KEY", 2, "VALUEA");
+    ///
+    /// assert_eq!(SuccessQuery::Integer(2), result.unwrap());
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let Some(StorageValue::List(list)) = dictionary.get("KEY") {
+    ///     assert_eq!(list[0], "VALUEC");
+    ///     assert_eq!(list[1], "VALUEA");
+    /// }
+    /// ```
     pub fn lrem(
         &mut self,
         key: &str,
@@ -1050,6 +1718,28 @@ impl Database {
         }
     }
 
+    /// Sets the list element at index to element. For more information on the index argument, see lindex.
+    ///
+    /// An error is returned for out of range indexes.
+    ///
+    /// Reply: SuccessQuery::Success if set the list element correctly.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.lpush(KEY, ["VALUEA", "VALUEB", "VALUEC", "VALUED"].to_vec()).unwrap();
+    ///
+    /// let result = database.lset("KEY", 0, "VALUEA");
+    /// assert_eq!(SuccessQuery::Success, result.unwrap());
+    ///
+    /// let dictionary = database.dictionary;
+    /// let dictionary = dictionary.get_atomic_hash("KEY");
+    /// let dictionary = dictionary.lock().unwrap();
+    ///
+    /// if let StorageValue::List(list) = dictionary.get("KEY").unwrap() {
+    ///     assert_eq!(list[0], "VALUEA");
+    /// }
+    /// ```
     pub fn lset(
         &mut self,
         key: &str,
@@ -1079,6 +1769,15 @@ impl Database {
         }
     }
 
+    /// Removes and returns the last elements of the list stored at key.
+    /// By default, the command pops a single element from the end of the list.
+    ///
+    /// Reply: SuccessQuery::String(val) when val is the value of the last element, or SuccessQuery::Nil when key does not exist.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpop(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Nil);
@@ -1099,6 +1798,21 @@ impl Database {
         }
     }
 
+    /// Insert all the specified values at the tail of the list stored at key.
+    /// If key does not exist, it is created as empty list before performing the push operation.
+    /// When key holds a value that is not a list, an error is returned.
+    ///
+    /// It is possible to push multiple elements using a single command call just specifying multiple arguments at the end of the command.
+    /// Elements are inserted one after the other to the tail of the list, from the leftmost element to the rightmost element.
+    ///
+    /// So for instance the command RPUSH mylist a b c will result into a list containing a as first element, b as second element and c as third element.
+    ///
+    /// Reply: the length of the list after the push operation.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpush(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             let mut list: Vec<String> = Vec::new();
@@ -1126,6 +1840,15 @@ impl Database {
         }
     }
 
+    /// Inserts specified values at the tail of the list stored at key, only if key already exists and holds a list.
+    /// In contrary to RPUSH, no operation will be performed when key does not yet exist.
+    ///
+    /// Reply: SuccessQuery:Integer(n) when n is the length of the list after the push operation.
+    ///
+    /// # Examples
+    /// ```
+    /// todo
+    /// ```
     pub fn rpushx(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
@@ -1147,6 +1870,21 @@ impl Database {
 
     //SETS
 
+    /// Returns if member is a member of the set stored at key.
+    ///
+    /// Reply: SuccessQuery::Boolean(true) if the element is a member of the set.
+    ///
+    /// SuccessQuery::Boolean(false) if the element is not a member of the set, or if key does not exist.
+    ///
+    /// Error if key of database exists but not hold a Set.
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let result = database.sadd("key", ["element"].to_vec()).unwrap();
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// let is_member = database.sismember("key", "element").unwrap();
+    /// assert_eq!(is_member, SuccessQuery::Boolean(true));
+    /// ```
     pub fn sismember(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
@@ -1167,6 +1905,22 @@ impl Database {
         }
     }
 
+    /// Returns the set cardinality (number of elements) of the set stored at key.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the cardinality (number of elements) of the set,
+    /// or SuccessQuery::Boolean(false) if key does not exist.
+    ///
+    /// Error if key of database exists but not hold a Set.
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let elements = vec!["0", "1", "2", "3"];
+    ///
+    /// let _ = database.sadd("key", elements);
+    /// let len_set = database.scard("key").unwrap();
+    ///
+    /// assert_eq!(len_set, SuccessQuery::Integer(4));
+    /// ```
     pub fn scard(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             return Ok(SuccessQuery::Boolean(false));
@@ -1184,6 +1938,7 @@ impl Database {
         }
     }
 
+    #[doc(hidden)]
     pub fn sadd_one(&mut self, key: &str, value: &str) -> Result<SuccessQuery, DataBaseError> {
         if !self._exists(key) {
             let mut set: HashSet<String> = HashSet::new();
@@ -1209,6 +1964,23 @@ impl Database {
         }
     }
 
+    /// Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored.
+    /// If key does not exist, a new set is created before adding the specified members.
+    /// An error is returned when the value stored at key is not a set.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of elements that were added to the set,
+    /// not including all the elements already present in the set.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// let result = database.sadd("KEY", ["ELEMENT", "ELEMENT_2", "ELEMENT_3"].to_vec()).unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(2));
+    /// let len_set = database.scard("KEY").unwrap();
+    /// assert_eq!(len_set, SuccessQuery::Integer(3));
+    /// ```
     pub fn sadd(&mut self, key: &str, values: Vec<&str>) -> Result<SuccessQuery, DataBaseError> {
         let mut elems_added = 0;
         let mut result = self.sadd_one(key, values[0]);
@@ -1228,6 +2000,23 @@ impl Database {
         }
     }
 
+    /// Returns all the members of the set value stored at key.
+    ///
+    /// Reply: SuccessQuery::List(list) when list are all elements of the set.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// database.sadd("KEY", ["OTHER_ELEMENT"].to_vec()).unwrap();
+    ///
+    /// if let SuccessQuery::List(list) = database.smembers("KEY").unwrap() {
+    ///     for elem in list {
+    ///         let is_member = database.sismember("KEY", &elem.to_string()).unwrap();
+    ///         assert_eq!(is_member, SuccessQuery::Boolean(true));
+    ///     }
+    /// }
+    /// ```
     pub fn smembers(&mut self, key: &str) -> Result<SuccessQuery, DataBaseError> {
         let mut result: Vec<SuccessQuery> = Vec::new();
         if !self._exists(key) {
@@ -1249,6 +2038,26 @@ impl Database {
         }
     }
 
+    /// Remove the specified members from the set stored at key.
+    /// Specified members that are not a member of this set are ignored.
+    ///
+    /// If key does not exist, it is treated as an empty set and this command returns 0.
+    /// An error is returned when the value stored at key is not a set.
+    ///
+    /// Reply: SuccessQuery::Integer(n) when n is the number of members that were removed from the set, not including non existing members.
+    ///
+    /// # Example
+    /// ```
+    /// let mut database = Database::new("dump_path.txt");
+    /// let members = vec!["ELEMENT"];
+    ///
+    /// database.sadd("KEY", ["ELEMENT"].to_vec()).unwrap();
+    /// let result = database.srem("KEY", members).unwrap();
+    /// let is_member = database.sismember("KEY", "ELEMENT").unwrap();
+    ///
+    /// assert_eq!(result, SuccessQuery::Integer(1));
+    /// assert_eq!(is_member, SuccessQuery::Boolean(false));
+    /// ```
     pub fn srem(
         &mut self,
         key: &str,
@@ -1276,6 +2085,7 @@ impl Database {
         }
     }
 }
+
 impl<'a> Clone for Database {
     fn clone(&self) -> Self {
         Database::new_from_db(
@@ -1286,6 +2096,7 @@ impl<'a> Clone for Database {
     }
 }
 
+#[doc(hidden)]
 fn executor(mut dictionary: HashShard, ttl_vector: TtlVector) {
     loop {
         thread::sleep(Duration::new(30, 0));
@@ -1753,6 +2564,17 @@ mod group_string {
 
             assert_eq!(result, SuccessQuery::Integer(5));
         }
+
+        #[test]
+        fn test_incrby_returns_error_if_the_value_of_key_not_hold_parseable_value_to_number() {
+            let mut database = create_database();
+
+            database.set(KEY, "1a").unwrap();
+
+            let result = database.incrby(KEY, 4).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotAnInteger);
+        }
     }
 
     mod decrby_test {
@@ -1766,6 +2588,16 @@ mod group_string {
             let result = database.decrby(KEY, 4).unwrap();
 
             assert_eq!(result, SuccessQuery::Integer(1));
+        }
+
+        #[test]
+        fn test_decrby_returns_error_if_the_value_of_key_not_hold_parseable_value_to_number() {
+            let mut database = create_database();
+
+            database.set(KEY, "5a").unwrap();
+            let result = database.decrby(KEY, 4).unwrap_err();
+
+            assert_eq!(result, DataBaseError::NotAnInteger);
         }
     }
 
@@ -2195,7 +3027,7 @@ mod group_keys {
         fn test_sort_list_without_flags_return_sorted_list_with_numbers_ascending() {
             let mut database = create_database();
             database
-                .lpush(LIST, [VALUE_1, VALUE_2, VALUE_3].to_vec())
+                .lpush(LIST, [VALUE_3, VALUE_1, VALUE_2].to_vec())
                 .unwrap();
 
             if let SuccessQuery::List(list) = database.sort(LIST, SortFlags::WithoutFlags).unwrap()
@@ -2503,10 +3335,9 @@ mod group_list {
     fn database_with_a_list() -> Database {
         let mut database = create_database();
 
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEB].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
-        database.lpush(KEY, [VALUED].to_vec()).unwrap();
+        database
+            .lpush(KEY, [VALUEA, VALUEB, VALUEC, VALUED].to_vec())
+            .unwrap();
 
         database
     }
@@ -2514,10 +3345,9 @@ mod group_list {
     fn database_with_a_three_repeated_values() -> Database {
         let mut database = create_database();
 
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEC].to_vec()).unwrap();
-        database.lpush(KEY, [VALUEA].to_vec()).unwrap();
+        database
+            .lpush(KEY, [VALUEA, VALUEA, VALUEC, VALUEA].to_vec())
+            .unwrap();
 
         database
     }

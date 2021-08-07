@@ -12,6 +12,7 @@ mod server_conf;
 use server::Server;
 use std::env;
 
+#[doc(hidden)]
 fn get_path() -> Result<String, String> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -21,6 +22,7 @@ fn get_path() -> Result<String, String> {
     Ok(args.get(1).unwrap().to_string())
 }
 
+#[doc(hidden)]
 fn main() {
     let config_path = get_path().unwrap();
     let server = Server::new(&config_path).unwrap();
