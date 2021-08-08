@@ -125,7 +125,7 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
     let c: Vec<&str> = command.split_whitespace().collect();
     if let Some(command_name) = c.get(0) {
         if !COMMANDS_ALOWED.contains(command_name) {
-            return build_non_existent_command_response();
+            return build_non_existent_command_response(command);
         }
     }
     stream.write_all(command.as_bytes()).unwrap();
@@ -133,10 +133,11 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
     secure_read(&stream)
 }
 
-fn build_non_existent_command_response() -> String {
+fn build_non_existent_command_response(command: &str) -> String {
     format!(
-        "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
-        COMMANDS_ALOWED.join(", ")
+        // "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
+        // COMMANDS_ALOWED.join(", ")
+        "Error: Non existent Request On: {}", command
     )
 }
 
