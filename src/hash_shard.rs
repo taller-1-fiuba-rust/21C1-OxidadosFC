@@ -67,7 +67,7 @@ impl HashShard {
     /// assert_eq!(r, time_passed);
     /// ```
     pub fn touch(&mut self, key: &str) -> Option<u64> {
-        let atomic_hash = self.get_atomic_hash(&key);
+        let atomic_hash = self.get_atomic_hash(key);
         let mut atomic_hash = atomic_hash.lock().unwrap();
         match atomic_hash.get_mut(key) {
             Some((_, l)) => {

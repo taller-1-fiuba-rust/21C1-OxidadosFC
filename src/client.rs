@@ -143,7 +143,7 @@ impl Client {
         }
 
         for subs in self.subscriptions.iter() {
-            channels.unsubscribe(&subs, self.id);
+            channels.unsubscribe(subs, self.id);
         }
     }
 
