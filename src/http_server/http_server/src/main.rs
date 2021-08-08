@@ -36,6 +36,9 @@ fn handle_connection(
 
     let request = std::str::from_utf8(&buffer[..bytes_read]).unwrap();
 
+    let css_contents = fs::read_to_string("src/css/style.css").unwrap();
+    let css = build_css(css_contents);
+
     let (status_line, contents) = if buffer.starts_with(b"POST / HTTP/1.1\r\n") {
         let command = get_command(request);
         let response = handle_redis_connection(&redis_stream, &command);
@@ -47,11 +50,12 @@ fn handle_connection(
         let contents = fs::read_to_string("src/index.html").unwrap();
         let answer = build_answer(&records_guard);
         let contents = contents.replace(r#"<div id="answer"></div>"#, &answer);
+        let contents = contents.replace(r#"<style type="text/css"></style>"#, &css);
 
         ("HTTP/1.1 201 OK\r\n\r\n", contents)
     } else {
         let contents = fs::read_to_string("src/index.html").unwrap();
-
+        let contents = contents.replace(r#"<style type="text/css"></style>"#, &css);
         ("HTTP/1.1 200 OK\r\n\r\n", contents)
     };
 
@@ -99,4 +103,12 @@ fn build_answer(records: &[(String, String)]) -> String {
     list_elements.insert(0, "</div>".to_string());
 
     list_elements.join("")
+}
+
+fn build_css(css_contents: String) -> String {
+    let mut head = String::from(r#"<style type="text/css">"#);
+    head.push_str(&css_contents);
+    head.push_str("</style>");
+
+    head
 }
