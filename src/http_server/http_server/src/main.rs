@@ -62,16 +62,25 @@ fn get_command(request: &str) -> String {
     let request: Vec<&str> = request.split_whitespace().collect();
     let body_pos = request.iter().position(|x| x.contains("to")).unwrap();
     let body = request[body_pos];
-    let command = body[3..].replace('+', " ");
-    command
+    body[3..].replace('+', " ")
 }
 
-fn handle_redis_connection(mut stream: &TcpStream, command: &String) -> String {
-    stream.write(command.as_bytes()).unwrap();
+fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
+    stream.write_all(command.as_bytes()).unwrap();
+    stream.flush().unwrap();
+    secure_read(&stream)
+}
+
+fn secure_read(mut stream: &TcpStream) -> String {
     let mut buffer_respond = [0; 1024];
-    let bytes_read = stream.read(&mut buffer_respond).unwrap();
-    let response = std::str::from_utf8(&buffer_respond[..bytes_read]).unwrap();
-    response.to_string()
+    let mut response = String::new();
+    while !response.ends_with('\n') {
+        let bytes_read = stream.read(&mut buffer_respond).unwrap();
+        let r = std::str::from_utf8(&buffer_respond[..bytes_read]).unwrap();
+        response.push_str(r);
+    }
+
+    response
 }
 
 fn build_answer(records: &Vec<(String, String)>) -> String {
