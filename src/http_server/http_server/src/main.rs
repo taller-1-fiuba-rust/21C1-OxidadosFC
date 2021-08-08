@@ -5,6 +5,55 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+const COMMANDS_ALOWED: [&str; 40] = [
+    // server (monitor, config, info not alowed)
+    "flushdb",
+    "dbsize",
+    // keys
+    "copy",
+    "del",
+    "exists",
+    "expire",
+    "expireat",
+    "keys",
+    "persist",
+    "rename",
+    "sort",
+    "touch",
+    "ttl",
+    "type",
+    // strings
+    "append",
+    "decrby",
+    "get",
+    "getdel",
+    "getset",
+    "incrby",
+    "mget",
+    "mset",
+    "set",
+    "strlen",
+    // lists
+    "lindex",
+    "llen",
+    "lpop",
+    "lpush",
+    "lpushx",
+    "lrange",
+    "lrem",
+    "lset",
+    "rpop",
+    "rpush",
+    "rpushx",
+    // sets
+    "sadd",
+    "scard",
+    "sismember",
+    "smembers",
+    "srem",
+    // pubsub commands not alowed
+];
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
     let redis_stream = TcpStream::connect("127.0.0.1:8888").unwrap();
@@ -69,9 +118,22 @@ fn get_command(request: &str) -> String {
 }
 
 fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
+    let c: Vec<&str> = command.split_whitespace().collect();
+    if let Some(command_name) = c.get(0) {
+        if !COMMANDS_ALOWED.contains(command_name) {
+            return build_non_existent_command_response();
+        }
+    }
     stream.write_all(command.as_bytes()).unwrap();
     stream.flush().unwrap();
     secure_read(&stream)
+}
+
+fn build_non_existent_command_response() -> String {
+    format!(
+        "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
+        COMMANDS_ALOWED.join(", ")
+    )
 }
 
 fn secure_read(mut stream: &TcpStream) -> String {
