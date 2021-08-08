@@ -85,6 +85,9 @@ fn handle_connection(
 
     let request = std::str::from_utf8(&buffer[..bytes_read]).unwrap();
 
+    let css_contents = fs::read_to_string("src/css/style.css").unwrap();
+    let css = build_css(css_contents);
+
     let (status_line, contents) = if buffer.starts_with(b"POST / HTTP/1.1\r\n") {
         let command = get_command(request);
         let response = handle_redis_connection(&redis_stream, &command);
@@ -96,11 +99,12 @@ fn handle_connection(
         let contents = fs::read_to_string("src/index.html").unwrap();
         let answer = build_answer(&records_guard);
         let contents = contents.replace(r#"<div id="answer"></div>"#, &answer);
+        let contents = contents.replace(r#"<style type="text/css"></style>"#, &css);
 
         ("HTTP/1.1 201 OK\r\n\r\n", contents)
     } else {
         let contents = fs::read_to_string("src/index.html").unwrap();
-
+        let contents = contents.replace(r#"<style type="text/css"></style>"#, &css);
         ("HTTP/1.1 200 OK\r\n\r\n", contents)
     };
 
@@ -121,7 +125,7 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
     let c: Vec<&str> = command.split_whitespace().collect();
     if let Some(command_name) = c.get(0) {
         if !COMMANDS_ALOWED.contains(command_name) {
-            return build_non_existent_command_response();
+            return build_non_existent_command_response(command);
         }
     }
     stream.write_all(command.as_bytes()).unwrap();
@@ -129,10 +133,11 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
     secure_read(&stream)
 }
 
-fn build_non_existent_command_response() -> String {
+fn build_non_existent_command_response(command: &str) -> String {
     format!(
-        "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
-        COMMANDS_ALOWED.join(", ")
+        // "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
+        // COMMANDS_ALOWED.join(", ")
+        "Error: Non existent Request On: {}", command
     )
 }
 
@@ -161,4 +166,12 @@ fn build_answer(records: &[(String, String)]) -> String {
     list_elements.insert(0, "</div>".to_string());
 
     list_elements.join("")
+}
+
+fn build_css(css_contents: String) -> String {
+    let mut head = String::from(r#"<style type="text/css">"#);
+    head.push_str(&css_contents);
+    head.push_str("</style>");
+
+    head
 }

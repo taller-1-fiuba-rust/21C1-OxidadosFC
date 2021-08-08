@@ -717,7 +717,7 @@ impl Database {
         if parse_error {
             return Err(DataBaseError::SortParseError);
         }
-        to_order.sort_by(|a, b| b.cmp(&a));
+        to_order.sort_by(|a, b| b.cmp(a));
         let to_build: Vec<String> = to_order.iter().map(|x| x.to_string()).collect();
         Ok(to_build)
     }
@@ -1056,7 +1056,7 @@ impl Database {
             let dictionary = self.dictionary.get_atomic_hash(key);
             let mut dictionary = dictionary.lock().unwrap();
             if let Some((StorageValue::String(val), last_access)) = dictionary.get_mut(key) {
-                val.push_str(&value);
+                val.push_str(value);
                 let len_result = val.len() as i32;
                 *last_access = SystemTime::now();
                 Ok(SuccessQuery::Integer(len_result))

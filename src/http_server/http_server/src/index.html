@@ -3,33 +3,14 @@
     <head>
       <meta charset="utf-8">
       <title>Redis</title>
-      <style>
-        form {
-          width: 420px;
-        }
-
-        div {
-          margin-bottom: 20px;
-        }
-
-        label {
-          display: inline-block;
-          width: 240px;
-          text-align: right;
-          padding-right: 10px;
-        }
-
-        button, input {
-          float: right;
-        }
-      </style>
+      <style type="text/css"></style>
     </head>
     <body>
       <form method="post" action="http://localhost:8080">
-        <div>
+        <div class="text">
           <label for="to">Redis Command</label>
           <input name="to" id="to" >
-          <button>Execute</button>
+          <button class="exec">Execute</button>
         </div>
       </form>
       <br>

@@ -9,7 +9,6 @@ use std::time::{Duration, SystemTime};
 
 /// Server is the one in charge of distribute and share the resources for
 /// each command executed.
-///
 pub struct Client {
     #[doc(hidden)]
     stream: TcpStream,
@@ -48,7 +47,6 @@ impl Client {
 
     /// Handles a client with all the resources that it needs and executes each command
     /// arrived from the stream untill it desconnectes for any reason.
-    ///
     pub fn handle_client(
         &mut self,
         mut database: Database,
@@ -145,7 +143,7 @@ impl Client {
         }
 
         for subs in self.subscriptions.iter() {
-            channels.unsubscribe(&subs, self.id);
+            channels.unsubscribe(subs, self.id);
         }
     }
 

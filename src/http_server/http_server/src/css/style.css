@@ -1,0 +1,40 @@
+form {
+  width: 420px;
+}
+
+body{
+  background-color: #FFFDDF;
+}
+
+.text{
+  display: inline-grid;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+label {
+  font-size: 20px;
+  width: 240px;
+  text-align: left;
+  margin: 10px 10px 10px 10px;
+}
+
+input {
+  margin: 10px;
+  height: 25px;
+  width: 240px;
+}
+
+.exec{
+  margin: 10px;
+  border-radius: 25px;
+  color: #FFFFFF;
+  background-color: #109DFA;
+  width: 100px;
+  height: 40px;
+}
+
+.exec:hover{
+  color: #FFFFFF;
+  background-color: #0055CC;
+}
