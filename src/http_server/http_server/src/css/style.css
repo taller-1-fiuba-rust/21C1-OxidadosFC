@@ -3,9 +3,30 @@ form {
 }
 
 #div1 {
-  overflow-y:auto;
+  overflow:auto;
   height:475px;
-  width:"100%";
+  background-color: #cbf5ff;
+  word-wrap: break-word;
+  border: 4px solid black;
+}
+
+div.nopad {
+  padding: 0px;
+}
+
+#div1 .response {
+  font-weight: bold;
+  color: #262626;
+}
+
+#div1 span.prompt {
+  font-weight: normal;
+  color: #595540;
+}
+
+#div1 .input {
+  font-weight: bold;
+  color: #595540;
 }
 
 body{

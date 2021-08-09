@@ -154,13 +154,14 @@ fn secure_read(mut stream: &TcpStream) -> String {
 }
 
 fn build_answer(records: &[(String, String)]) -> String {
+    let input = r#"class="input""#;
+    let response = r#"class="response""#;
+    let prompt = r#"class="prompt""#;
+    let nopad = r#"class="nopad""#;
     let mut list_elements: Vec<String> = records
         .iter()
-        .map(|(req, res)| format!("<li>Request: {} Reponse: {}</li>", req, res))
+        .map(|(req, res)| format!("<div {}><div {}><span {}>></span>{}</div></div><div {}><div {}><span {}></span>{}</div></div>", input, nopad, prompt, req, response, nopad, prompt, res))
         .collect();
-
-    list_elements.insert(0, "<ol>".to_string());
-    list_elements.push("</ol>".to_string());
 
     list_elements.insert(0, "</div>".to_string());
     list_elements.insert(0, r#"<div id="answer">"#.to_string());
