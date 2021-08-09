@@ -137,9 +137,7 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
 }
 
 fn build_non_existent_command_response(command: &str) -> String {
-    format!(
-        "Error: Non existent Request On: {}", command
-    )
+    format!("Error: Non existent Request On: {}", command)
 }
 
 fn secure_read(mut stream: &TcpStream) -> String {
@@ -161,7 +159,7 @@ fn build_answer(records: &[(String, String)]) -> String {
     let nopad = r#"class="nopad""#;
     let mut list_elements: Vec<String> = records
         .iter()
-        .map(|(req, res)| format!("<div {}><div {}><span {}>></span>{}</div></div><div {}><div {}><span {}></span>{}</div></div>", input, nopad, prompt, req, response, nopad, prompt, res))
+        .map(|(req, res)| format!("<div {}><div {}><span {}>> </span>{}</div></div><div {}><div {}><span {}></span>{}</div></div>", input, nopad, prompt, req, response, nopad, prompt, res))
         .collect();
 
     list_elements.insert(0, "</div>".to_string());
