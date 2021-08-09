@@ -4,6 +4,14 @@
       <meta charset="utf-8">
       <title>Redis</title>
       <style type="text/css"></style>
+      <script>
+        window.setInterval(function() {
+          var objDiv = document.getElementById("div1");
+          if (objDiv != null) {
+            objDiv.scrollTop = objDiv.scrollHeight;
+          }
+        }, 1);
+      </script>
     </head>
     <body>
       <div id="div1">
