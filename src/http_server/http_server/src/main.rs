@@ -127,7 +127,10 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
         if !COMMANDS_ALOWED.contains(command_name) {
             return build_non_existent_command_response(command);
         }
+    } else {
+        return build_non_existent_command_response(command);
     }
+
     stream.write_all(command.as_bytes()).unwrap();
     stream.flush().unwrap();
     secure_read(&stream)
@@ -135,8 +138,6 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
 
 fn build_non_existent_command_response(command: &str) -> String {
     format!(
-        // "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
-        // COMMANDS_ALOWED.join(", ")
         "Error: Non existent Request On: {}", command
     )
 }
