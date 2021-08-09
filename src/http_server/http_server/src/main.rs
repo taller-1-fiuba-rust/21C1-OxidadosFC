@@ -162,8 +162,8 @@ fn build_answer(records: &[(String, String)]) -> String {
     list_elements.insert(0, "<ol>".to_string());
     list_elements.push("</ol>".to_string());
 
-    list_elements.insert(0, r#"<div id="answer">"#.to_string());
     list_elements.insert(0, "</div>".to_string());
+    list_elements.insert(0, r#"<div id="answer">"#.to_string());
 
     list_elements.join("")
 }
