@@ -127,7 +127,10 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
         if !COMMANDS_ALOWED.contains(command_name) {
             return build_non_existent_command_response(command);
         }
+    } else {
+        return build_non_existent_command_response(command);
     }
+
     stream.write_all(command.as_bytes()).unwrap();
     stream.flush().unwrap();
     secure_read(&stream)
@@ -135,8 +138,6 @@ fn handle_redis_connection(mut stream: &TcpStream, command: &str) -> String {
 
 fn build_non_existent_command_response(command: &str) -> String {
     format!(
-        // "Error: I'm sorry, I don't recognize that command. Please insert one of these commands: {}", 
-        // COMMANDS_ALOWED.join(", ")
         "Error: Non existent Request On: {}", command
     )
 }
@@ -154,16 +155,17 @@ fn secure_read(mut stream: &TcpStream) -> String {
 }
 
 fn build_answer(records: &[(String, String)]) -> String {
+    let input = r#"class="input""#;
+    let response = r#"class="response""#;
+    let prompt = r#"class="prompt""#;
+    let nopad = r#"class="nopad""#;
     let mut list_elements: Vec<String> = records
         .iter()
-        .map(|(req, res)| format!("<li>Request: {} Reponse: {}</li>", req, res))
+        .map(|(req, res)| format!("<div {}><div {}><span {}>></span>{}</div></div><div {}><div {}><span {}></span>{}</div></div>", input, nopad, prompt, req, response, nopad, prompt, res))
         .collect();
 
-    list_elements.insert(0, "<ol>".to_string());
-    list_elements.push("</ol>".to_string());
-
-    list_elements.insert(0, r#"<div id="answer">"#.to_string());
     list_elements.insert(0, "</div>".to_string());
+    list_elements.insert(0, r#"<div id="answer">"#.to_string());
 
     list_elements.join("")
 }
